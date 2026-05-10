@@ -280,7 +280,7 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 例如：
 
 ```text
-[aws] xjp-vpn
+[production] demo-web
 ```
 
 回到面板后，标题恢复为：
