@@ -12,12 +12,20 @@ import (
 	"github.com/YaMaiDay/sshm/internal/tui"
 )
 
+var version = "dev"
+
 func main() {
 	listOnly := flag.Bool("list", false, "列出解析到的服务器后退出")
 	probeHost := flag.String("probe", "", "采集指定服务器别名的监控信息后退出")
 	remoteDirsHost := flag.String("remote-dirs", "", "列出指定服务器别名的远程常用目录后退出")
 	configPath := flag.Bool("config-path", false, "显示应用配置文件路径后退出")
+	showVersion := flag.Bool("version", false, "显示版本号后退出")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {

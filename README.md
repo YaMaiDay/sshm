@@ -58,6 +58,12 @@ irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 sshm
 ```
 
+查看当前版本：
+
+```sh
+sshm --version
+```
+
 如果之前用过本地开发版 alias，当前终端可能还会指向旧路径。可以重新打开终端，或执行：
 
 ```sh
@@ -308,6 +314,7 @@ cd sshm
 go test ./...
 go run ./cmd/sshm
 go build -o sshm ./cmd/sshm
+go run ./cmd/sshm --version
 ```
 
 常用调试命令：
