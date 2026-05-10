@@ -1,0 +1,7 @@
+bin/
+dist/
+/sshm-ui
+/sshm
+*.log
+.DS_Store
+*.bak.*
