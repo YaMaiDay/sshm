@@ -63,10 +63,22 @@ macOS / Linux 一键安装：
 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | sh
 ```
 
-指定安装目录：
+Windows 一键安装（测试阶段）：
+
+```powershell
+irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
+```
+
+macOS / Linux 指定安装目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | SSHM_INSTALL_DIR="$HOME/.local/bin" sh
+```
+
+Windows 指定安装目录（测试阶段）：
+
+```powershell
+$env:SSHM_INSTALL_DIR="$HOME\bin"; irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 ```
 
 使用 Go 安装：
@@ -80,6 +92,19 @@ go install github.com/YaMaiDay/sshm/cmd/sshm@latest
 ```text
 https://github.com/YaMaiDay/sshm/releases
 ```
+
+## 📦 发布包
+
+每个版本都会提供多个平台的预编译包：
+
+| 平台 | 架构 | 下载文件 |
+| --- | --- | --- |
+| Linux | AMD64 | `sshm_v0.1.0_linux_amd64.tar.gz` |
+| Linux | ARM64 | `sshm_v0.1.0_linux_arm64.tar.gz` |
+| macOS | Intel | `sshm_v0.1.0_darwin_amd64.tar.gz` |
+| macOS | Apple Silicon | `sshm_v0.1.0_darwin_arm64.tar.gz` |
+| Windows | AMD64 | `sshm_v0.1.0_windows_amd64.zip` |
+| Windows | ARM64 | `sshm_v0.1.0_windows_arm64.zip` |
 
 ## 📦 依赖
 
