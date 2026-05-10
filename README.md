@@ -262,7 +262,7 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 
 ## 🖥️ 登录体验
 
-登录服务器时，`sshm` 会临时让出终端控制权，直接运行系统 `ssh` 或 `sshpass ssh`。
+登录服务器时，`sshm` 会临时让出终端控制权，直接运行系统 `ssh` 或 `sshpass ssh`，并强制分配交互式 TTY。
 
 这意味着进入服务器后：
 
@@ -271,7 +271,7 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 - `vim`、`top`、`htop`、`tmux` 等交互式程序按正常 SSH 方式运行
 - 退出远程服务器后会回到 `sshm` 面板
 
-登录期间，终端窗口 / 标签标题会显示当前服务器：
+登录期间，终端窗口 / 标签标题会显示当前服务器，并会持续维持这个标题，减少远程 shell 把标题改成 `user@host` 的情况：
 
 ```text
 [分类] 服务器名称
