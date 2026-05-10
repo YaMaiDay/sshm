@@ -92,6 +92,8 @@ go install github.com/YaMaiDay/sshm/cmd/sshm@latest
 https://github.com/YaMaiDay/sshm/releases
 ```
 
+Releases 页面会提供各平台二进制包和 `checksums.txt` 校验文件。
+
 </details>
 
 ## ⌨️ 快速开始

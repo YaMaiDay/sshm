@@ -79,8 +79,15 @@ jobs:
           path: dist
           merge-multiple: true
 
+      - name: Generate Checksums
+        run: |
+          cd dist
+          shasum -a 256 sshm_* > checksums.txt
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/sshm_*
+          files: |
+            dist/sshm_*
+            dist/checksums.txt
           generate_release_notes: true
