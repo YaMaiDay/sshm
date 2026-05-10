@@ -2,9 +2,7 @@ package config
 
 import (
 	"fmt"
-	"os"
 	"strings"
-	"time"
 
 	"github.com/YaMaiDay/sshm/internal/host"
 )
@@ -182,19 +180,4 @@ func sameHostNameInCategory(h host.Host, category, name string) bool {
 func sameHostIdentity(a, b host.Host) bool {
 	return strings.TrimSpace(a.Category) == strings.TrimSpace(b.Category) &&
 		strings.TrimSpace(a.Name) == strings.TrimSpace(b.Name)
-}
-
-func backupIfExists(path string) error {
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	backup := fmt.Sprintf("%s.bak.%s", path, time.Now().Format("20060102-150405"))
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(backup, data, 0600)
 }

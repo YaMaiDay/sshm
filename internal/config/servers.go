@@ -152,7 +152,6 @@ func SaveServerData(home string, categories []string, hosts []host.Host) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
-	_ = backupIfExists(path)
 	file := serversFile{
 		Categories: normalizeCategoryNames(categories),
 		Servers:    make([]serverEntry, 0, len(hosts)),
