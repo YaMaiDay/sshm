@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -398,14 +399,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if idx, ok := m.selectedRealIndex(); ok {
 				h := m.states[idx].Host
 				cmd, cleanup := actions.SSHCommand(h)
-				return m, tea.Sequence(setTerminalTitleCmd(hostTitle(h)), tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return m, tea.Exec(terminalTitleCommand{cmd: cmd, title: hostTitle(h)}, func(err error) tea.Msg {
 					cleanup()
 					setTerminalTitle(appTitle)
 					if err != nil {
 						return tea.Printf("登录退出：%v", err)
 					}
 					return tea.Printf("已返回监控面板")
-				}))
+				})
 			}
 		}
 	}
@@ -770,14 +771,14 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx, ok := m.selectedRealIndex(); ok {
 			h := m.states[idx].Host
 			cmd, cleanup := actions.SSHCommand(h)
-			return m, tea.Sequence(setTerminalTitleCmd(hostTitle(h)), tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return m, tea.Exec(terminalTitleCommand{cmd: cmd, title: hostTitle(h)}, func(err error) tea.Msg {
 				cleanup()
 				setTerminalTitle(appTitle)
 				if err != nil {
 					return tea.Printf("登录退出：%v", err)
 				}
 				return tea.Printf("已返回监控面板")
-			}))
+			})
 		}
 	}
 	return m, nil
@@ -2605,10 +2606,47 @@ func Run(hosts []host.Host, passwords config.PasswordStore) error {
 	return err
 }
 
-func setTerminalTitleCmd(title string) tea.Cmd {
-	return func() tea.Msg {
-		setTerminalTitle(title)
-		return nil
+type terminalTitleCommand struct {
+	cmd   *exec.Cmd
+	title string
+}
+
+func (c terminalTitleCommand) Run() error {
+	setTerminalTitle(c.title)
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(800 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				setTerminalTitle(c.title)
+			case <-done:
+				return
+			}
+		}
+	}()
+	err := c.cmd.Run()
+	close(done)
+	setTerminalTitle(appTitle)
+	return err
+}
+
+func (c terminalTitleCommand) SetStdin(r io.Reader) {
+	if c.cmd.Stdin == nil {
+		c.cmd.Stdin = r
+	}
+}
+
+func (c terminalTitleCommand) SetStdout(w io.Writer) {
+	if c.cmd.Stdout == nil {
+		c.cmd.Stdout = w
+	}
+}
+
+func (c terminalTitleCommand) SetStderr(w io.Writer) {
+	if c.cmd.Stderr == nil {
+		c.cmd.Stderr = w
 	}
 }
 

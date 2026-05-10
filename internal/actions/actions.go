@@ -14,7 +14,7 @@ type Cleanup func()
 func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 	cleanup := func() {}
 	args := sshArgs(h)
-	args = append(args, h.Target())
+	args = append(args, "-tt", h.Target())
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
 			file, err := tempPasswordFile(h.Password)
