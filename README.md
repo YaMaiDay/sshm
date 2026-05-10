@@ -21,7 +21,7 @@
   <a href="#-安装">安装</a> ·
   <a href="#-快速开始">快速开始</a> ·
   <a href="#-核心功能">功能</a> ·
-  <a href="#-发布包">下载</a> ·
+  <a href="https://github.com/YaMaiDay/sshm/releases">下载</a> ·
   <a href="#-安全边界">安全边界</a>
 </p>
 
@@ -121,17 +121,6 @@ sshm
 | 🔑 | 密码、密钥、跳板机 | ✅ 已支持 |
 | 🔄 | 从 OpenSSH 配置迁移 | ✅ 已支持 |
 | 🧪 | Windows 完整体验 | 🧪 实验性 |
-
-## 📦 发布包
-
-| 平台 | 架构 | 下载 |
-| --- | --- | --- |
-| Linux | AMD64 | [sshm_v0.1.0_linux_amd64.tar.gz](https://github.com/YaMaiDay/sshm/releases/download/v0.1.0/sshm_v0.1.0_linux_amd64.tar.gz) |
-| Linux | ARM64 | [sshm_v0.1.0_linux_arm64.tar.gz](https://github.com/YaMaiDay/sshm/releases/download/v0.1.0/sshm_v0.1.0_linux_arm64.tar.gz) |
-| macOS | Intel | [sshm_v0.1.0_darwin_amd64.tar.gz](https://github.com/YaMaiDay/sshm/releases/download/v0.1.0/sshm_v0.1.0_darwin_amd64.tar.gz) |
-| macOS | Apple Silicon | [sshm_v0.1.0_darwin_arm64.tar.gz](https://github.com/YaMaiDay/sshm/releases/download/v0.1.0/sshm_v0.1.0_darwin_arm64.tar.gz) |
-| Windows | AMD64 | [sshm_v0.1.0_windows_amd64.zip](https://github.com/YaMaiDay/sshm/releases/download/v0.1.0/sshm_v0.1.0_windows_amd64.zip) |
-| Windows | ARM64 | [sshm_v0.1.0_windows_arm64.zip](https://github.com/YaMaiDay/sshm/releases/download/v0.1.0/sshm_v0.1.0_windows_arm64.zip) |
 
 ## 📦 依赖
 
