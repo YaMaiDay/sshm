@@ -29,7 +29,7 @@
 
 ## ✨ 为什么用 sshm
 
-`sshm` 适合想一直待在终端里管理服务器的人。它不会接管远程 shell，登录时直接调用系统 `ssh`，所以远程 Tab 补全、vim、tmux、Ctrl+C 都保持原生体验。
+`sshm` 适合想一直待在终端里管理服务器的人。它不会内置远程 shell，登录时直接调用系统 `ssh`，并把真实终端交给 SSH 进程，所以远程 Tab 补全、vim、tmux、Ctrl+C、删除键都保持原生体验。
 
 | 你以前可能这样 | 现在可以这样 |
 | --- | --- |
@@ -131,6 +131,9 @@ sshm
 | 🐳 | Docker 容器数量和异常服务提示 | ✅ 已支持 |
 | 🔎 | 搜索、筛选、排序、手动刷新 | ✅ 已支持 |
 | 🔐 | 系统 `ssh` 登录 | ✅ 已支持 |
+| 🏷️ | 登录后终端标签显示 `[分类] 名称` | ✅ 已支持 |
+| ⌨️ | 原生终端交互，支持 Ctrl+C / 删除键 / Tab | ✅ 已支持 |
+| 🔕 | 自动隐藏 OpenSSH post-quantum 警告 | ✅ 已支持 |
 | 📁 | 双栏文件选择器 | ✅ 已支持 |
 | ⬆️⬇️ | 文件和目录上传/下载 | ✅ 已支持 |
 | 🔑 | 密码、密钥、跳板机 | ✅ 已支持 |
@@ -168,7 +171,6 @@ sudo apt install openssh-client sshpass
 | 程序本体 | `/usr/local/bin/sshm` 或自定义安装目录 | `%LOCALAPPDATA%\Programs\sshm\sshm.exe` 或自定义安装目录 |
 | 服务器配置 | `~/.config/sshm/servers.toml` | `%USERPROFILE%\.config\sshm\servers.toml` |
 | 应用配置 | `~/.config/sshm/config.toml` | `%APPDATA%\sshm\config.toml` |
-| 自动备份 | `~/.config/sshm/*.bak.*` | 配置文件同目录 |
 
 打开配置目录：
 
@@ -256,7 +258,44 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 ~/.ssh/passwords/<host>
 ```
 
-迁移后，添加、编辑、删除、登录、监控、上传和下载都以 `servers.toml` 为准。每次修改服务器配置前会自动备份。
+迁移后，添加、编辑、删除、登录、监控、上传和下载都以 `servers.toml` 为准。保存配置时会直接覆盖 `servers.toml`，不会自动生成 `.bak` 备份文件。
+
+## 🖥️ 登录体验
+
+登录服务器时，`sshm` 会临时让出终端控制权，直接运行系统 `ssh` 或 `sshpass ssh`。
+
+这意味着进入服务器后：
+
+- `Ctrl+C` 会中断远程命令
+- 删除键、方向键、Tab 补全按远程 shell 的规则工作
+- `vim`、`top`、`htop`、`tmux` 等交互式程序按正常 SSH 方式运行
+- 退出远程服务器后会回到 `sshm` 面板
+
+登录期间，终端窗口 / 标签标题会显示当前服务器：
+
+```text
+[分类] 服务器名称
+```
+
+例如：
+
+```text
+[aws] xjp-vpn
+```
+
+回到面板后，标题恢复为：
+
+```text
+sshm
+```
+
+如果本机 OpenSSH 支持 `WarnWeakCrypto`，`sshm` 会自动隐藏下面这类 post-quantum 提示：
+
+```text
+WARNING: connection is not using a post-quantum key exchange algorithm
+```
+
+连接失败、认证失败、网络错误等正常错误仍会显示。
 
 ## 📡 监控方式
 
