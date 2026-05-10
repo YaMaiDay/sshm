@@ -334,3 +334,13 @@ go run ./cmd/sshm --config-path
 ## 📄 执照
 
 Apache 2.0 — 请参阅 [LICENSE](LICENSE)。
+
+---
+
+<p align="center">
+  由 <a href="https://github.com/YaMaiDay">YaMaiDay</a> 用心制作 ❤️
+</p>
+
+<p align="center">
+  ⭐ 如果你觉得这个仓库有用，请给它点个星！ ⭐
+</p>
