@@ -1,0 +1,44 @@
+<svg width="1180" height="620" viewBox="0 0 1180 620" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1180" height="620" rx="28" fill="#0f121a"/>
+  <rect x="34" y="34" width="1112" height="552" rx="18" fill="#151923" stroke="#283241"/>
+  <text x="58" y="76" fill="#7dd3fc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700">sshm 服务器监控</text>
+  <text x="280" y="76" fill="#8b95a7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">搜索：demo  最后刷新：05:10:26</text>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+    <rect x="58" y="112" width="330" height="190" rx="12" fill="#111722" stroke="#38bdf8" stroke-width="2"/>
+    <text x="78" y="146" fill="#e5e7eb" font-size="21" font-weight="700">[production] demo-web</text>
+    <circle cx="358" cy="139" r="7" fill="#22c55e"/>
+    <text x="78" y="178" fill="#aab4c5" font-size="17">203.0.113.10  deploy:22</text>
+    <text x="78" y="213" fill="#e5e7eb" font-size="18">CPU  </text><text x="134" y="213" fill="#4ade80" font-size="18">████░░░░░░░░</text><text x="288" y="213" fill="#e5e7eb" font-size="18"> 32%</text>
+    <text x="78" y="245" fill="#e5e7eb" font-size="18">内存 </text><text x="134" y="245" fill="#4ade80" font-size="18">██████░░░░░░</text><text x="288" y="245" fill="#e5e7eb" font-size="18"> 48%</text>
+    <text x="78" y="277" fill="#e5e7eb" font-size="18">磁盘 </text><text x="134" y="277" fill="#facc15" font-size="18">███████░░░░░</text><text x="288" y="277" fill="#e5e7eb" font-size="18"> 58%</text>
+
+    <rect x="424" y="112" width="330" height="190" rx="12" fill="#111722" stroke="#283241" stroke-width="2"/>
+    <text x="444" y="146" fill="#e5e7eb" font-size="21" font-weight="700">[staging] demo-db</text>
+    <circle cx="724" cy="139" r="7" fill="#22c55e"/>
+    <text x="444" y="178" fill="#aab4c5" font-size="17">198.51.100.20  admin:22</text>
+    <text x="444" y="213" fill="#e5e7eb" font-size="18">CPU  </text><text x="500" y="213" fill="#4ade80" font-size="18">██░░░░░░░░░░</text><text x="654" y="213" fill="#e5e7eb" font-size="18"> 14%</text>
+    <text x="444" y="245" fill="#e5e7eb" font-size="18">内存 </text><text x="500" y="245" fill="#4ade80" font-size="18">████░░░░░░░░</text><text x="654" y="245" fill="#e5e7eb" font-size="18"> 36%</text>
+    <text x="444" y="277" fill="#e5e7eb" font-size="18">磁盘 </text><text x="500" y="277" fill="#4ade80" font-size="18">███░░░░░░░░░</text><text x="654" y="277" fill="#e5e7eb" font-size="18"> 22%</text>
+
+    <rect x="790" y="112" width="330" height="190" rx="12" fill="#111722" stroke="#283241" stroke-width="2"/>
+    <text x="810" y="146" fill="#e5e7eb" font-size="21" font-weight="700">[home] lab-node</text>
+    <circle cx="1090" cy="139" r="7" fill="#ef4444"/>
+    <text x="810" y="178" fill="#aab4c5" font-size="17">192.0.2.50  root:22</text>
+    <text x="810" y="213" fill="#e5e7eb" font-size="18">CPU  </text><text x="866" y="213" fill="#475569" font-size="18">░░░░░░░░░░░░</text><text x="1020" y="213" fill="#e5e7eb" font-size="18">  0%</text>
+    <text x="810" y="245" fill="#e5e7eb" font-size="18">内存 </text><text x="866" y="245" fill="#475569" font-size="18">░░░░░░░░░░░░</text><text x="1020" y="245" fill="#e5e7eb" font-size="18">  0%</text>
+    <text x="810" y="277" fill="#e5e7eb" font-size="18">磁盘 </text><text x="866" y="277" fill="#475569" font-size="18">░░░░░░░░░░░░</text><text x="1020" y="277" fill="#e5e7eb" font-size="18">  0%</text>
+
+    <rect x="58" y="336" width="510" height="164" rx="12" fill="#111722" stroke="#283241" stroke-width="2"/>
+    <text x="82" y="374" fill="#7dd3fc" font-size="21" font-weight="700">双栏传输</text>
+    <text x="82" y="414" fill="#e5e7eb" font-size="18">本地：~/Downloads/app.tar.gz</text>
+    <text x="82" y="448" fill="#e5e7eb" font-size="18">远程：/opt/deploy/</text>
+    <text x="82" y="482" fill="#4ade80" font-size="18">上传中：app.tar.gz  68%</text>
+
+    <rect x="612" y="336" width="508" height="164" rx="12" fill="#111722" stroke="#283241" stroke-width="2"/>
+    <text x="636" y="374" fill="#7dd3fc" font-size="21" font-weight="700">快捷操作</text>
+    <text x="636" y="414" fill="#e5e7eb" font-size="18">Enter 登录    Space 详情    a 添加</text>
+    <text x="636" y="448" fill="#e5e7eb" font-size="18">u 上传        d 下载        / 搜索</text>
+    <text x="636" y="482" fill="#8b95a7" font-size="18">q / Esc 返回或退出</text>
+  </g>
+</svg>
