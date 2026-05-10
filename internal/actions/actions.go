@@ -3,6 +3,7 @@ package actions
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/host"
@@ -21,11 +22,11 @@ func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
 				fullArgs := append([]string{"-f", file, "ssh", "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"}, args...)
-				return exec.Command("sshpass", fullArgs...), cleanup
+				return attachInteractiveTerminal(exec.Command("sshpass", fullArgs...), cleanup)
 			}
 		}
 	}
-	return exec.Command("ssh", args...), cleanup
+	return attachInteractiveTerminal(exec.Command("ssh", args...), cleanup)
 }
 
 func SCPUploadCommand(h host.Host, localPath, remoteDir string, recursive bool) (*exec.Cmd, Cleanup) {
@@ -85,6 +86,23 @@ func scpCommand(h host.Host, args []string) (*exec.Cmd, Cleanup) {
 		}
 	}
 	return exec.Command("scp", args...), cleanup
+}
+
+func attachInteractiveTerminal(cmd *exec.Cmd, cleanup Cleanup) (*exec.Cmd, Cleanup) {
+	if runtime.GOOS == "windows" {
+		return cmd, cleanup
+	}
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return cmd, cleanup
+	}
+	cmd.Stdin = tty
+	cmd.Stdout = tty
+	cmd.Stderr = tty
+	return cmd, func() {
+		_ = tty.Close()
+		cleanup()
+	}
 }
 
 func sshArgs(h host.Host) []string {
