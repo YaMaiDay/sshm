@@ -12,7 +12,7 @@
   <a href="https://github.com/YaMaiDay/sshm/releases"><img alt="Release" src="https://img.shields.io/github/v/release/YaMaiDay/sshm?style=flat-square"></a>
   <a href="https://github.com/YaMaiDay/sshm"><img alt="Go" src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
   <a href="#平台支持"><img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square"></a>
-  <a href="#许可证"><img alt="License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square"></a>
+  <a href="#-执照"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -333,4 +333,4 @@ go run ./cmd/sshm --config-path
 
 ## 📄 执照
 
-MIT — 请参阅 [LICENSE](LICENSE)。
+Apache 2.0 — 请参阅 [LICENSE](LICENSE)。
