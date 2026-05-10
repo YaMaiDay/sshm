@@ -155,6 +155,29 @@ Debian / Ubuntu：
 sudo apt install openssh-client sshpass
 ```
 
+## 🗂️ 文件位置
+
+一键安装只安装程序本体，服务器配置会保存在用户目录里。
+
+| 类型 | macOS / Linux | Windows |
+| --- | --- | --- |
+| 程序本体 | `/usr/local/bin/sshm` 或自定义安装目录 | `%LOCALAPPDATA%\Programs\sshm\sshm.exe` 或自定义安装目录 |
+| 服务器配置 | `~/.config/sshm/servers.toml` | `%USERPROFILE%\.config\sshm\servers.toml` |
+| 应用配置 | `~/.config/sshm/config.toml` | `%APPDATA%\sshm\config.toml` |
+| 自动备份 | `~/.config/sshm/*.bak.*` | 配置文件同目录 |
+
+打开配置目录：
+
+```sh
+open ~/.config/sshm
+```
+
+查看服务器配置：
+
+```sh
+cat ~/.config/sshm/servers.toml
+```
+
 ## ⚙️ 配置
 
 服务器数据保存在：
@@ -276,6 +299,13 @@ Windows 目前可编译运行，但本地路径选择和 `sshpass` 体验没有 
 
 ## 🛠️ 开发
 
+拉取源码：
+
+```sh
+git clone https://github.com/YaMaiDay/sshm.git
+cd sshm
+```
+
 ```sh
 go test ./...
 go run ./cmd/sshm
@@ -290,6 +320,26 @@ go run ./cmd/sshm --probe demo-web
 go run ./cmd/sshm --remote-dirs demo-web
 go run ./cmd/sshm --config-path
 ```
+
+<details>
+<summary>源码结构</summary>
+
+```text
+sshm/
+├── cmd/sshm/main.go              # CLI 入口
+├── internal/actions/             # SSH 登录、上传下载动作
+├── internal/config/              # 配置读取、迁移、服务器管理
+├── internal/fsselect/            # 本地/远程文件选择
+├── internal/host/                # 服务器数据结构
+├── internal/monitor/             # SSH 监控采集与指标解析
+├── internal/tui/                 # Bubble Tea TUI 界面
+├── assets/preview.svg            # README 预览图
+├── install.sh                    # macOS / Linux 安装脚本
+├── install.ps1                   # Windows 安装脚本
+└── README.md
+```
+
+</details>
 
 ## 🔒 安全边界
 
