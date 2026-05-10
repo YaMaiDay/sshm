@@ -271,7 +271,7 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 - `vim`、`top`、`htop`、`tmux` 等交互式程序按正常 SSH 方式运行
 - 退出远程服务器后会回到 `sshm` 面板
 
-登录期间，终端窗口 / 标签标题会显示当前服务器，并会持续维持这个标题，减少远程 shell 把标题改成 `user@host` 的情况：
+登录前，终端窗口 / 标签标题会设置为当前服务器：
 
 ```text
 [分类] 服务器名称
@@ -288,6 +288,8 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 ```text
 sshm
 ```
+
+部分远程 shell 可能会在登录后把标题改成 `user@host`，`sshm` 不会在登录期间反复写标题，以免影响远程 shell 的删除键、Ctrl+C 等交互体验。
 
 如果本机 OpenSSH 支持 `WarnWeakCrypto`，`sshm` 会自动隐藏下面这类 post-quantum 提示：
 

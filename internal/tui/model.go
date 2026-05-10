@@ -2613,21 +2613,7 @@ type terminalTitleCommand struct {
 
 func (c terminalTitleCommand) Run() error {
 	setTerminalTitle(c.title)
-	done := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(800 * time.Millisecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				setTerminalTitle(c.title)
-			case <-done:
-				return
-			}
-		}
-	}()
 	err := c.cmd.Run()
-	close(done)
 	setTerminalTitle(appTitle)
 	return err
 }
