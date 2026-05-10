@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/host"
+	"github.com/YaMaiDay/sshm/internal/sshconfig"
 )
 
 type Cleanup func()
@@ -20,11 +21,11 @@ func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
 				fullArgs := append([]string{"-f", file, "ssh", "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"}, args...)
-				return exec.Command("sshpass", fullArgs...), cleanup
+				return attachTerminal(exec.Command("sshpass", fullArgs...)), cleanup
 			}
 		}
 	}
-	return exec.Command("ssh", args...), cleanup
+	return attachTerminal(exec.Command("ssh", args...)), cleanup
 }
 
 func SCPUploadCommand(h host.Host, localPath, remoteDir string, recursive bool) (*exec.Cmd, Cleanup) {
@@ -86,8 +87,18 @@ func scpCommand(h host.Host, args []string) (*exec.Cmd, Cleanup) {
 	return exec.Command("scp", args...), cleanup
 }
 
+func attachTerminal(cmd *exec.Cmd) *exec.Cmd {
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd
+}
+
 func sshArgs(h host.Host) []string {
-	args := []string{"-o", "StrictHostKeyChecking=accept-new"}
+	args := []string{
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
+	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
 	if h.Port != "" {
 		args = append(args, "-p", h.Port)
 	}
@@ -101,7 +112,12 @@ func sshArgs(h host.Host) []string {
 }
 
 func scpArgs(h host.Host) []string {
-	args := []string{"-q", "-o", "StrictHostKeyChecking=accept-new", "-o", "LogLevel=ERROR"}
+	args := []string{
+		"-q",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "LogLevel=ERROR",
+	}
+	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
 	if h.Port != "" {
 		args = append(args, "-P", h.Port)
 	}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/host"
+	"github.com/YaMaiDay/sshm/internal/sshconfig"
 )
 
 type Item struct {
@@ -135,7 +136,12 @@ func parseRemoteItems(out string) []Item {
 }
 
 func runSSH(h host.Host, script string) (string, error) {
-	args := []string{"-o", "ConnectTimeout=3", "-o", "LogLevel=ERROR", "-o", "StrictHostKeyChecking=accept-new"}
+	args := []string{
+		"-o", "ConnectTimeout=3",
+		"-o", "LogLevel=ERROR",
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
+	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
 	if h.Port != "" {
 		args = append(args, "-p", h.Port)
 	}

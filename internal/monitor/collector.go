@@ -12,6 +12,7 @@ import (
 
 	"github.com/YaMaiDay/sshm/internal/config"
 	"github.com/YaMaiDay/sshm/internal/host"
+	"github.com/YaMaiDay/sshm/internal/sshconfig"
 )
 
 type Collector struct {
@@ -33,6 +34,7 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 		"-o", "LogLevel=ERROR",
 		"-o", "StrictHostKeyChecking=accept-new",
 	}
+	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
 	if h.Port != "" {
 		args = append(args, "-p", h.Port)
 	}

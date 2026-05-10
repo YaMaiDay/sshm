@@ -27,6 +27,8 @@ import (
 
 type viewMode int
 
+const appTitle = "sshm"
+
 const (
 	modeDashboard viewMode = iota
 	modeDetail
@@ -394,14 +396,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.collectAll(m.collectRound, true)
 		case "enter":
 			if idx, ok := m.selectedRealIndex(); ok {
-				cmd, cleanup := actions.SSHCommand(m.states[idx].Host)
-				return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				h := m.states[idx].Host
+				cmd, cleanup := actions.SSHCommand(h)
+				return m, tea.Sequence(setTerminalTitleCmd(hostTitle(h)), tea.ExecProcess(cmd, func(err error) tea.Msg {
 					cleanup()
+					setTerminalTitle(appTitle)
 					if err != nil {
 						return tea.Printf("登录退出：%v", err)
 					}
 					return tea.Printf("已返回监控面板")
-				})
+				}))
 			}
 		}
 	}
@@ -764,14 +768,16 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		if idx, ok := m.selectedRealIndex(); ok {
-			cmd, cleanup := actions.SSHCommand(m.states[idx].Host)
-			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+			h := m.states[idx].Host
+			cmd, cleanup := actions.SSHCommand(h)
+			return m, tea.Sequence(setTerminalTitleCmd(hostTitle(h)), tea.ExecProcess(cmd, func(err error) tea.Msg {
 				cleanup()
+				setTerminalTitle(appTitle)
 				if err != nil {
 					return tea.Printf("登录退出：%v", err)
 				}
 				return tea.Printf("已返回监控面板")
-			})
+			}))
 		}
 	}
 	return m, nil
@@ -2591,10 +2597,43 @@ var (
 )
 
 func Run(hosts []host.Host, passwords config.PasswordStore) error {
+	setTerminalTitle(appTitle)
 	model := New(hosts, passwords)
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	_, err := program.Run()
+	setTerminalTitle(appTitle)
 	return err
+}
+
+func setTerminalTitleCmd(title string) tea.Cmd {
+	return func() tea.Msg {
+		setTerminalTitle(title)
+		return nil
+	}
+}
+
+func setTerminalTitle(title string) {
+	_, _ = fmt.Fprintf(os.Stdout, "\033]0;%s\007", sanitizeTitle(title))
+}
+
+func hostTitle(h host.Host) string {
+	category := strings.TrimSpace(h.Category)
+	name := strings.TrimSpace(h.Name)
+	if category == "" {
+		return name
+	}
+	if name == "" {
+		return category
+	}
+	return fmt.Sprintf("[%s] %s", category, name)
+}
+
+func sanitizeTitle(title string) string {
+	title = strings.ReplaceAll(title, "\033", "")
+	title = strings.ReplaceAll(title, "\007", "")
+	title = strings.ReplaceAll(title, "\n", " ")
+	title = strings.ReplaceAll(title, "\r", " ")
+	return strings.TrimSpace(title)
 }
 
 func Fatal(message string, err error) {
