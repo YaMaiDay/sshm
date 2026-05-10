@@ -5,77 +5,69 @@
 <h1 align="center">sshm</h1>
 
 <p align="center">
-  全中文终端 SSH 服务器管理器：监控、登录、分类管理、上传下载，都在一个 TUI 里完成。
+  <strong>全中文终端 SSH 服务器管理器</strong>
+  <br>
+  监控、登录、分类管理、上传下载，都在一个 TUI 里完成。
 </p>
 
 <p align="center">
-  <a href="https://github.com/YaMaiDay/sshm/releases"><img alt="Release" src="https://img.shields.io/github/v/release/YaMaiDay/sshm?style=flat-square"></a>
-  <a href="https://github.com/YaMaiDay/sshm"><img alt="Go" src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go&logoColor=white"></a>
-  <a href="#平台支持"><img alt="Platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square"></a>
-  <a href="#-执照"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat-square"></a>
+  <a href="https://github.com/YaMaiDay/sshm/releases"><img alt="Release" src="https://img.shields.io/github/v/release/YaMaiDay/sshm?style=for-the-badge"></a>
+  <a href="https://github.com/YaMaiDay/sshm"><img alt="Go" src="https://img.shields.io/badge/Go-1.24-00ADD8?style=for-the-badge&logo=go&logoColor=white"></a>
+  <a href="#-平台支持"><img alt="Platform" src="https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-支持-2ea44f?style=for-the-badge"></a>
+  <a href="#-执照"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue?style=for-the-badge"></a>
 </p>
 
 <p align="center">
-  <a href="#-功能">功能</a> ·
   <a href="#-安装">安装</a> ·
   <a href="#-快速开始">快速开始</a> ·
-  <a href="#-配置">配置</a> ·
+  <a href="#-核心功能">功能</a> ·
+  <a href="#-发布包">下载</a> ·
   <a href="#-安全边界">安全边界</a>
 </p>
 
 ---
 
-## ✨ 为什么做 sshm
+## ✨ 为什么用 sshm
 
-管理多台服务器时，常见工作流会在终端标签页、SSH 配置、监控命令和 `scp` 命令之间来回切换。`sshm` 把这些高频操作收进一个中文终端界面里：
+`sshm` 适合想一直待在终端里管理服务器的人。它不会接管远程 shell，登录时直接调用系统 `ssh`，所以远程 Tab 补全、vim、tmux、Ctrl+C 都保持原生体验。
 
-| 传统方式 | 使用 sshm |
+| 你以前可能这样 | 现在可以这样 |
 | --- | --- |
-| 手动记服务器 IP、用户名、端口 | 在 TUI 里添加、编辑、删除服务器 |
-| 登录后执行 `top`、`df`、`free` | 主面板直接显示 CPU、内存、磁盘、负载 |
-| 手写 `scp -r local user@host:/path` | 双栏选择本地和远程路径后上传/下载 |
-| 编辑多个配置文件 | 统一写入 `~/.config/sshm/servers.toml` |
-
-`sshm` 不内置远程 shell。登录时直接调用系统 `ssh`，所以远程 Tab 补全、vim、tmux、Ctrl+C 都保持原生行为。
-
-## 🚀 功能
-
-| 能力 | 状态 |
-| --- | --- |
-| 🖥️ 全中文 TUI 监控面板 | ✅ 已支持 |
-| 🗂️ 服务器分类管理 | ✅ 已支持 |
-| ✏️ 添加、编辑、删除服务器 | ✅ 已支持 |
-| 📊 CPU / 内存 / 磁盘 / 负载 / 运行时间 | ✅ 已支持 |
-| 🐳 Docker 容器数量和异常服务提示 | ✅ 已支持 |
-| 🔎 搜索、筛选、排序、手动刷新 | ✅ 已支持 |
-| 🔐 系统 `ssh` 登录 | ✅ 已支持 |
-| 📁 双栏文件选择器 | ✅ 已支持 |
-| ⬆️⬇️ 文件和目录上传/下载 | ✅ 已支持 |
-| 🔑 密码、密钥、跳板机 | ✅ 已支持 |
-| 🔄 从 OpenSSH 配置迁移 | ✅ 已支持 |
-| 🧪 Windows 完整体验 | 🧪 实验性 |
+| 到处找服务器 IP、端口、用户名 | 在 TUI 里统一添加和分类 |
+| 登录后手动执行 `top`、`df`、`free` | 主面板直接看 CPU、内存、磁盘、负载 |
+| 手写复杂 `scp` 命令 | 双栏选择本地/远程路径后上传下载 |
+| 编辑多个 SSH 或密码文件 | 统一保存到 `~/.config/sshm/servers.toml` |
 
 ## ⚡ 安装
 
-macOS / Linux 一键安装：
+### macOS / Linux
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | sh
 ```
 
-Windows 一键安装（测试阶段）：
+### Windows PowerShell（测试阶段）
 
 ```powershell
 irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 ```
 
-macOS / Linux 指定安装目录：
+安装完成后运行：
+
+```sh
+sshm
+```
+
+<details>
+<summary>其他安装方式</summary>
+
+指定安装目录：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | SSHM_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
-Windows 指定安装目录（测试阶段）：
+Windows 指定安装目录：
 
 ```powershell
 $env:SSHM_INSTALL_DIR="$HOME\bin"; irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
@@ -87,17 +79,52 @@ $env:SSHM_INSTALL_DIR="$HOME\bin"; irm https://raw.githubusercontent.com/YaMaiDa
 go install github.com/YaMaiDay/sshm/cmd/sshm@latest
 ```
 
-也可以从 GitHub Releases 下载预编译二进制：
+手动下载：
 
 ```text
 https://github.com/YaMaiDay/sshm/releases
 ```
 
+</details>
+
+## ⌨️ 快速开始
+
+```sh
+sshm
+```
+
+第一次打开后，按 `a` 添加服务器。添加服务器时左边填写服务器信息，右边管理分类，`Tab` 切换左右区域，`Enter` 保存。
+
+```text
+导航    ↑↓←→
+登录    Enter        详情    Space
+管理    a 添加       e 编辑       x 删除
+传输    u 上传       d 下载
+视图    / 搜索       t 分类       o 在线       p 异常       s 排序
+刷新    r
+返回    q / Esc
+```
+
+## 🚀 核心功能
+
+|  | 功能 | 状态 |
+| --- | --- | --- |
+| 🖥️ | 全中文 TUI 监控面板 | ✅ 已支持 |
+| 🗂️ | 服务器分类管理 | ✅ 已支持 |
+| ✏️ | 添加、编辑、删除服务器 | ✅ 已支持 |
+| 📊 | CPU / 内存 / 磁盘 / 负载 / 运行时间 | ✅ 已支持 |
+| 🐳 | Docker 容器数量和异常服务提示 | ✅ 已支持 |
+| 🔎 | 搜索、筛选、排序、手动刷新 | ✅ 已支持 |
+| 🔐 | 系统 `ssh` 登录 | ✅ 已支持 |
+| 📁 | 双栏文件选择器 | ✅ 已支持 |
+| ⬆️⬇️ | 文件和目录上传/下载 | ✅ 已支持 |
+| 🔑 | 密码、密钥、跳板机 | ✅ 已支持 |
+| 🔄 | 从 OpenSSH 配置迁移 | ✅ 已支持 |
+| 🧪 | Windows 完整体验 | 🧪 实验性 |
+
 ## 📦 发布包
 
-每个版本都会提供多个平台的预编译包：
-
-| 平台 | 架构 | 下载文件 |
+| 平台 | 架构 | 下载 |
 | --- | --- | --- |
 | Linux | AMD64 | [sshm_v0.1.0_linux_amd64.tar.gz](https://github.com/YaMaiDay/sshm/releases/download/v0.1.0/sshm_v0.1.0_linux_amd64.tar.gz) |
 | Linux | ARM64 | [sshm_v0.1.0_linux_arm64.tar.gz](https://github.com/YaMaiDay/sshm/releases/download/v0.1.0/sshm_v0.1.0_linux_arm64.tar.gz) |
@@ -116,46 +143,16 @@ https://github.com/YaMaiDay/sshm/releases
 | `scp` | 上传和下载文件 |
 | `sshpass` | 密码登录，非必需但建议安装 |
 
-macOS:
+macOS：
 
 ```sh
 brew install hudochenkov/sshpass/sshpass
 ```
 
-Debian / Ubuntu:
+Debian / Ubuntu：
 
 ```sh
 sudo apt install openssh-client sshpass
-```
-
-## ⌨️ 快速开始
-
-启动：
-
-```sh
-sshm
-```
-
-第一次打开后，按 `a` 添加服务器。
-
-添加服务器界面：
-
-- 左侧填写服务器信息
-- 分类只能选择，不能直接输入
-- 右侧可以添加或删除分类
-- `Tab` 切换左右区域
-- `Enter` 保存服务器
-
-常用快捷键：
-
-```text
-导航    ↑↓←→
-登录    Enter        详情    Space
-管理    a 添加       e 编辑       x 删除
-传输    u 上传       d 下载
-视图    / 搜索       t 分类       o 在线       p 异常       s 排序
-刷新    r
-返回    q / Esc
 ```
 
 ## ⚙️ 配置
@@ -166,7 +163,8 @@ sshm
 ~/.config/sshm/servers.toml
 ```
 
-示例：
+<details>
+<summary>查看 servers.toml 示例</summary>
 
 ```toml
 categories = ["production", "staging"]
@@ -192,6 +190,8 @@ proxy_jump = ""
 password = "example-password"
 ```
 
+</details>
+
 认证方式自动判断：
 
 - `key_path` 不为空时使用密钥
@@ -204,7 +204,8 @@ password = "example-password"
 ~/.config/sshm/config.toml
 ```
 
-示例：
+<details>
+<summary>查看 config.toml 示例</summary>
 
 ```toml
 refresh_interval = "5s"
@@ -215,9 +216,11 @@ local_dirs = [".", "~/Downloads", "~/Desktop", "~/Documents", "~"]
 remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 ```
 
+</details>
+
 ## 🔄 数据迁移
 
-如果 `~/.config/sshm/servers.toml` 不存在，首次启动会尝试从这些旧配置迁移：
+如果 `servers.toml` 不存在，首次启动会尝试从这些旧配置迁移：
 
 ```text
 ~/.ssh/config
@@ -226,72 +229,41 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 ~/.ssh/passwords/<host>
 ```
 
-迁移后，添加、编辑、删除、登录、监控、上传和下载都以 `servers.toml` 为准。
-
-每次修改服务器配置前会自动备份：
-
-```text
-~/.config/sshm/servers.toml.bak.YYYYMMDD-HHMMSS
-```
+迁移后，添加、编辑、删除、登录、监控、上传和下载都以 `servers.toml` 为准。每次修改服务器配置前会自动备份。
 
 ## 📡 监控方式
 
 `sshm` 通过 SSH 执行远程只读命令采集 Linux 服务器状态，不安装 agent，不修改服务器配置。
 
-采集内容包括：
+| 默认策略 | 值 |
+| --- | --- |
+| 自动刷新 | 每 5 秒一轮 |
+| SSH 连接超时 | 2 秒 |
+| 单台采集超时 | 6 秒 |
+| 离线判断 | 在线服务器连续失败 2 次后显示离线 |
 
-- `/proc/stat`
-- `/proc/loadavg`
-- `free`
-- `df`
-- `uptime`
-- `systemctl --failed`
-- `docker ps`
-- `ss` 或 `netstat`
-
-默认刷新逻辑：
-
-- 每 5 秒刷新一轮
-- 单次 SSH 连接最多等待 2 秒
-- 单台完整采集最多等待 6 秒
-- 在线服务器连续失败 2 次后才显示离线
+采集内容包括 `/proc/stat`、`/proc/loadavg`、`free`、`df`、`uptime`、`systemctl --failed`、`docker ps`、`ss` 或 `netstat`。
 
 ## 📁 文件传输
 
-上传：
+| 操作 | 流程 |
+| --- | --- |
+| 上传 | 选择服务器 -> 按 `u` -> 左侧选择本地文件/目录 -> 右侧选择远程目录 -> `Space` 开始 |
+| 下载 | 选择服务器 -> 按 `d` -> 左侧选择远程文件/目录 -> 右侧选择本地目录 -> `Space` 开始 |
 
-```text
-选择服务器 -> 按 u -> 左侧选择本地文件/目录 -> 右侧选择远程目录 -> Space 开始
-```
-
-下载：
-
-```text
-选择服务器 -> 按 d -> 左侧选择远程文件/目录 -> 右侧选择本地目录 -> Space 开始
-```
-
-底层调用系统 `scp`：
-
-```sh
-scp file server:/remote/
-scp -r dir server:/remote/
-scp server:/remote/file local/
-scp -r server:/remote/dir local/
-```
+底层调用系统 `scp`，支持文件和目录。
 
 ## 💻 平台支持
 
 | 平台 | 状态 |
 | --- | --- |
-| macOS | 推荐 |
-| Linux | 推荐 |
+| macOS | ✅ 推荐 |
+| Linux | ✅ 推荐 |
 | Windows Terminal + OpenSSH | 🧪 实验性 |
 
 Windows 目前可编译运行，但本地路径选择和 `sshpass` 体验没有 macOS/Linux 完整。
 
 ## 🧭 与 OmnySSH 的差异
-
-`sshm` 的体验参考了 OmnySSH 的终端管理思路，但实现目标不同：
 
 | 项目 | sshm |
 | --- | --- |
@@ -302,25 +274,11 @@ Windows 目前可编译运行，但本地路径选择和 `sshpass` 体验没有 
 | 远程依赖 | 不安装 agent |
 | 文件传输 | 调用系统 `scp` |
 
-这样做的取舍是：功能边界更简单，远程 shell 体验更稳定，但跨平台和文件管理能力依赖系统 OpenSSH。
-
 ## 🛠️ 开发
-
-运行测试：
 
 ```sh
 go test ./...
-```
-
-本地启动：
-
-```sh
 go run ./cmd/sshm
-```
-
-构建：
-
-```sh
 go build -o sshm ./cmd/sshm
 ```
 
