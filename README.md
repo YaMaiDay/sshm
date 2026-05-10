@@ -331,8 +331,6 @@ go run ./cmd/sshm --config-path
 
 密码保存在本机 `servers.toml` 中，文件权限设置为 `600`。这只是个人工具的便利设计，不等同于加密保险箱。
 
-## 📄 License
+## 📄 执照
 
-This project is licensed under the MIT License.
-
-Copyright (c) 2026 YaMaiDay
+MIT — 请参阅 [LICENSE](LICENSE)。
