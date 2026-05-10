@@ -44,7 +44,7 @@ func TestAddAndDeleteHost(t *testing.T) {
 		t.Fatalf("proxy jump not written: %s", data)
 	}
 
-	if err := DeleteHost(home, host.Host{Name: "test-host", File: configPath}, true); err != nil {
+	if err := DeleteHost(home, host.Host{Category: "test", Name: "test-host", File: configPath}, true); err != nil {
 		t.Fatal(err)
 	}
 	data, err = os.ReadFile(configPath)
@@ -82,7 +82,7 @@ func TestEditHostMoveCategoryAndPassword(t *testing.T) {
 	}
 
 	oldPath := ServersPath(home)
-	if err := EditHost(home, host.Host{Name: "old-host", File: oldPath}, HostInput{
+	if err := EditHost(home, host.Host{Category: "old", Name: "old-host", File: oldPath}, HostInput{
 		Category: "new",
 		Name:     "new-host",
 		HostName: "10.0.0.1",
@@ -125,7 +125,7 @@ func TestDeleteCategoryRules(t *testing.T) {
 	if err := DeleteCategory(home, "prod"); err == nil {
 		t.Fatal("expected deleting category with servers to fail")
 	}
-	if err := DeleteHost(home, host.Host{Name: "prod-host"}, true); err != nil {
+	if err := DeleteHost(home, host.Host{Category: "prod", Name: "prod-host"}, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := DeleteCategory(home, "prod"); err != nil {
@@ -133,5 +133,56 @@ func TestDeleteCategoryRules(t *testing.T) {
 	}
 	if err := DeleteCategory(home, "default"); err == nil {
 		t.Fatal("expected deleting final category to fail")
+	}
+}
+
+func TestDuplicateHostNameAllowedAcrossCategories(t *testing.T) {
+	home := t.TempDir()
+	if err := AddCategory(home, "left"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddCategory(home, "right"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddHost(home, HostInput{
+		Category: "left",
+		Name:     "same-name",
+		HostName: "127.0.0.1",
+		User:     "root",
+		Port:     "22",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddHost(home, HostInput{
+		Category: "right",
+		Name:     "same-name",
+		HostName: "127.0.0.2",
+		User:     "root",
+		Port:     "2222",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddHost(home, HostInput{
+		Category: "left",
+		Name:     "same-name",
+		HostName: "127.0.0.3",
+		User:     "root",
+		Port:     "2223",
+	}); err == nil {
+		t.Fatal("expected duplicate name in same category to fail")
+	}
+
+	if err := DeleteHost(home, host.Host{Category: "left", Name: "same-name"}, true); err != nil {
+		t.Fatal(err)
+	}
+	hosts, _, err := LoadServerHosts(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 {
+		t.Fatalf("expected one host after category-scoped delete, got %d", len(hosts))
+	}
+	if hosts[0].Category != "right" || hosts[0].Name != "same-name" {
+		t.Fatalf("wrong host remained: %+v", hosts[0])
 	}
 }

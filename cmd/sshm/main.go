@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/config"
 	"github.com/YaMaiDay/sshm/internal/fsselect"
+	"github.com/YaMaiDay/sshm/internal/host"
 	"github.com/YaMaiDay/sshm/internal/monitor"
 	"github.com/YaMaiDay/sshm/internal/tui"
 )
@@ -68,39 +70,71 @@ func main() {
 		appConfig := config.LoadAppConfig(home)
 		collector.Timeout = appConfig.CommandDuration()
 		collector.ConnectTimeout = appConfig.ConnectDuration()
-		for _, h := range hosts {
-			if h.Name == *probeHost {
-				m := collector.Collect(context.Background(), h)
-				fmt.Printf("服务器：%s\n", h.Name)
-				fmt.Printf("在线: %v\n", m.Online)
-				fmt.Printf("系统: %s\n", m.OS)
-				fmt.Printf("CPU: %.0f%%\n", m.CPUPercent)
-				fmt.Printf("内存: %.0f%%\n", m.MemPercent())
-				fmt.Printf("磁盘: %.0f%%\n", m.DiskPercent())
-				fmt.Printf("负载: %s %s %s\n", m.Load1, m.Load5, m.Load15)
-				fmt.Printf("运行: %s\n", m.Uptime)
-				if m.Error != "" {
-					fmt.Printf("错误: %s\n", m.Error)
-				}
-				return
-			}
+		h, err := findHost(hosts, *probeHost)
+		if err != nil {
+			tui.Fatal(err.Error(), nil)
 		}
-		tui.Fatal("没有找到指定服务器："+*probeHost, nil)
+		m := collector.Collect(context.Background(), h)
+		fmt.Printf("服务器：%s/%s\n", h.Category, h.Name)
+		fmt.Printf("在线: %v\n", m.Online)
+		fmt.Printf("系统: %s\n", m.OS)
+		fmt.Printf("CPU: %.0f%%\n", m.CPUPercent)
+		fmt.Printf("内存: %.0f%%\n", m.MemPercent())
+		fmt.Printf("磁盘: %.0f%%\n", m.DiskPercent())
+		fmt.Printf("负载: %s %s %s\n", m.Load1, m.Load5, m.Load15)
+		fmt.Printf("运行: %s\n", m.Uptime)
+		if m.Error != "" {
+			fmt.Printf("错误: %s\n", m.Error)
+		}
+		return
 	}
 	if *remoteDirsHost != "" {
-		for _, h := range hosts {
-			if h.Name == *remoteDirsHost {
-				for _, dir := range fsselect.RemoteDirs(h) {
-					fmt.Println(dir)
-				}
-				return
-			}
+		h, err := findHost(hosts, *remoteDirsHost)
+		if err != nil {
+			tui.Fatal(err.Error(), nil)
 		}
-		tui.Fatal("没有找到指定服务器："+*remoteDirsHost, nil)
+		for _, dir := range fsselect.RemoteDirs(h) {
+			fmt.Println(dir)
+		}
 		return
 	}
 
 	if err := tui.Run(hosts, passwords); err != nil {
 		tui.Fatal("运行 TUI 失败", err)
 	}
+}
+
+func findHost(hosts []host.Host, query string) (host.Host, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return host.Host{}, fmt.Errorf("服务器名称不能为空")
+	}
+	if strings.Contains(query, "/") {
+		category, name, _ := strings.Cut(query, "/")
+		category = strings.TrimSpace(category)
+		name = strings.TrimSpace(name)
+		for _, h := range hosts {
+			if h.Category == category && h.Name == name {
+				return h, nil
+			}
+		}
+		return host.Host{}, fmt.Errorf("没有找到指定服务器：%s", query)
+	}
+	matches := make([]host.Host, 0, 2)
+	for _, h := range hosts {
+		if h.Name == query {
+			matches = append(matches, h)
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) > 1 {
+		options := make([]string, 0, len(matches))
+		for _, h := range matches {
+			options = append(options, h.Category+"/"+h.Name)
+		}
+		return host.Host{}, fmt.Errorf("服务器名称不唯一，请使用 分类/名称：%s", strings.Join(options, "、"))
+	}
+	return host.Host{}, fmt.Errorf("没有找到指定服务器：%s", query)
 }

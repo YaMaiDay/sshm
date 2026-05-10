@@ -36,8 +36,8 @@ func AddHost(home string, input HostInput) error {
 		return fmt.Errorf("分类不存在：%s", input.Category)
 	}
 	for _, h := range hosts {
-		if h.Name == strings.TrimSpace(input.Name) {
-			return fmt.Errorf("服务器名称已存在：%s", input.Name)
+		if sameHostNameInCategory(h, input.Category, input.Name) {
+			return fmt.Errorf("分类 %s 中服务器名称已存在：%s", strings.TrimSpace(input.Category), strings.TrimSpace(input.Name))
 		}
 	}
 	hosts = append(hosts, hostFromInput(home, input))
@@ -77,13 +77,13 @@ func EditHost(home string, original host.Host, input HostInput) error {
 	}
 	found := false
 	for i, h := range hosts {
-		if h.Name == original.Name {
+		if sameHostIdentity(h, original) {
 			hosts[i] = hostFromInput(home, input)
 			found = true
 			continue
 		}
-		if h.Name == strings.TrimSpace(input.Name) {
-			return fmt.Errorf("服务器名称已存在：%s", input.Name)
+		if sameHostNameInCategory(h, input.Category, input.Name) {
+			return fmt.Errorf("分类 %s 中服务器名称已存在：%s", strings.TrimSpace(input.Category), strings.TrimSpace(input.Name))
 		}
 	}
 	if !found {
@@ -109,7 +109,7 @@ func DeleteHost(home string, h host.Host, removePassword bool) error {
 	next := make([]host.Host, 0, len(hosts))
 	found := false
 	for _, current := range hosts {
-		if current.Name == h.Name {
+		if sameHostIdentity(current, h) {
 			found = true
 			continue
 		}
@@ -172,6 +172,16 @@ func validateHostInput(input HostInput) error {
 		return fmt.Errorf("分类不能为空")
 	}
 	return nil
+}
+
+func sameHostNameInCategory(h host.Host, category, name string) bool {
+	return strings.TrimSpace(h.Category) == strings.TrimSpace(category) &&
+		strings.TrimSpace(h.Name) == strings.TrimSpace(name)
+}
+
+func sameHostIdentity(a, b host.Host) bool {
+	return strings.TrimSpace(a.Category) == strings.TrimSpace(b.Category) &&
+		strings.TrimSpace(a.Name) == strings.TrimSpace(b.Name)
 }
 
 func backupIfExists(path string) error {
