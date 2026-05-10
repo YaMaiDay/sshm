@@ -58,6 +58,13 @@ irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 sshm
 ```
 
+如果之前用过本地开发版 alias，当前终端可能还会指向旧路径。可以重新打开终端，或执行：
+
+```sh
+unalias sshm 2>/dev/null || true
+hash -r
+```
+
 <details>
 <summary>其他安装方式</summary>
 
