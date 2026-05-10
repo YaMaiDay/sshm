@@ -131,7 +131,6 @@ sshm
 | 🐳 | Docker 容器数量和异常服务提示 | ✅ 已支持 |
 | 🔎 | 搜索、筛选、排序、手动刷新 | ✅ 已支持 |
 | 🔐 | 系统 `ssh` 登录 | ✅ 已支持 |
-| 🏷️ | 登录后终端标签显示 `[分类] 名称` | ✅ 已支持 |
 | ⌨️ | 原生终端交互，支持 Ctrl+C / 删除键 / Tab | ✅ 已支持 |
 | 🔕 | 自动隐藏 OpenSSH post-quantum 警告 | ✅ 已支持 |
 | 📁 | 双栏文件选择器 | ✅ 已支持 |
@@ -270,26 +269,6 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 - 删除键、方向键、Tab 补全按远程 shell 的规则工作
 - `vim`、`top`、`htop`、`tmux` 等交互式程序按正常 SSH 方式运行
 - 退出远程服务器后会回到 `sshm` 面板
-
-登录前，终端窗口 / 标签标题会设置为当前服务器：
-
-```text
-[分类] 服务器名称
-```
-
-例如：
-
-```text
-[production] demo-web
-```
-
-回到面板后，标题恢复为：
-
-```text
-sshm
-```
-
-部分远程 shell 可能会在登录后把标题改成 `user@host`，`sshm` 不会在登录期间反复写标题，以免影响远程 shell 的删除键、Ctrl+C 等交互体验。
 
 如果本机 OpenSSH 支持 `WarnWeakCrypto`，`sshm` 会自动隐藏下面这类 post-quantum 提示：
 

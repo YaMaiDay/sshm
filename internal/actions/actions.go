@@ -22,11 +22,11 @@ func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
 				fullArgs := append([]string{"-f", file, "ssh", "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"}, args...)
-				return attachInteractiveTerminal(exec.Command("sshpass", fullArgs...), cleanup)
+				return attachInteractiveTerminal(interactiveCommand("sshpass", fullArgs...), cleanup)
 			}
 		}
 	}
-	return attachInteractiveTerminal(exec.Command("ssh", args...), cleanup)
+	return attachInteractiveTerminal(interactiveCommand("ssh", args...), cleanup)
 }
 
 func SCPUploadCommand(h host.Host, localPath, remoteDir string, recursive bool) (*exec.Cmd, Cleanup) {
@@ -103,6 +103,12 @@ func attachInteractiveTerminal(cmd *exec.Cmd, cleanup Cleanup) (*exec.Cmd, Clean
 		_ = tty.Close()
 		cleanup()
 	}
+}
+
+func interactiveCommand(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	return cmd
 }
 
 func sshArgs(h host.Host) []string {
