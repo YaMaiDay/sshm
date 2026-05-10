@@ -16,16 +16,16 @@
 </p>
 
 <p align="center">
-  <a href="#功能">功能</a> ·
-  <a href="#安装">安装</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#配置">配置</a> ·
-  <a href="#安全边界">安全边界</a>
+  <a href="#-功能">功能</a> ·
+  <a href="#-安装">安装</a> ·
+  <a href="#-快速开始">快速开始</a> ·
+  <a href="#-配置">配置</a> ·
+  <a href="#-安全边界">安全边界</a>
 </p>
 
 ---
 
-## 为什么做 sshm
+## ✨ 为什么做 sshm
 
 管理多台服务器时，常见工作流会在终端标签页、SSH 配置、监控命令和 `scp` 命令之间来回切换。`sshm` 把这些高频操作收进一个中文终端界面里：
 
@@ -38,24 +38,24 @@
 
 `sshm` 不内置远程 shell。登录时直接调用系统 `ssh`，所以远程 Tab 补全、vim、tmux、Ctrl+C 都保持原生行为。
 
-## 功能
+## 🚀 功能
 
 | 能力 | 状态 |
 | --- | --- |
-| 全中文 TUI 监控面板 | 已支持 |
-| 服务器分类管理 | 已支持 |
-| 添加、编辑、删除服务器 | 已支持 |
-| CPU / 内存 / 磁盘 / 负载 / 运行时间 | 已支持 |
-| Docker 容器数量和异常服务提示 | 已支持 |
-| 搜索、筛选、排序、手动刷新 | 已支持 |
-| 系统 `ssh` 登录 | 已支持 |
-| 双栏文件选择器 | 已支持 |
-| 文件和目录上传/下载 | 已支持 |
-| 密码、密钥、跳板机 | 已支持 |
-| 从 OpenSSH 配置迁移 | 已支持 |
-| Windows 完整体验 | 实验性 |
+| 🖥️ 全中文 TUI 监控面板 | 已支持 |
+| 🗂️ 服务器分类管理 | 已支持 |
+| ✏️ 添加、编辑、删除服务器 | 已支持 |
+| 📊 CPU / 内存 / 磁盘 / 负载 / 运行时间 | 已支持 |
+| 🐳 Docker 容器数量和异常服务提示 | 已支持 |
+| 🔎 搜索、筛选、排序、手动刷新 | 已支持 |
+| 🔐 系统 `ssh` 登录 | 已支持 |
+| 📁 双栏文件选择器 | 已支持 |
+| ⬆️⬇️ 文件和目录上传/下载 | 已支持 |
+| 🔑 密码、密钥、跳板机 | 已支持 |
+| 🔄 从 OpenSSH 配置迁移 | 已支持 |
+| 🧪 Windows 完整体验 | 实验性 |
 
-## 安装
+## ⚡ 安装
 
 macOS / Linux 一键安装：
 
@@ -81,7 +81,7 @@ go install github.com/YaMaiDay/sshm/cmd/sshm@latest
 https://github.com/YaMaiDay/sshm/releases
 ```
 
-## 依赖
+## 📦 依赖
 
 `sshm` 本身是单个 Go 二进制，但部分能力依赖系统命令：
 
@@ -103,7 +103,7 @@ Debian / Ubuntu:
 sudo apt install openssh-client sshpass
 ```
 
-## 快速开始
+## ⌨️ 快速开始
 
 启动：
 
@@ -141,7 +141,7 @@ sshm
 | `s` | 切换排序 |
 | `q` / `Esc` | 返回或退出 |
 
-## 配置
+## ⚙️ 配置
 
 服务器数据保存在：
 
@@ -198,7 +198,7 @@ local_dirs = [".", "~/Downloads", "~/Desktop", "~/Documents", "~"]
 remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 ```
 
-## 数据迁移
+## 🔄 数据迁移
 
 如果 `~/.config/sshm/servers.toml` 不存在，首次启动会尝试从这些旧配置迁移：
 
@@ -217,7 +217,7 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 ~/.config/sshm/servers.toml.bak.YYYYMMDD-HHMMSS
 ```
 
-## 监控方式
+## 📡 监控方式
 
 `sshm` 通过 SSH 执行远程只读命令采集 Linux 服务器状态，不安装 agent，不修改服务器配置。
 
@@ -239,7 +239,7 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 - 单台完整采集最多等待 6 秒
 - 在线服务器连续失败 2 次后才显示离线
 
-## 文件传输
+## 📁 文件传输
 
 上传：
 
@@ -262,7 +262,7 @@ scp server:/remote/file local/
 scp -r server:/remote/dir local/
 ```
 
-## 平台支持
+## 💻 平台支持
 
 | 平台 | 状态 |
 | --- | --- |
@@ -272,7 +272,7 @@ scp -r server:/remote/dir local/
 
 Windows 目前可编译运行，但本地路径选择和 `sshpass` 体验没有 macOS/Linux 完整。
 
-## 与 OmnySSH 的差异
+## 🧭 与 OmnySSH 的差异
 
 `sshm` 的体验参考了 OmnySSH 的终端管理思路，但实现目标不同：
 
@@ -287,7 +287,7 @@ Windows 目前可编译运行，但本地路径选择和 `sshpass` 体验没有 
 
 这样做的取舍是：功能边界更简单，远程 shell 体验更稳定，但跨平台和文件管理能力依赖系统 OpenSSH。
 
-## 开发
+## 🛠️ 开发
 
 运行测试：
 
@@ -316,7 +316,7 @@ go run ./cmd/sshm --remote-dirs demo-web
 go run ./cmd/sshm --config-path
 ```
 
-## 安全边界
+## 🔒 安全边界
 
 `sshm` 默认只做本地配置管理和远程只读监控。
 
@@ -331,6 +331,8 @@ go run ./cmd/sshm --config-path
 
 密码保存在本机 `servers.toml` 中，文件权限设置为 `600`。这只是个人工具的便利设计，不等同于加密保险箱。
 
-## 许可证
+## 📄 License
 
-MIT
+This project is licensed under the MIT License.
+
+Copyright (c) 2026 YaMaiDay
