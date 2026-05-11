@@ -1937,48 +1937,48 @@ func (m Model) detailLines() ([]string, bool) {
 		titleStyle.Render("服务器详情  " + h.Name),
 		"",
 		sectionTitle("基础信息"),
-		detailRow("状态", colorStatus(status, state.Loading, metrics.Online)),
-		detailRow("地址", h.Address()),
-		detailRow("用户", h.User),
-		detailRow("端口", h.Port),
-		detailRow("分类", emptyDash(h.Category)),
-		detailRow("主机名", emptyDash(metrics.RemoteHostname)),
-		detailRow("系统", emptyDash(metrics.OS)),
-		detailRow("内核", emptyDash(metrics.Kernel)),
-		detailRow("架构", emptyDash(metrics.Arch)),
-		detailRow("来源", h.File),
+		m.detailRow("状态", colorStatus(status, state.Loading, metrics.Online)),
+		m.detailRow("地址", h.Address()),
+		m.detailRow("用户", h.User),
+		m.detailRow("端口", h.Port),
+		m.detailRow("分类", emptyDash(h.Category)),
+		m.detailRow("主机名", emptyDash(metrics.RemoteHostname)),
+		m.detailRow("系统", emptyDash(metrics.OS)),
+		m.detailRow("内核", emptyDash(metrics.Kernel)),
+		m.detailRow("架构", emptyDash(metrics.Arch)),
+		m.detailRow("来源", h.File),
 		"",
 		sectionTitle("资源监控"),
 		detailSubTitle("CPU"),
-		detailRow("使用率", percentBar(metrics.CPUPercent)),
-		detailRow("核心数", cpuCoresText(metrics)),
-		detailRow("型号", emptyDash(metrics.CPUModel)),
+		m.detailRow("使用率", percentBar(metrics.CPUPercent)),
+		m.detailRow("核心数", cpuCoresText(metrics)),
+		m.detailRow("型号", emptyDash(metrics.CPUModel)),
 		"",
 		detailSubTitle("内存"),
-		detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBar(metrics.MemPercent()), bytesHuman(metrics.MemUsed), bytesHuman(metrics.MemTotal))),
-		detailRow("可用", bytesHuman(metrics.MemAvailable)),
-		detailRow("Swap", swapUsageText(metrics)),
-		detailRow("Swap可用", swapFreeText(metrics)),
+		m.detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBar(metrics.MemPercent()), bytesHuman(metrics.MemUsed), bytesHuman(metrics.MemTotal))),
+		m.detailRow("可用", bytesHuman(metrics.MemAvailable)),
+		m.detailRow("Swap", swapUsageText(metrics)),
+		m.detailRow("Swap可用", swapFreeText(metrics)),
 		"",
 		detailSubTitle("磁盘"),
-		detailRow("挂载点", emptyDash(metrics.DiskMountpoint)),
-		detailRow("文件系统", emptyDash(metrics.DiskFilesystem)),
-		detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.DiskPercent(), 80, 90), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
-		detailRow("可用", bytesHuman(metrics.DiskAvailable)),
-		detailRow("inode", inodeUsageText(metrics)),
-		detailRow("inode可用", countHuman(metrics.InodeAvailable)),
+		m.detailRow("挂载点", emptyDash(metrics.DiskMountpoint)),
+		m.detailRow("文件系统", emptyDash(metrics.DiskFilesystem)),
+		m.detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.DiskPercent(), 80, 90), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
+		m.detailRow("可用", bytesHuman(metrics.DiskAvailable)),
+		m.detailRow("inode", inodeUsageText(metrics)),
+		m.detailRow("inode可用", countHuman(metrics.InodeAvailable)),
 		"",
 		detailSubTitle("系统"),
-		detailRow("负载", fmt.Sprintf("%s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))),
-		detailRow("运行时间", uptimeCN(metrics.Uptime)),
+		m.detailRow("负载", fmt.Sprintf("%s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))),
+		m.detailRow("运行时间", uptimeCN(metrics.Uptime)),
 		"",
 		sectionTitle("服务状态"),
-		detailRow("容器", fmt.Sprintf("%d 运行中", metrics.DockerRunning)),
-		detailRow("异常服务", failedServiceText(metrics, 8)),
-		detailRow("监听端口", emptyDash(metrics.Ports)),
+		m.detailRow("容器", fmt.Sprintf("%d 运行中", metrics.DockerRunning)),
+		m.detailRow("异常服务", failedServiceText(metrics, 8)),
+		m.detailRow("监听端口", emptyDash(metrics.Ports)),
 	}
 	if metrics.Error != "" {
-		lines = append(lines, "", sectionTitle("最近错误"), detailRow("错误", metrics.Error))
+		lines = append(lines, "", sectionTitle("最近错误"), m.detailRow("错误", metrics.Error))
 	}
 	lines = append(lines, "", helpStyle.Render("↑↓/jk 上下滚动  回车 登录  u上传  d下载  r刷新  q/退出键 返回"))
 	return lines, true
@@ -2621,13 +2621,103 @@ func detailSubTitle(value string) string {
 	return blueStyle.Render("· " + value)
 }
 
-func detailRow(label, value string) string {
+func (m Model) detailRow(label, value string) string {
 	const labelWidth = 10
 	padding := labelWidth - runewidth.StringWidth(label)
 	if padding < 1 {
 		padding = 1
 	}
-	return mutedStyle.Render(label) + strings.Repeat(" ", padding) + value
+	prefix := mutedStyle.Render(label) + strings.Repeat(" ", padding)
+	continuationPrefix := strings.Repeat(" ", labelWidth)
+	valueWidth := m.detailContentWidth() - labelWidth
+	if valueWidth < 12 {
+		valueWidth = 12
+	}
+	parts := wrapDetailValue(value, valueWidth)
+	if len(parts) == 0 {
+		return prefix
+	}
+	lines := make([]string, 0, len(parts))
+	lines = append(lines, prefix+parts[0])
+	for _, part := range parts[1:] {
+		lines = append(lines, continuationPrefix+part)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) detailContentWidth() int {
+	width := contentWidth(m.width) - 6
+	if width < 42 {
+		width = 42
+	}
+	return width
+}
+
+func wrapDetailValue(value string, width int) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return []string{""}
+	}
+	if ansi.StringWidth(value) <= width {
+		return []string{value}
+	}
+	if strings.Contains(value, "\x1b") {
+		return []string{ansi.Truncate(value, width, "…")}
+	}
+	var lines []string
+	current := ""
+	for _, token := range splitWrapTokens(value) {
+		if current == "" {
+			current = token
+			continue
+		}
+		if ansi.StringWidth(current+token) <= width {
+			current += token
+			continue
+		}
+		lines = appendWrappedLine(lines, current, width)
+		current = strings.TrimLeft(token, " ")
+	}
+	if current != "" {
+		lines = appendWrappedLine(lines, current, width)
+	}
+	return lines
+}
+
+func splitWrapTokens(value string) []string {
+	var tokens []string
+	var current strings.Builder
+	for _, r := range value {
+		current.WriteRune(r)
+		if r == ',' || r == '/' || r == ' ' {
+			tokens = append(tokens, current.String())
+			current.Reset()
+		}
+	}
+	if current.Len() > 0 {
+		tokens = append(tokens, current.String())
+	}
+	return tokens
+}
+
+func appendWrappedLine(lines []string, value string, width int) []string {
+	value = strings.TrimSpace(value)
+	for ansi.StringWidth(value) > width {
+		runes := []rune(value)
+		cut := 0
+		for cut < len(runes) && runewidth.StringWidth(string(runes[:cut+1])) <= width {
+			cut++
+		}
+		if cut <= 0 {
+			cut = 1
+		}
+		lines = append(lines, string(runes[:cut]))
+		value = strings.TrimSpace(string(runes[cut:]))
+	}
+	if value != "" {
+		lines = append(lines, value)
+	}
+	return lines
 }
 
 func failedServiceText(metrics monitor.Metrics, limit int) string {
