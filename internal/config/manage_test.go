@@ -196,6 +196,8 @@ func TestSaveAndLoadFavoriteHost(t *testing.T) {
 			HostName:    "127.0.0.1",
 			User:        "root",
 			Port:        "22",
+			Note:        "部署入口机",
+			ExpireAt:    "2026-08-31",
 			Favorite:    true,
 			HealthPorts: []int{80, 5432},
 		},
@@ -214,6 +216,12 @@ func TestSaveAndLoadFavoriteHost(t *testing.T) {
 	if !strings.Contains(string(data), "health_ports = [80, 5432]") {
 		t.Fatalf("health ports not written: %s", data)
 	}
+	if !strings.Contains(string(data), `note = '部署入口机'`) {
+		t.Fatalf("note not written: %s", data)
+	}
+	if !strings.Contains(string(data), `expire_at = '2026-08-31'`) {
+		t.Fatalf("expire_at not written: %s", data)
+	}
 
 	loaded, _, err := LoadServerHosts(home)
 	if err != nil {
@@ -227,6 +235,24 @@ func TestSaveAndLoadFavoriteHost(t *testing.T) {
 	}
 	if len(loaded[0].HealthPorts) != 2 || loaded[0].HealthPorts[0] != 80 || loaded[0].HealthPorts[1] != 5432 {
 		t.Fatalf("HealthPorts = %#v, want [80 5432]", loaded[0].HealthPorts)
+	}
+	if loaded[0].Note != "部署入口机" {
+		t.Fatalf("Note = %q, want 部署入口机", loaded[0].Note)
+	}
+	if loaded[0].ExpireAt != "2026-08-31" {
+		t.Fatalf("ExpireAt = %q, want 2026-08-31", loaded[0].ExpireAt)
+	}
+}
+
+func TestValidateExpireAt(t *testing.T) {
+	if err := ValidateExpireAt(""); err != nil {
+		t.Fatalf("empty expire_at should be valid: %v", err)
+	}
+	if err := ValidateExpireAt("2026-08-31"); err != nil {
+		t.Fatalf("valid expire_at rejected: %v", err)
+	}
+	if err := ValidateExpireAt("2026/08/31"); err == nil {
+		t.Fatalf("invalid expire_at accepted")
 	}
 }
 

@@ -25,6 +25,8 @@ type serverEntry struct {
 	KeyPath     string `toml:"key_path"`
 	ProxyJump   string `toml:"proxy_jump"`
 	Password    string `toml:"password"`
+	Note        string `toml:"note,omitempty"`
+	ExpireAt    string `toml:"expire_at,omitempty"`
 	Favorite    bool   `toml:"favorite,omitempty"`
 	HealthPorts []int  `toml:"health_ports,omitempty"`
 }
@@ -66,6 +68,8 @@ func LoadServerHosts(home string) ([]host.Host, bool, error) {
 			ProxyJump:    strings.TrimSpace(entry.ProxyJump),
 			Password:     password,
 			Category:     category,
+			Note:         strings.TrimSpace(entry.Note),
+			ExpireAt:     strings.TrimSpace(entry.ExpireAt),
 			Favorite:     entry.Favorite,
 			HealthPorts:  normalizeHealthPorts(entry.HealthPorts),
 			File:         path,
@@ -178,6 +182,8 @@ func SaveServerData(home string, categories []string, hosts []host.Host) error {
 			KeyPath:     strings.TrimSpace(h.IdentityFile),
 			ProxyJump:   strings.TrimSpace(h.ProxyJump),
 			Password:    strings.TrimSpace(h.Password),
+			Note:        strings.TrimSpace(h.Note),
+			ExpireAt:    strings.TrimSpace(h.ExpireAt),
 			Favorite:    h.Favorite,
 			HealthPorts: normalizeHealthPorts(h.HealthPorts),
 		})

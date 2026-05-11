@@ -43,6 +43,14 @@ const (
 	modeCommandEdit
 	modeCommandConfirm
 	modeCommandOutput
+	modeBatchSelect
+	modeBatchCommandList
+	modeBatchCommandEdit
+	modeBatchConfirm
+	modeBatchOutput
+	modeCommandHistory
+	modeCommandHistoryDetail
+	modeAnomalyOverview
 	modeHelp
 )
 
@@ -79,17 +87,48 @@ const (
 	sortDisk
 )
 
+type dashboardMode int
+
+const (
+	dashboardCards dashboardMode = iota
+	dashboardCategory
+)
+
+type anomalyFilterMode int
+
+const (
+	anomalyAll anomalyFilterMode = iota
+	anomalySevere
+	anomalyWarn
+	anomalyOffline
+	anomalyResource
+	anomalyContainer
+	anomalyService
+	anomalySecurity
+)
+
 const (
 	dashboardCardInnerHeight = 7
 	dashboardCardTotalHeight = dashboardCardInnerHeight + 2
 )
 
 type hostState struct {
-	Host         host.Host
-	Metrics      monitor.Metrics
-	Loading      bool
-	FailureCount int
-	LastAttempt  time.Time
+	Host               host.Host
+	Metrics            monitor.Metrics
+	Loading            bool
+	FailureCount       int
+	LastAttempt        time.Time
+	LoginLoading       bool
+	LoginSummary       []string
+	LoginError         string
+	FailedLoginSummary []string
+	FailedLoginError   string
+	SSHDSecurity       map[string]string
+	SSHDSecurityError  string
+	PortDetails        []portDetail
+	PortDetailsError   string
+	ContainerDetails   []containerDetail
+	ContainerError     string
 }
 
 type collectMsg struct {
@@ -114,10 +153,30 @@ type transferProgressMsg time.Time
 type clearStatusMsg struct{}
 
 type sshDoneMsg struct {
-	Err error
+	Index int
+	Err   error
+}
+
+type loginRecordsMsg struct {
+	Index         int
+	Summary       []string
+	ErrText       string
+	FailedSummary []string
+	FailedErrText string
+	SSHDSecurity  map[string]string
+	SSHDErrText   string
+	Ports         []portDetail
+	PortsErrText  string
+	Containers    []containerDetail
+	ContainerErr  string
 }
 
 type commandDoneMsg struct {
+	Result actions.CommandResult
+}
+
+type batchCommandDoneMsg struct {
+	Job    int
 	Result actions.CommandResult
 }
 
@@ -145,6 +204,7 @@ type Model struct {
 	collector           monitor.Collector
 	passwords           config.PasswordStore
 	appConfig           config.AppConfig
+	appState            config.AppState
 	home                string
 	mode                viewMode
 	transfer            transferMode
@@ -163,14 +223,18 @@ type Model struct {
 	addingCategory      bool
 	categoryDraft       string
 	editing             bool
+	copying             bool
 	editIndex           int
 	deleteIndex         int
 	confirm             confirmAction
 	filter              filterMode
 	sortBy              sortMode
+	dashboardMode       dashboardMode
+	dashboardFocus      int
 	category            string
 	favoriteOnly        bool
 	detailScroll        int
+	detailSectionIndex  int
 	activeTransfer      activeTransfer
 	commandFile         config.CommandsFile
 	commandItems        []commandItem
@@ -182,7 +246,26 @@ type Model struct {
 	commandEditItem     commandItem
 	commandConfirm      commandItem
 	commandOutputScroll int
+	commandOutputBack   viewMode
 	activeCommand       activeCommand
+	batchIndexes        []int
+	batchSelected       map[int]bool
+	batchCursor         int
+	batchCommandItems   []commandItem
+	batchCommandIndex   int
+	batchCommand        commandItem
+	batchJobs           []batchJob
+	batchCurrent        int
+	batchOutputIndex    int
+	batchOutputScroll   int
+	batchOutputBack     viewMode
+	commandHistory      config.CommandHistoryFile
+	historyIndex        int
+	historyScroll       int
+	historySearch       bool
+	historyQuery        string
+	anomalyIndex        int
+	anomalyFilter       anomalyFilterMode
 	helpBackMode        viewMode
 	collectRound        int
 	manualRound         int
@@ -248,7 +331,11 @@ type addForm struct {
 	ProxyJump    string
 	Password     string
 	HealthPorts  string
+	ExpireAt     string
+	Note         string
 }
+
+const expireAtFormIndex = 10
 
 type commandItem struct {
 	Scope     commandScope
@@ -276,12 +363,38 @@ type activeCommand struct {
 	Running   bool
 }
 
+type batchJob struct {
+	HostIndex int
+	Output    string
+	ExitCode  int
+	Err       error
+	Running   bool
+	Done      bool
+}
+
+type portDetail struct {
+	Protocol  string
+	Port      string
+	Process   string
+	PID       string
+	Container string
+	Count     int
+}
+
+type containerDetail struct {
+	Name   string
+	Image  string
+	Status string
+	Ports  string
+}
+
 type confirmKind int
 
 const (
 	confirmNone confirmKind = iota
 	confirmDeleteCategory
 	confirmDeleteCommand
+	confirmDeleteHistory
 )
 
 type confirmAction struct {
@@ -290,6 +403,7 @@ type confirmAction struct {
 	Lines   []string
 	Back    viewMode
 	Command commandItem
+	History config.CommandHistoryEntry
 	Value   string
 }
 
@@ -310,12 +424,15 @@ func (f addForm) fields() []struct {
 		{"密码", f.Password},
 		{"跳板机", f.ProxyJump},
 		{"健康端口", f.HealthPorts},
+		{"备注", f.Note},
+		{"到期时间", f.ExpireAt},
 	}
 }
 
 func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	home, _ := os.UserHomeDir()
 	appConfig := config.LoadAppConfig(home)
+	appState := config.LoadState(home)
 	categories, _, _ := config.LoadCategories(home)
 	commandFile, _, _ := config.LoadCommands(home)
 	states := make([]hostState, len(hosts))
@@ -331,6 +448,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 		collector:      collector,
 		passwords:      passwords,
 		appConfig:      appConfig,
+		appState:       appState,
 		home:           home,
 		commandFile:    commandFile,
 		categories:     categories,
@@ -401,18 +519,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = fmt.Sprintf("登录退出：%v", msg.Err)
 			return m, tea.Batch(clearScreen(), clearStatusAfter(3*time.Second))
 		}
+		if msg.Index >= 0 && msg.Index < len(m.states) {
+			m.recordLastLogin(m.states[msg.Index].Host, time.Now())
+		}
 		m.status = "已返回监控面板"
 		return m, tea.Batch(clearScreen(), clearStatusAfter(2*time.Second))
+	case loginRecordsMsg:
+		if msg.Index < 0 || msg.Index >= len(m.states) {
+			return m, nil
+		}
+		m.states[msg.Index].LoginLoading = false
+		m.states[msg.Index].LoginSummary = msg.Summary
+		m.states[msg.Index].LoginError = msg.ErrText
+		m.states[msg.Index].FailedLoginSummary = msg.FailedSummary
+		m.states[msg.Index].FailedLoginError = msg.FailedErrText
+		m.states[msg.Index].SSHDSecurity = msg.SSHDSecurity
+		m.states[msg.Index].SSHDSecurityError = msg.SSHDErrText
+		m.states[msg.Index].PortDetails = msg.Ports
+		m.states[msg.Index].PortDetailsError = msg.PortsErrText
+		m.states[msg.Index].ContainerDetails = msg.Containers
+		m.states[msg.Index].ContainerError = msg.ContainerErr
+		return m, nil
 	case commandDoneMsg:
 		m.activeCommand.Running = false
 		m.activeCommand.Output = msg.Result.Output
 		m.activeCommand.ExitCode = msg.Result.ExitCode
+		historyErr := m.recordCommandHistory(msg.Result)
 		if msg.Result.Err != nil {
 			m.status = fmt.Sprintf("命令执行失败：退出码 %d", msg.Result.ExitCode)
 		} else {
 			m.status = "命令执行完成。"
 		}
+		if historyErr != nil {
+			m.status += " 历史保存失败：" + historyErr.Error()
+		}
 		return m, nil
+	case batchCommandDoneMsg:
+		return m.handleBatchCommandDone(msg)
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeCommandList:
@@ -423,6 +566,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCommandConfirm(msg)
 		case modeCommandOutput:
 			return m.updateCommandOutput(msg)
+		case modeBatchSelect:
+			return m.updateBatchSelect(msg)
+		case modeBatchCommandList:
+			return m.updateBatchCommandList(msg)
+		case modeBatchCommandEdit:
+			return m.updateBatchCommandEdit(msg)
+		case modeBatchConfirm:
+			return m.updateBatchConfirm(msg)
+		case modeBatchOutput:
+			return m.updateBatchOutput(msg)
+		case modeCommandHistory:
+			return m.updateCommandHistory(msg)
+		case modeCommandHistoryDetail:
+			return m.updateCommandHistoryDetail(msg)
+		case modeAnomalyOverview:
+			return m.updateAnomalyOverview(msg)
 		case modeHelp:
 			return m.updateHelpPanel(msg)
 		}
@@ -447,49 +606,50 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.searching {
 			return m.updateSearch(msg)
 		}
-		switch msg.String() {
-		case "q", "Q", "esc", "ctrl+c":
+		key := shortcutKey(msg)
+		switch key {
+		case "q", "esc", "ctrl+c":
 			if m.activeTransfer.Active && m.activeTransfer.Cancel != nil {
 				m.activeTransfer.Cancel()
 			}
 			return m, tea.Quit
-		case "j", "J", "down":
-			m.move(m.dashboardColumns())
-		case "k", "K", "up":
-			m.move(-m.dashboardColumns())
-		case "h", "H", "left":
-			m.move(-1)
-		case "l", "L", "right":
-			m.move(1)
+		case "j", "down":
+			m.moveDashboardDown()
+		case "k", "up":
+			m.moveDashboardUp()
+		case "h", "left":
+			m.moveDashboardLeft()
+		case "l", "right":
+			m.moveDashboardRight()
 		case "/":
 			m.searching = true
 			m.query = ""
-		case "?":
+		case "?", "shift+/":
 			m.helpBackMode = modeDashboard
 			m.mode = modeHelp
-		case "s", "S":
+		case "s":
 			m.sortBy = (m.sortBy + 1) % 5
 			m.selected = 0
 			m.status = "排序：" + m.sortName()
-		case "o", "O":
+		case "o":
 			if m.filter == filterOnline {
 				m.filter = filterAll
 			} else {
 				m.filter = filterOnline
 			}
 			m.selected = 0
-		case "p", "P":
+		case "p":
 			if m.filter == filterProblem {
 				m.filter = filterAll
 			} else {
 				m.filter = filterProblem
 			}
 			m.selected = 0
-		case "f", "F":
+		case "f":
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.toggleFavorite(idx)
 			}
-		case "v", "V":
+		case "v":
 			m.favoriteOnly = !m.favoriteOnly
 			m.selected = 0
 			if m.favoriteOnly {
@@ -497,49 +657,75 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.status = "已取消收藏筛选"
 			}
-		case "t", "T":
+		case "tab":
 			m.cycleCategory()
 			m.selected = 0
 		case " ":
-			if _, ok := m.selectedRealIndex(); ok {
-				m.mode = modeDetail
-				m.detailScroll = 0
+			if m.dashboardMode == dashboardCategory && m.dashboardFocus == 0 {
+				m.dashboardFocus = 1
+				return m, nil
 			}
-		case "a", "A":
+			if idx, ok := m.selectedRealIndex(); ok {
+				return m.openDetail(idx)
+			}
+		case "a":
 			return m.startAddForm(), nil
-		case "e", "E":
+		case "c":
+			if idx, ok := m.selectedRealIndex(); ok {
+				return m.startCopyForm(idx), nil
+			}
+		case "e":
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.startEditForm(idx), nil
 			}
-		case "x", "X", "delete":
+		case "x":
 			if idx, ok := m.selectedRealIndex(); ok {
 				m.deleteIndex = idx
 				m.mode = modeDeleteConfirm
 			}
-		case "u", "U":
+		case "u":
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.startUpload(idx), nil
 			}
-		case "d", "D":
+		case "d":
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.startDownload(idx), nil
 			}
-		case "m", "M":
+		case "m":
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.startCommandList(idx), nil
 			}
-		case "r", "R":
+		case "b":
+			return m.startBatchSelect(), nil
+		case "i":
+			return m.startCommandHistory()
+		case "w":
+			m.mode = modeAnomalyOverview
+			m.anomalyIndex = 0
+		case "z":
+			if m.dashboardMode == dashboardCards {
+				m.dashboardMode = dashboardCategory
+			} else {
+				m.dashboardMode = dashboardCards
+			}
+			m.dashboardFocus = 1
+			m.status = ""
+		case "r":
 			m.status = "正在刷新全部服务器..."
 			m.collectRound++
 			m.manualRound = m.collectRound
 			m.pendingByRound[m.collectRound] = len(m.states)
 			return m, m.collectAll(m.collectRound, true)
 		case "enter":
+			if m.dashboardMode == dashboardCategory && m.dashboardFocus == 0 {
+				m.dashboardFocus = 1
+				return m, nil
+			}
 			if idx, ok := m.selectedRealIndex(); ok {
 				cmd, cleanup := actions.SSHCommand(m.states[idx].Host)
 				return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 					cleanup()
-					return sshDoneMsg{Err: err}
+					return sshDoneMsg{Index: idx, Err: err}
 				})
 			}
 		}
@@ -552,9 +738,11 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateCategoryPane(msg)
 	}
 	fieldCount := len(m.form.fields())
-	switch msg.String() {
-	case "esc", "q", "Q", "ctrl+c":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
 		m.mode = modeDashboard
+		m.copying = false
 		m.status = "已取消。"
 	case "tab":
 		m.formPane = 1
@@ -587,6 +775,11 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "保存失败：" + err.Error()
 			return m, nil
 		}
+		expireAt, err := normalizeExpireAtForSave(m.form.ExpireAt)
+		if err != nil {
+			m.status = "保存失败：" + err.Error()
+			return m, nil
+		}
 		favorite := false
 		if m.editing {
 			if m.editIndex < 0 || m.editIndex >= len(m.states) {
@@ -604,6 +797,8 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			IdentityFile: m.form.IdentityFile,
 			ProxyJump:    m.form.ProxyJump,
 			Password:     m.form.Password,
+			Note:         m.form.Note,
+			ExpireAt:     expireAt,
 			Favorite:     favorite,
 			HealthPorts:  healthPorts,
 		}
@@ -627,17 +822,28 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeDashboard
 		if m.editing {
 			m.status = "服务器已更新。"
+		} else if m.copying {
+			m.status = "服务器已复制。"
 		} else {
 			m.status = "服务器已添加。"
 		}
+		m.copying = false
 		m.collectRound++
 		m.pendingByRound[m.collectRound] = len(m.states)
 		return m, m.collectAll(m.collectRound, false)
 	case "backspace":
-		m.formBackspace()
+		if m.formIndex == expireAtFormIndex {
+			m.formExpireBackspace()
+		} else {
+			m.formBackspace()
+		}
 	default:
 		if len(msg.Runes) > 0 && m.formIndex != 0 {
-			m.formAppend(string(msg.Runes))
+			if m.formIndex == expireAtFormIndex {
+				m.formExpireAppend(msg.Runes)
+			} else {
+				m.formAppend(string(msg.Runes))
+			}
 		}
 	}
 	return m, nil
@@ -645,8 +851,9 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.addingCategory {
-		switch msg.String() {
-		case "esc", "q", "Q", "ctrl+c":
+		key := shortcutKey(msg)
+		switch key {
+		case "esc", "q", "ctrl+c":
 			m.addingCategory = false
 			m.categoryDraft = ""
 		case "enter":
@@ -668,21 +875,22 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	switch msg.String() {
-	case "esc", "q", "Q", "ctrl+c":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
 		m.mode = modeDashboard
 		m.status = "已取消。"
 	case "tab", "shift+tab":
 		m.formPane = 0
-	case "j", "J", "down":
+	case "j", "down":
 		m.moveCategory(1)
-	case "k", "K", "up":
+	case "k", "up":
 		m.moveCategory(-1)
-	case "n", "N", "a", "A":
+	case "n", "a":
 		m.addingCategory = true
 		m.categoryDraft = ""
 		m.status = "输入新分类名称。"
-	case "x", "X", "delete":
+	case "x":
 		if len(m.categories) == 0 {
 			return m, nil
 		}
@@ -746,11 +954,12 @@ func categoryErrorText(err error) string {
 }
 
 func (m Model) updateDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "n", "N":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "n":
 		m.mode = modeDashboard
 		m.status = "已取消删除。"
-	case "y", "Y", "enter":
+	case "y", "enter":
 		if m.deleteIndex < 0 || m.deleteIndex >= len(m.states) {
 			m.mode = modeDashboard
 			m.status = "没有选中的服务器。"
@@ -779,11 +988,12 @@ func (m Model) updateDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "n", "N", "q", "Q":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "n", "q":
 		m.mode = m.confirm.Back
 		m.status = "已取消删除。"
-	case "y", "Y", "enter":
+	case "y", "enter":
 		switch m.confirm.Kind {
 		case confirmDeleteCategory:
 			name := m.confirm.Value
@@ -800,6 +1010,10 @@ func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := m.confirm.Command
 			m.mode = modeCommandList
 			return m.deleteCommandTemplate(item)
+		case confirmDeleteHistory:
+			entry := m.confirm.History
+			m.mode = modeCommandHistory
+			return m.deleteCommandHistoryEntry(entry)
 		}
 		m.confirm = confirmAction{}
 	}
@@ -813,11 +1027,74 @@ func (m Model) startAddForm() Model {
 	m.formCursor = 0
 	m.formPane = 0
 	m.editing = false
+	m.copying = false
 	m.editIndex = -1
 	m.addingCategory = false
 	m.categoryDraft = ""
 	m.form = addForm{Category: m.categories[m.categoryIndex], User: "root", Port: "22"}
 	m.status = "添加服务器"
+	return m
+}
+
+func (m Model) copyHostName(category string, name string) string {
+	base := strings.TrimSpace(name)
+	if base == "" {
+		base = "服务器"
+	}
+	candidate := base + "-副本"
+	if !m.hostNameExists(category, candidate) {
+		return candidate
+	}
+	for i := 2; ; i++ {
+		candidate = fmt.Sprintf("%s-副本%d", base, i)
+		if !m.hostNameExists(category, candidate) {
+			return candidate
+		}
+	}
+}
+
+func (m Model) hostNameExists(category string, name string) bool {
+	category = strings.TrimSpace(category)
+	name = strings.TrimSpace(name)
+	for _, state := range m.states {
+		h := state.Host
+		if strings.TrimSpace(h.Category) == category && strings.TrimSpace(h.Name) == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) startCopyForm(idx int) Model {
+	h := m.states[idx].Host
+	password, _ := m.passwords.Password(h.Name)
+	input := config.InputFromHost(h, password)
+	m.reloadCategories(input.Category)
+	m.mode = modeAddForm
+	m.formIndex = 1
+	m.formCursor = 0
+	m.formPane = 0
+	m.editing = false
+	m.copying = true
+	m.editIndex = -1
+	m.addingCategory = false
+	m.categoryDraft = ""
+	name := m.copyHostName(input.Category, input.Name)
+	m.form = addForm{
+		Category:     m.categories[m.categoryIndex],
+		Name:         name,
+		HostName:     input.HostName,
+		User:         input.User,
+		Port:         input.Port,
+		IdentityFile: input.IdentityFile,
+		ProxyJump:    input.ProxyJump,
+		Password:     input.Password,
+		HealthPorts:  config.FormatHealthPorts(input.HealthPorts),
+		ExpireAt:     input.ExpireAt,
+		Note:         input.Note,
+	}
+	m.formCursor = len([]rune(name))
+	m.status = "复制服务器"
 	return m
 }
 
@@ -831,6 +1108,7 @@ func (m Model) startEditForm(idx int) Model {
 	m.formCursor = 0
 	m.formPane = 0
 	m.editing = true
+	m.copying = false
 	m.editIndex = idx
 	m.addingCategory = false
 	m.categoryDraft = ""
@@ -844,6 +1122,8 @@ func (m Model) startEditForm(idx int) Model {
 		ProxyJump:    input.ProxyJump,
 		Password:     input.Password,
 		HealthPorts:  config.FormatHealthPorts(input.HealthPorts),
+		ExpireAt:     input.ExpireAt,
+		Note:         input.Note,
 	}
 	m.status = "编辑服务器"
 	return m
@@ -862,6 +1142,17 @@ func (m *Model) reloadHosts(hosts []host.Host) {
 	m.collector.Timeout = m.appConfig.CommandDuration()
 	m.collector.ConnectTimeout = m.appConfig.ConnectDuration()
 	m.reloadCategories("")
+}
+
+func (m *Model) recordLastLogin(h host.Host, at time.Time) {
+	config.SetLastLogin(&m.appState, h, at)
+	if err := config.SaveState(m.home, m.appState); err != nil {
+		m.status = "最近登录保存失败：" + err.Error()
+	}
+}
+
+func (m Model) lastLogin(h host.Host) time.Time {
+	return config.LastLoginFor(m.appState, h)
 }
 
 func (m Model) toggleFavorite(index int) (tea.Model, tea.Cmd) {
@@ -902,6 +1193,30 @@ func (m Model) startCommandList(index int) Model {
 	m.mode = modeCommandList
 	m.status = "命令模板"
 	return m
+}
+
+func (m Model) startBatchSelect() Model {
+	indexes := m.filteredIndexes()
+	m.batchIndexes = indexes
+	m.batchSelected = map[int]bool{}
+	m.batchCursor = 0
+	for _, index := range indexes {
+		if index == m.selectedRealIndexOrZero() {
+			m.batchSelected[index] = true
+			break
+		}
+	}
+	m.mode = modeBatchSelect
+	m.status = "批量选择服务器"
+	return m
+}
+
+func (m Model) selectedRealIndexOrZero() int {
+	idx, ok := m.selectedRealIndex()
+	if !ok {
+		return -1
+	}
+	return idx
 }
 
 func (m Model) commandListItems(index int) []commandItem {
@@ -945,22 +1260,23 @@ func firstCommandItem(items []commandItem) int {
 }
 
 func (m Model) updateCommandList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q", "Q", "ctrl+c":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
 		m.mode = modeDashboard
 		m.status = "已取消。"
-	case "j", "J", "down":
+	case "j", "down":
 		m.moveCommandIndex(1)
-	case "k", "K", "up":
+	case "k", "up":
 		m.moveCommandIndex(-1)
-	case "a", "A":
+	case "a":
 		return m.startCommandEdit(commandItem{}, false), nil
-	case "e", "E":
+	case "e":
 		item, ok := m.selectedCommandItem()
 		if ok && !item.Temporary {
 			return m.startCommandEdit(item, true), nil
 		}
-	case "x", "X", "delete":
+	case "x":
 		item, ok := m.selectedCommandItem()
 		if ok && !item.Temporary {
 			m.confirm = confirmAction{
@@ -1049,8 +1365,9 @@ func (m Model) startCommandEdit(item commandItem, editing bool) Model {
 }
 
 func (m Model) updateCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q", "Q", "ctrl+c":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
 		return m.backToCommandList("已取消。"), nil
 	case "tab":
 		m.commandField = (m.commandField + 1) % 3
@@ -1314,13 +1631,14 @@ func (m Model) deleteCommandTemplate(item commandItem) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateCommandConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q", "Q", "ctrl+c":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
 		m.mode = modeCommandList
 		m.status = "已取消。"
-	case "j", "J", "down":
+	case "j", "down":
 		m.commandOutputScroll = clampInt(m.commandOutputScroll+1, 0, m.commandConfirmMaxScroll())
-	case "k", "K", "up":
+	case "k", "up":
 		m.commandOutputScroll = clampInt(m.commandOutputScroll-1, 0, m.commandConfirmMaxScroll())
 	case "enter":
 		if m.activeCommand.HostIndex < 0 || m.activeCommand.HostIndex >= len(m.states) {
@@ -1333,6 +1651,7 @@ func (m Model) updateCommandConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.activeCommand.ExitCode = 0
 		m.activeCommand.Running = true
 		m.commandOutputScroll = 0
+		m.commandOutputBack = modeDashboard
 		m.mode = modeCommandOutput
 		m.status = "正在执行命令..."
 		return m, m.runCommand(m.activeCommand.HostIndex, m.commandConfirm.Command)
@@ -1341,21 +1660,518 @@ func (m Model) updateCommandConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateCommandOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q", "Q", "ctrl+c":
-		m.mode = modeDashboard
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = m.commandOutputBack
 		m.status = ""
-	case "j", "J", "down":
+	case "j", "down":
 		m.commandOutputScroll = clampInt(m.commandOutputScroll+1, 0, m.commandOutputMaxScroll())
-	case "k", "K", "up":
+	case "k", "up":
 		m.commandOutputScroll = clampInt(m.commandOutputScroll-1, 0, m.commandOutputMaxScroll())
 	}
 	return m, nil
 }
 
+func (m Model) updateBatchSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeDashboard
+		m.status = "已取消。"
+	case "j", "down":
+		m.batchCursor = clampInt(m.batchCursor+1, 0, maxInt(0, len(m.batchIndexes)-1))
+	case "k", "up":
+		m.batchCursor = clampInt(m.batchCursor-1, 0, maxInt(0, len(m.batchIndexes)-1))
+	case " ":
+		if m.batchCursor >= 0 && m.batchCursor < len(m.batchIndexes) {
+			index := m.batchIndexes[m.batchCursor]
+			if m.batchSelected[index] {
+				delete(m.batchSelected, index)
+			} else {
+				m.batchSelected[index] = true
+			}
+		}
+	case "a":
+		for _, index := range m.batchIndexes {
+			m.batchSelected[index] = true
+		}
+	case "x":
+		m.batchSelected = map[int]bool{}
+	case "enter":
+		if m.batchSelectedCount() == 0 {
+			m.status = "请至少选择一台服务器"
+			return m, nil
+		}
+		return m.startBatchCommandList()
+	}
+	return m, nil
+}
+
+func (m Model) startBatchCommandList() (tea.Model, tea.Cmd) {
+	file, _, err := config.LoadCommands(m.home)
+	if err != nil {
+		m.status = "读取命令模板失败：" + err.Error()
+		return m, nil
+	}
+	m.commandFile = file
+	m.batchCommandItems = m.batchGlobalCommandItems()
+	m.batchCommandIndex = firstCommandItem(m.batchCommandItems)
+	m.mode = modeBatchCommandList
+	m.status = "选择批量命令模板"
+	return m, nil
+}
+
+func (m Model) batchGlobalCommandItems() []commandItem {
+	items := []commandItem{{Name: "全局", Header: true}}
+	for i, command := range m.commandFile.Global {
+		items = append(items, commandItem{
+			Scope:   commandScopeGlobal,
+			Index:   i,
+			Name:    command.Name,
+			Command: command.Command,
+		})
+	}
+	items = append(items, commandItem{Spacer: true}, commandItem{Name: "临时命令", Temporary: true})
+	return items
+}
+
+func (m Model) updateBatchCommandList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeBatchSelect
+	case "j", "down":
+		m.moveBatchCommandIndex(1)
+	case "k", "up":
+		m.moveBatchCommandIndex(-1)
+	case "enter":
+		item, ok := m.selectedBatchCommandItem()
+		if !ok {
+			return m, nil
+		}
+		if item.Temporary {
+			m.commandForm = commandEditForm{Name: "临时命令"}
+			m.commandField = 2
+			m.commandCursor = 0
+			m.mode = modeBatchCommandEdit
+			m.status = "输入批量临时命令"
+			return m, nil
+		}
+		m.batchCommand = item
+		m.mode = modeBatchConfirm
+		m.batchOutputScroll = 0
+		m.status = "确认批量执行"
+	}
+	return m, nil
+}
+
+func (m *Model) moveBatchCommandIndex(delta int) {
+	if len(m.batchCommandItems) == 0 {
+		m.batchCommandIndex = 0
+		return
+	}
+	for i := 0; i < len(m.batchCommandItems); i++ {
+		m.batchCommandIndex = moveIndex(m.batchCommandIndex, len(m.batchCommandItems), delta)
+		item := m.batchCommandItems[m.batchCommandIndex]
+		if !item.Header && !item.Spacer {
+			return
+		}
+	}
+}
+
+func (m Model) selectedBatchCommandItem() (commandItem, bool) {
+	if m.batchCommandIndex < 0 || m.batchCommandIndex >= len(m.batchCommandItems) {
+		return commandItem{}, false
+	}
+	item := m.batchCommandItems[m.batchCommandIndex]
+	if item.Header || item.Spacer {
+		return commandItem{}, false
+	}
+	return item, true
+}
+
+func (m Model) updateBatchCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeBatchCommandList
+		m.status = "已取消。"
+	case "ctrl+j":
+		m.commandAppend("\n")
+	case "up":
+		m.moveCommandBodyLine(-1)
+	case "down":
+		m.moveCommandBodyLine(1)
+	case "left":
+		m.moveCommandCursor(-1)
+	case "right":
+		m.moveCommandCursor(1)
+	case "backspace":
+		m.commandBackspace()
+	case "enter":
+		if strings.TrimSpace(m.commandForm.Command) == "" {
+			m.status = "命令内容不能为空"
+			return m, nil
+		}
+		m.batchCommand = commandItem{Name: "临时命令", Command: m.commandForm.Command, Temporary: true}
+		m.mode = modeBatchConfirm
+		m.status = "确认批量执行"
+	default:
+		if len(msg.Runes) > 0 {
+			m.commandAppend(string(msg.Runes))
+		}
+	}
+	return m, nil
+}
+
+func (m Model) updateBatchConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		if m.batchCommand.Temporary {
+			m.commandForm = commandEditForm{Name: "临时命令", Command: m.batchCommand.Command}
+			m.commandField = 2
+			m.commandCursor = len([]rune(m.commandForm.Command))
+			m.mode = modeBatchCommandEdit
+		} else {
+			m.mode = modeBatchCommandList
+		}
+	case "j", "down":
+		m.batchOutputScroll = clampInt(m.batchOutputScroll+1, 0, m.batchConfirmMaxScroll())
+	case "k", "up":
+		m.batchOutputScroll = clampInt(m.batchOutputScroll-1, 0, m.batchConfirmMaxScroll())
+	case "enter":
+		m.prepareBatchJobs()
+		if len(m.batchJobs) == 0 {
+			m.status = "没有可执行的服务器"
+			return m, nil
+		}
+		m.mode = modeBatchOutput
+		m.batchCurrent = 0
+		m.batchJobs[0].Running = true
+		m.batchOutputIndex = 0
+		m.batchOutputScroll = 0
+		m.batchOutputBack = modeBatchCommandList
+		m.status = "批量命令执行中..."
+		return m, m.runBatchJob(0)
+	}
+	return m, nil
+}
+
+func (m Model) updateBatchOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		if m.batchRunning() {
+			m.status = "批量命令执行中，完成后再返回"
+			return m, nil
+		}
+		m.mode = m.batchOutputBack
+		if m.mode == modeBatchCommandList {
+			m.status = "可继续选择批量命令"
+		} else {
+			m.status = ""
+		}
+	case "j", "down":
+		m.moveBatchOutputIndex(1)
+		m.batchOutputScroll = 0
+	case "k", "up":
+		m.moveBatchOutputIndex(-1)
+		m.batchOutputScroll = 0
+	case "right", "l":
+		m.batchOutputScroll = clampInt(m.batchOutputScroll+1, 0, m.batchOutputMaxScroll())
+	case "left", "h":
+		m.batchOutputScroll = clampInt(m.batchOutputScroll-1, 0, m.batchOutputMaxScroll())
+	case "r":
+		if m.batchRunning() {
+			m.status = "批量命令执行中，完成后再重试"
+			return m, nil
+		}
+		return m.retryFailedBatchJobs()
+	}
+	return m, nil
+}
+
+func (m *Model) moveBatchOutputIndex(delta int) {
+	indexes := m.batchResultDisplayIndexes()
+	if len(indexes) == 0 {
+		m.batchOutputIndex = 0
+		return
+	}
+	pos := 0
+	for i, index := range indexes {
+		if index == m.batchOutputIndex {
+			pos = i
+			break
+		}
+	}
+	pos = clampInt(pos+delta, 0, len(indexes)-1)
+	m.batchOutputIndex = indexes[pos]
+}
+
+func (m Model) retryFailedBatchJobs() (tea.Model, tea.Cmd) {
+	jobs := make([]batchJob, 0)
+	for _, job := range m.batchJobs {
+		if job.Done && job.Err != nil {
+			jobs = append(jobs, batchJob{HostIndex: job.HostIndex})
+		}
+	}
+	if len(jobs) == 0 {
+		m.status = "没有失败的服务器需要重试"
+		return m, nil
+	}
+	m.batchJobs = jobs
+	m.batchCurrent = 0
+	m.batchJobs[0].Running = true
+	m.batchOutputIndex = 0
+	m.batchOutputScroll = 0
+	m.status = "正在重试失败服务器..."
+	return m, m.runBatchJob(0)
+}
+
+func (m Model) startCommandHistory() (tea.Model, tea.Cmd) {
+	file, _, err := config.LoadCommandHistory(m.home)
+	if err != nil {
+		m.status = "读取命令历史失败：" + err.Error()
+		return m, nil
+	}
+	m.commandHistory = file
+	m.historyIndex = clampInt(m.historyIndex, 0, maxInt(0, len(file.Entries)-1))
+	m.historyScroll = 0
+	m.mode = modeCommandHistory
+	m.status = ""
+	return m, nil
+}
+
+func (m *Model) reloadCommandHistory() {
+	file, _, err := config.LoadCommandHistory(m.home)
+	if err != nil {
+		return
+	}
+	m.commandHistory = file
+	m.historyIndex = clampInt(m.historyIndex, 0, maxInt(0, len(file.Entries)-1))
+}
+
+func (m Model) updateCommandHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.historySearch {
+		switch msg.String() {
+		case "esc":
+			m.historySearch = false
+			m.historyQuery = ""
+			m.historyIndex = 0
+		case "enter":
+			m.historySearch = false
+		case "backspace":
+			runes := []rune(m.historyQuery)
+			if len(runes) > 0 {
+				m.historyQuery = string(runes[:len(runes)-1])
+				m.historyIndex = 0
+			}
+		default:
+			if len(msg.Runes) > 0 {
+				m.historyQuery += string(msg.Runes)
+				m.historyIndex = 0
+			}
+		}
+		return m, nil
+	}
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeDashboard
+		m.status = ""
+	case "/":
+		m.historySearch = true
+		m.historyQuery = ""
+		m.historyIndex = 0
+	case "j", "down":
+		m.historyIndex = clampInt(m.historyIndex+1, 0, maxInt(0, len(m.filteredHistoryEntries())-1))
+	case "k", "up":
+		m.historyIndex = clampInt(m.historyIndex-1, 0, maxInt(0, len(m.filteredHistoryEntries())-1))
+	case "enter":
+		if _, ok := m.selectedHistoryEntry(); ok {
+			m.historyScroll = 0
+			m.mode = modeCommandHistoryDetail
+		}
+	case "r":
+		if entry, ok := m.selectedHistoryEntry(); ok {
+			return m.rerunHistoryEntry(entry)
+		}
+	case "x":
+		if entry, ok := m.selectedHistoryEntry(); ok {
+			m.confirm = confirmAction{
+				Kind:    confirmDeleteHistory,
+				Title:   "确认删除命令历史",
+				Lines:   []string{"将删除该命令历史记录。", "命令：" + entry.Name},
+				Back:    modeCommandHistory,
+				History: entry,
+			}
+			m.mode = modeConfirmAction
+		}
+	}
+	return m, nil
+}
+
+func (m Model) updateCommandHistoryDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeCommandHistory
+	case "j", "down":
+		m.historyScroll = clampInt(m.historyScroll+1, 0, m.commandHistoryDetailMaxScroll())
+	case "k", "up":
+		m.historyScroll = clampInt(m.historyScroll-1, 0, m.commandHistoryDetailMaxScroll())
+	case "r":
+		if entry, ok := m.selectedHistoryEntry(); ok {
+			return m.rerunHistoryEntry(entry)
+		}
+	case "x":
+		if entry, ok := m.selectedHistoryEntry(); ok {
+			m.confirm = confirmAction{
+				Kind:    confirmDeleteHistory,
+				Title:   "确认删除命令历史",
+				Lines:   []string{"将删除该命令历史记录。", "命令：" + entry.Name},
+				Back:    modeCommandHistoryDetail,
+				History: entry,
+			}
+			m.mode = modeConfirmAction
+		}
+	}
+	return m, nil
+}
+
+func (m Model) selectedHistoryEntry() (config.CommandHistoryEntry, bool) {
+	entries := m.filteredHistoryEntries()
+	if m.historyIndex < 0 || m.historyIndex >= len(entries) {
+		return config.CommandHistoryEntry{}, false
+	}
+	return entries[m.historyIndex], true
+}
+
+func (m Model) filteredHistoryEntries() []config.CommandHistoryEntry {
+	query := strings.ToLower(strings.TrimSpace(m.historyQuery))
+	if query == "" {
+		return m.commandHistory.Entries
+	}
+	out := make([]config.CommandHistoryEntry, 0, len(m.commandHistory.Entries))
+	for _, entry := range m.commandHistory.Entries {
+		if historyEntryMatches(entry, query) {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+func historyEntryMatches(entry config.CommandHistoryEntry, query string) bool {
+	values := []string{entry.Name, entry.Command, entry.Kind, entry.Status}
+	for _, target := range entry.Targets {
+		values = append(values, target.Category, target.Name, target.HostName, target.User)
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) deleteCommandHistoryEntry(entry config.CommandHistoryEntry) (tea.Model, tea.Cmd) {
+	if err := config.DeleteCommandHistoryEntry(m.home, entry.ID); err != nil {
+		m.status = "删除命令历史失败：" + err.Error()
+		return m, nil
+	}
+	m.reloadCommandHistory()
+	m.historyIndex = clampInt(m.historyIndex, 0, maxInt(0, len(m.commandHistory.Entries)-1))
+	m.status = "命令历史已删除。"
+	if len(m.commandHistory.Entries) == 0 {
+		m.mode = modeCommandHistory
+	}
+	return m, nil
+}
+
+func (m Model) rerunHistoryEntry(entry config.CommandHistoryEntry) (tea.Model, tea.Cmd) {
+	if strings.TrimSpace(entry.Command) == "" {
+		m.status = "历史命令为空，不能重新执行。"
+		return m, nil
+	}
+	indexes := m.historyTargetIndexes(entry)
+	if len(indexes) == 0 {
+		m.status = "服务器不存在，不能重新执行。"
+		return m, nil
+	}
+	if len(indexes) == 1 {
+		backMode := m.mode
+		m.activeCommand = activeCommand{
+			HostIndex: indexes[0],
+			Name:      historyCommandName(entry),
+			Command:   entry.Command,
+			Running:   true,
+		}
+		m.commandOutputScroll = 0
+		m.commandOutputBack = backMode
+		m.mode = modeCommandOutput
+		m.status = "正在重新执行命令..."
+		return m, m.runCommand(indexes[0], entry.Command)
+	}
+	backMode := m.mode
+	m.batchSelected = map[int]bool{}
+	for _, index := range indexes {
+		m.batchSelected[index] = true
+	}
+	m.batchIndexes = indexes
+	m.batchCommand = commandItem{Name: historyCommandName(entry), Command: entry.Command}
+	m.prepareBatchJobs()
+	if len(m.batchJobs) == 0 {
+		m.status = "没有可执行的服务器"
+		return m, nil
+	}
+	m.mode = modeBatchOutput
+	m.batchCurrent = 0
+	m.batchJobs[0].Running = true
+	m.batchOutputIndex = 0
+	m.batchOutputScroll = 0
+	m.batchOutputBack = backMode
+	m.status = "正在重新批量执行..."
+	return m, m.runBatchJob(0)
+}
+
+func (m Model) historyTargetIndexes(entry config.CommandHistoryEntry) []int {
+	indexes := []int{}
+	seen := map[int]bool{}
+	for _, target := range entry.Targets {
+		if index, ok := m.findHostByHistoryTarget(target); ok && !seen[index] {
+			indexes = append(indexes, index)
+			seen[index] = true
+		}
+	}
+	return indexes
+}
+
+func (m Model) findHostByHistoryTarget(target config.CommandHistoryTarget) (int, bool) {
+	for i, state := range m.states {
+		h := state.Host
+		if strings.TrimSpace(h.Category) == strings.TrimSpace(target.Category) &&
+			strings.TrimSpace(h.Name) == strings.TrimSpace(target.Name) {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func (m Model) batchRunning() bool {
+	for _, job := range m.batchJobs {
+		if job.Running {
+			return true
+		}
+	}
+	return false
+}
+
 func (m Model) updateHelpPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q", "Q", "?":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "?":
 		if m.helpBackMode == 0 {
 			m.helpBackMode = modeDashboard
 		}
@@ -1398,6 +2214,169 @@ func (m Model) runCommand(index int, script string) tea.Cmd {
 	}
 }
 
+func (m Model) batchSelectedCount() int {
+	count := 0
+	for _, selected := range m.batchSelected {
+		if selected {
+			count++
+		}
+	}
+	return count
+}
+
+func (m Model) selectedBatchHostIndexes() []int {
+	indexes := make([]int, 0, m.batchSelectedCount())
+	for _, index := range m.batchIndexes {
+		if m.batchSelected[index] {
+			indexes = append(indexes, index)
+		}
+	}
+	return indexes
+}
+
+func (m *Model) prepareBatchJobs() {
+	indexes := m.selectedBatchHostIndexes()
+	m.batchJobs = make([]batchJob, 0, len(indexes))
+	for _, index := range indexes {
+		m.batchJobs = append(m.batchJobs, batchJob{HostIndex: index})
+	}
+}
+
+func (m Model) runBatchJob(job int) tea.Cmd {
+	if job < 0 || job >= len(m.batchJobs) {
+		return nil
+	}
+	hostIndex := m.batchJobs[job].HostIndex
+	if hostIndex < 0 || hostIndex >= len(m.states) {
+		return func() tea.Msg {
+			return batchCommandDoneMsg{Job: job, Result: actions.CommandResult{ExitCode: -1, Err: fmt.Errorf("服务器索引无效")}}
+		}
+	}
+	h := m.states[hostIndex].Host
+	script := m.batchCommand.Command
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		result, cleanup := actions.RemoteCommandContext(ctx, h, script)
+		cleanup()
+		return batchCommandDoneMsg{Job: job, Result: result}
+	}
+}
+
+func (m Model) handleBatchCommandDone(msg batchCommandDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.Job < 0 || msg.Job >= len(m.batchJobs) {
+		return m, nil
+	}
+	m.batchJobs[msg.Job].Running = false
+	m.batchJobs[msg.Job].Done = true
+	m.batchJobs[msg.Job].Output = msg.Result.Output
+	m.batchJobs[msg.Job].ExitCode = msg.Result.ExitCode
+	m.batchJobs[msg.Job].Err = msg.Result.Err
+	next := msg.Job + 1
+	if next < len(m.batchJobs) {
+		m.batchCurrent = next
+		m.batchJobs[next].Running = true
+		m.batchOutputIndex = next
+		m.batchOutputScroll = 0
+		return m, m.runBatchJob(next)
+	}
+	m.batchCurrent = len(m.batchJobs)
+	m.status = fmt.Sprintf("批量执行完成：成功%d  失败%d", m.batchSuccessCount(), m.batchFailCount())
+	if err := m.recordBatchCommandHistory(); err != nil {
+		m.status += " 历史保存失败：" + err.Error()
+	}
+	return m, nil
+}
+
+func (m *Model) recordCommandHistory(result actions.CommandResult) error {
+	if m.activeCommand.HostIndex < 0 || m.activeCommand.HostIndex >= len(m.states) {
+		return nil
+	}
+	h := m.states[m.activeCommand.HostIndex].Host
+	status := commandHistoryStatus(result.Err)
+	entry := config.CommandHistoryEntry{
+		ID:       config.NewCommandHistoryID(time.Now()),
+		Time:     time.Now().Format(time.RFC3339),
+		Kind:     "single",
+		Name:     m.activeCommand.Name,
+		Command:  m.activeCommand.Command,
+		Status:   status,
+		ExitCode: result.ExitCode,
+		Targets: []config.CommandHistoryTarget{
+			config.CommandHistoryTargetFromHost(h, status, result.ExitCode, result.Output),
+		},
+	}
+	if err := config.AppendCommandHistory(m.home, entry); err != nil {
+		return err
+	}
+	m.reloadCommandHistory()
+	return nil
+}
+
+func (m *Model) recordBatchCommandHistory() error {
+	targets := make([]config.CommandHistoryTarget, 0, len(m.batchJobs))
+	failCount := 0
+	for _, job := range m.batchJobs {
+		if job.HostIndex < 0 || job.HostIndex >= len(m.states) {
+			continue
+		}
+		status := commandHistoryStatus(job.Err)
+		if job.Err != nil {
+			failCount++
+		}
+		targets = append(targets, config.CommandHistoryTargetFromHost(m.states[job.HostIndex].Host, status, job.ExitCode, job.Output))
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	status := "success"
+	if failCount > 0 {
+		status = "failed"
+	}
+	entry := config.CommandHistoryEntry{
+		ID:       config.NewCommandHistoryID(time.Now()),
+		Time:     time.Now().Format(time.RFC3339),
+		Kind:     "batch",
+		Name:     m.batchCommand.Name,
+		Command:  m.batchCommand.Command,
+		Status:   status,
+		ExitCode: failCount,
+		Targets:  targets,
+	}
+	if err := config.AppendCommandHistory(m.home, entry); err != nil {
+		return err
+	}
+	m.reloadCommandHistory()
+	return nil
+}
+
+func commandHistoryStatus(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "success"
+}
+
+func (m Model) batchSuccessCount() int {
+	count := 0
+	for _, job := range m.batchJobs {
+		if job.Done && job.Err == nil {
+			count++
+		}
+	}
+	return count
+}
+
+func (m Model) batchFailCount() int {
+	count := 0
+	for _, job := range m.batchJobs {
+		if job.Done && job.Err != nil {
+			count++
+		}
+	}
+	return count
+}
+
 func (m *Model) formAppend(s string) {
 	if m.formIndex == 0 {
 		return
@@ -1434,6 +2413,103 @@ func (m *Model) formBackspace() {
 	m.formCursor--
 }
 
+func (m *Model) formExpireAppend(runes []rune) {
+	mask := []rune(dateMask(m.form.ExpireAt))
+	positions := dateInputPositions()
+	cursor := clampInt(m.formCursor, 0, len(positions))
+	for _, r := range runes {
+		if r >= '０' && r <= '９' {
+			r = r - '０' + '0'
+		}
+		if r < '0' || r > '9' || cursor >= len(positions) {
+			continue
+		}
+		mask[positions[cursor]] = r
+		cursor++
+	}
+	m.form.ExpireAt = string(mask)
+	m.formCursor = cursor
+}
+
+func (m *Model) formExpireBackspace() {
+	if m.formCursor <= 0 {
+		return
+	}
+	mask := []rune(dateMask(m.form.ExpireAt))
+	positions := dateInputPositions()
+	cursor := clampInt(m.formCursor, 0, len(positions))
+	pos := positions[cursor-1]
+	mask[pos] = datePlaceholderForPosition(pos)
+	m.form.ExpireAt = string(mask)
+	m.formCursor = cursor - 1
+}
+
+func dateMask(value string) string {
+	base := []rune("yyyy-mm-dd")
+	positions := dateInputPositions()
+	runes := []rune(value)
+	if len(runes) == len(base) {
+		for _, pos := range positions {
+			r := runes[pos]
+			if (r >= '0' && r <= '9') || r == datePlaceholderForPosition(pos) {
+				base[pos] = r
+			}
+		}
+		return string(base)
+	}
+	digits := []rune(dateDigits(value))
+	for i, r := range digits {
+		if i >= len(positions) {
+			break
+		}
+		base[positions[i]] = r
+	}
+	return string(base)
+}
+
+func normalizeExpireAtForSave(value string) (string, error) {
+	mask := []rune(dateMask(value))
+	positions := dateInputPositions()
+	digits := make([]rune, 0, len(positions))
+	hasValue := false
+	incomplete := false
+	for _, pos := range positions {
+		r := mask[pos]
+		if r >= '0' && r <= '9' {
+			digits = append(digits, r)
+			hasValue = true
+			continue
+		}
+		incomplete = true
+	}
+	if !hasValue {
+		return "", nil
+	}
+	if incomplete {
+		return "", fmt.Errorf("到期时间未填写完整")
+	}
+	value = fmt.Sprintf("%s-%s-%s", string(digits[:4]), string(digits[4:6]), string(digits[6:8]))
+	if err := config.ValidateExpireAt(value); err != nil {
+		return "", err
+	}
+	return value, nil
+}
+
+func datePlaceholderForPosition(pos int) rune {
+	switch pos {
+	case 0, 1, 2, 3:
+		return 'y'
+	case 5, 6:
+		return 'm'
+	default:
+		return 'd'
+	}
+}
+
+func dateInputPositions() []int {
+	return []int{0, 1, 2, 3, 5, 6, 8, 9}
+}
+
 func (m *Model) moveFormCursor(delta int) {
 	m.formCursor += delta
 	if m.formCursor < 0 {
@@ -1446,7 +2522,22 @@ func (m *Model) moveFormCursor(delta int) {
 }
 
 func (m Model) formValueLen() int {
+	if m.formIndex == expireAtFormIndex {
+		return dateCursorEnd(m.form.ExpireAt)
+	}
 	return len([]rune(m.formValue()))
+}
+
+func dateCursorEnd(value string) int {
+	mask := []rune(dateMask(value))
+	positions := dateInputPositions()
+	for i, pos := range positions {
+		r := mask[pos]
+		if r < '0' || r > '9' {
+			return i
+		}
+	}
+	return len(positions)
 }
 
 func (m Model) formValue() string {
@@ -1467,6 +2558,10 @@ func (m Model) formValue() string {
 		return m.form.ProxyJump
 	case 8:
 		return m.form.HealthPorts
+	case 9:
+		return m.form.Note
+	case 10:
+		return m.form.ExpireAt
 	default:
 		return ""
 	}
@@ -1490,6 +2585,10 @@ func (m *Model) setFormValue(value string) {
 		m.form.ProxyJump = value
 	case 8:
 		m.form.HealthPorts = value
+	case 9:
+		m.form.Note = value
+	case 10:
+		m.form.ExpireAt = value
 	}
 }
 
@@ -1501,14 +2600,64 @@ func removeLastRune(s string) string {
 	return string(r[:len(r)-1])
 }
 
+func shortcutKey(msg tea.KeyMsg) string {
+	key := strings.ToLower(msg.String())
+	if key == "shift+/" {
+		return key
+	}
+	if len(msg.Runes) == 1 {
+		key = normalizeShortcutRune(msg.Runes[0])
+	}
+	return key
+}
+
+func normalizeShortcutRune(r rune) string {
+	switch {
+	case r >= 'Ａ' && r <= 'Ｚ':
+		return string(r - 'Ａ' + 'a')
+	case r >= 'ａ' && r <= 'ｚ':
+		return string(r - 'ａ' + 'a')
+	case r >= '０' && r <= '９':
+		return string(r - '０' + '0')
+	}
+	switch r {
+	case '？':
+		return "?"
+	case '／', '、':
+		return "/"
+	case '　':
+		return " "
+	default:
+		return strings.ToLower(string(r))
+	}
+}
+
 func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	key := shortcutKey(msg)
+	switch key {
 	case "esc":
 		m.searching = false
 		m.query = ""
 		m.selected = 0
 	case "enter":
+		if idx, ok := m.selectedRealIndex(); ok {
+			m.searching = false
+			cmd, cleanup := actions.SSHCommand(m.states[idx].Host)
+			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				cleanup()
+				return sshDoneMsg{Index: idx, Err: err}
+			})
+		}
 		m.searching = false
+	case " ":
+		if idx, ok := m.selectedRealIndex(); ok {
+			m.searching = false
+			return m.openDetail(idx)
+		}
+	case "j", "down":
+		m.move(1)
+	case "k", "up":
+		m.move(-1)
 	case "backspace":
 		if len(m.query) > 0 {
 			runes := []rune(m.query)
@@ -1525,49 +2674,236 @@ func (m Model) updateSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "q", "Q", "ctrl+c", "b", "B", "left":
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c", "b":
 		m.mode = modeDashboard
 		m.detailScroll = 0
-	case "j", "J", "down":
+	case "j", "down":
 		m.detailScroll = clampInt(m.detailScroll+1, 0, m.detailMaxScroll())
-	case "k", "K", "up":
+	case "k", "up":
 		m.detailScroll = clampInt(m.detailScroll-1, 0, m.detailMaxScroll())
-	case "u", "U":
+	case "tab", "right":
+		m.moveDetailSection(1)
+	case "shift+tab", "left":
+		m.moveDetailSection(-1)
+	case "u":
 		if idx, ok := m.selectedRealIndex(); ok {
 			return m.startUpload(idx), nil
 		}
-	case "d", "D":
+	case "d":
 		if idx, ok := m.selectedRealIndex(); ok {
 			return m.startDownload(idx), nil
 		}
-	case "r", "R":
+	case "r":
 		if idx, ok := m.selectedRealIndex(); ok {
 			m.states[idx].Loading = true
-			return m, m.collectOne(idx)
+			m.states[idx].LoginLoading = true
+			m.states[idx].LoginError = ""
+			m.states[idx].FailedLoginError = ""
+			m.states[idx].SSHDSecurityError = ""
+			m.states[idx].PortDetailsError = ""
+			m.states[idx].ContainerError = ""
+			m.states[idx].PortDetails = nil
+			m.states[idx].ContainerDetails = nil
+			return m, tea.Batch(m.collectOne(idx), m.fetchLoginRecords(idx))
 		}
-	case "f", "F":
+	case "f":
 		if idx, ok := m.selectedRealIndex(); ok {
 			return m.toggleFavorite(idx)
 		}
-	case "m", "M":
+	case "m":
 		if idx, ok := m.selectedRealIndex(); ok {
 			return m.startCommandList(idx), nil
 		}
-	case "enter":
+	case "l":
 		if idx, ok := m.selectedRealIndex(); ok {
 			cmd, cleanup := actions.SSHCommand(m.states[idx].Host)
 			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 				cleanup()
-				return sshDoneMsg{Err: err}
+				return sshDoneMsg{Index: idx, Err: err}
 			})
 		}
 	}
 	return m, nil
 }
 
+func (m Model) updateAnomalyOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	items := m.anomalyItems()
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeDashboard
+	case "j", "down":
+		m.anomalyIndex = clampInt(m.anomalyIndex+1, 0, maxInt(0, len(items)-1))
+	case "k", "up":
+		m.anomalyIndex = clampInt(m.anomalyIndex-1, 0, maxInt(0, len(items)-1))
+	case "f", "tab":
+		m.anomalyFilter = (m.anomalyFilter + 1) % 8
+		m.anomalyIndex = 0
+	case "0":
+		m.anomalyFilter = anomalyAll
+		m.anomalyIndex = 0
+	case "1":
+		m.anomalyFilter = anomalySevere
+		m.anomalyIndex = 0
+	case "2":
+		m.anomalyFilter = anomalyWarn
+		m.anomalyIndex = 0
+	case "3":
+		m.anomalyFilter = anomalyOffline
+		m.anomalyIndex = 0
+	case "4":
+		m.anomalyFilter = anomalyResource
+		m.anomalyIndex = 0
+	case "5":
+		m.anomalyFilter = anomalyContainer
+		m.anomalyIndex = 0
+	case "6":
+		m.anomalyFilter = anomalyService
+		m.anomalyIndex = 0
+	case "7":
+		m.anomalyFilter = anomalySecurity
+		m.anomalyIndex = 0
+	case "enter", " ":
+		if len(items) == 0 {
+			return m, nil
+		}
+		m.anomalyIndex = clampInt(m.anomalyIndex, 0, len(items)-1)
+		item := items[m.anomalyIndex]
+		m.selected = m.visibleIndexForRealIndex(item.Index)
+		return m.openDetailSection(item.Index, anomalyDetailSection(item.Checks))
+	case "r":
+		m.status = "正在刷新全部服务器..."
+		m.collectRound++
+		m.manualRound = m.collectRound
+		m.pendingByRound[m.collectRound] = len(m.states)
+		return m, m.collectAll(m.collectRound, true)
+	}
+	return m, nil
+}
+
+func (m Model) openDetailSection(index int, section string) (tea.Model, tea.Cmd) {
+	model, cmd := m.openDetail(index)
+	next, ok := model.(Model)
+	if !ok {
+		return model, cmd
+	}
+	next.setDetailSection(section)
+	return next, cmd
+}
+
+func (m *Model) setDetailSection(section string) {
+	if strings.TrimSpace(section) == "" {
+		return
+	}
+	for i, name := range m.detailSectionNames() {
+		if name == section {
+			m.detailSectionIndex = i
+			m.detailScroll = 0
+			return
+		}
+	}
+}
+
+func (m Model) visibleIndexForRealIndex(realIndex int) int {
+	indexes := m.filteredIndexes()
+	for i, index := range indexes {
+		if index == realIndex {
+			return i
+		}
+	}
+	return clampInt(m.selected, 0, maxInt(0, len(indexes)-1))
+}
+
+func (m *Model) moveDetailSection(delta int) {
+	sections := m.detailSectionNames()
+	if len(sections) == 0 {
+		m.detailSectionIndex = 0
+		return
+	}
+	m.detailSectionIndex = moveIndex(m.detailSectionIndex, len(sections), delta)
+	m.detailScroll = 0
+}
+
+func (m Model) detailSectionNames() []string {
+	sections := []string{"基础信息", "资源监控", "服务状态", "容器"}
+	if idx, ok := m.selectedRealIndex(); ok && strings.TrimSpace(m.states[idx].Metrics.Error) != "" {
+		sections = append(sections, "最近错误")
+	}
+	sections = append(sections, "登录记录", "风险提示")
+	return sections
+}
+
+func (m Model) openDetail(idx int) (tea.Model, tea.Cmd) {
+	if idx < 0 || idx >= len(m.states) {
+		return m, nil
+	}
+	m.mode = modeDetail
+	m.detailScroll = 0
+	if len(m.states[idx].LoginSummary) > 0 || len(m.states[idx].FailedLoginSummary) > 0 || len(m.states[idx].SSHDSecurity) > 0 || len(m.states[idx].PortDetails) > 0 || len(m.states[idx].ContainerDetails) > 0 || m.states[idx].LoginLoading || m.states[idx].LoginError != "" || m.states[idx].FailedLoginError != "" || m.states[idx].SSHDSecurityError != "" || m.states[idx].PortDetailsError != "" || m.states[idx].ContainerError != "" {
+		return m, nil
+	}
+	m.states[idx].LoginLoading = true
+	return m, m.fetchLoginRecords(idx)
+}
+
+func (m Model) fetchLoginRecords(index int) tea.Cmd {
+	if index < 0 || index >= len(m.states) {
+		return nil
+	}
+	h := m.states[index].Host
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		result, cleanup := actions.RemoteCommandContext(ctx, h, "last -n 100 2>/dev/null || true")
+		cleanup()
+		msg := loginRecordsMsg{Index: index}
+		if result.Err != nil {
+			errText := strings.TrimSpace(result.Output)
+			if errText == "" {
+				errText = result.Err.Error()
+			}
+			msg.ErrText = errText
+		} else {
+			msg.Summary = loginSummaryRows(parseLoginRecords(result.Output, 100))
+		}
+		failedResult, failedCleanup := actions.RemoteCommandContext(ctx, h, failedLoginScript())
+		failedCleanup()
+		if strings.TrimSpace(failedResult.Output) != "" {
+			msg.FailedSummary, msg.FailedErrText = failedLoginSummary(failedResult.Output)
+		}
+		if failedResult.Err != nil && msg.FailedErrText == "" {
+			msg.FailedErrText = failedResult.Err.Error()
+		}
+		sshdResult, sshdCleanup := actions.RemoteCommandContext(ctx, h, sshdSecurityScript())
+		sshdCleanup()
+		if strings.TrimSpace(sshdResult.Output) != "" {
+			msg.SSHDSecurity = parseSSHDSettings(sshdResult.Output)
+		}
+		if sshdResult.Err != nil {
+			msg.SSHDErrText = "sshd配置不可读"
+		}
+		portResult, portCleanup := actions.RemoteCommandContext(ctx, h, portDetailScript())
+		portCleanup()
+		msg.Ports, msg.PortsErrText = parsePortDetails(portResult.Output)
+		if portResult.Err != nil && msg.PortsErrText == "" {
+			msg.PortsErrText = portResult.Err.Error()
+		}
+		containerResult, containerCleanup := actions.RemoteCommandContext(ctx, h, containerDetailScript())
+		containerCleanup()
+		msg.Containers, msg.ContainerErr = parseContainerDetails(containerResult.Output)
+		if containerResult.Err != nil && msg.ContainerErr == "" {
+			msg.ContainerErr = containerResult.Err.Error()
+		}
+		associatePortContainers(msg.Ports, msg.Containers)
+		return msg
+	}
+}
+
 func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	key := shortcutKey(msg)
+	switch key {
 	case "esc", "q":
 		m.mode = modeDashboard
 		m.transfer = transferNone
@@ -1604,7 +2940,8 @@ func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = transferPanelStatus(m.panel.Mode)
 		return m, nil
 	}
-	switch msg.String() {
+	key := shortcutKey(msg)
+	switch key {
 	case "esc", "q":
 		m.mode = modeDashboard
 		m.transfer = transferNone
@@ -2300,6 +3637,66 @@ func (m *Model) move(delta int) {
 	}
 }
 
+func (m *Model) moveDashboardDown() {
+	if m.dashboardMode == dashboardCategory && m.dashboardFocus == 0 {
+		m.moveDashboardCategory(1)
+		return
+	}
+	if m.dashboardMode == dashboardCategory {
+		m.move(1)
+		return
+	}
+	if m.dashboardMode == dashboardCards && !m.searching {
+		m.move(m.dashboardColumns())
+		return
+	}
+	m.move(1)
+}
+
+func (m *Model) moveDashboardUp() {
+	if m.dashboardMode == dashboardCategory && m.dashboardFocus == 0 {
+		m.moveDashboardCategory(-1)
+		return
+	}
+	if m.dashboardMode == dashboardCategory {
+		m.move(-1)
+		return
+	}
+	if m.dashboardMode == dashboardCards && !m.searching {
+		m.move(-m.dashboardColumns())
+		return
+	}
+	m.move(-1)
+}
+
+func (m *Model) moveDashboardLeft() {
+	if m.dashboardMode == dashboardCategory {
+		m.dashboardFocus = 0
+		return
+	}
+	m.move(-1)
+}
+
+func (m *Model) moveDashboardRight() {
+	if m.dashboardMode == dashboardCategory {
+		if m.dashboardFocus == 0 {
+			m.dashboardFocus = 1
+		}
+		return
+	}
+	m.move(1)
+}
+
+func (m *Model) moveDashboardCategory(delta int) {
+	items := m.dashboardCategoryItems()
+	if len(items) == 0 {
+		return
+	}
+	index := m.dashboardCategorySelectedIndex(items)
+	index = clampInt(index+delta, 0, len(items)-1)
+	m.applyDashboardCategoryItem(items[index])
+}
+
 func clampInt(value int, min int, max int) int {
 	if value < min {
 		return min
@@ -2376,7 +3773,7 @@ func (m Model) filteredIndexes() []int {
 			continue
 		}
 		text := strings.ToLower(strings.Join([]string{
-			h.Name, h.HostName, h.User, h.Category,
+			h.Name, h.HostName, h.User, h.Category, h.Note, h.ExpireAt,
 		}, " "))
 		if q == "" || strings.Contains(text, q) {
 			indexes = append(indexes, i)
@@ -2544,6 +3941,30 @@ func (m Model) View() string {
 	if m.mode == modeCommandOutput {
 		return m.renderCommandOutput()
 	}
+	if m.mode == modeBatchSelect {
+		return m.renderBatchSelect()
+	}
+	if m.mode == modeBatchCommandList {
+		return m.renderBatchCommandList()
+	}
+	if m.mode == modeBatchCommandEdit {
+		return m.renderBatchCommandEdit()
+	}
+	if m.mode == modeBatchConfirm {
+		return m.renderBatchConfirm()
+	}
+	if m.mode == modeBatchOutput {
+		return m.renderBatchOutput()
+	}
+	if m.mode == modeCommandHistory {
+		return m.renderCommandHistory()
+	}
+	if m.mode == modeCommandHistoryDetail {
+		return m.renderCommandHistoryDetail()
+	}
+	if m.mode == modeAnomalyOverview {
+		return m.renderAnomalyOverview()
+	}
 	if m.mode == modeHelp {
 		return m.renderHelpPanel()
 	}
@@ -2553,12 +3974,20 @@ func (m Model) View() string {
 
 	indexes := m.filteredIndexes()
 	headerParts := []string{"sshm", fmt.Sprintf("服务器 %d", len(indexes))}
+	headerParts = append(headerParts, "视图："+dashboardModeName(m.dashboardMode))
+	if m.dashboardMode == dashboardCategory {
+		headerParts = append(headerParts, "分类："+m.dashboardCategoryActiveLabel())
+	}
 	if m.searching {
-		headerParts = append(headerParts, "搜索："+m.query+"█")
+		searchWidth := m.width / 3
+		if searchWidth < 8 {
+			searchWidth = 8
+		}
+		headerParts = append(headerParts, "搜索："+inlineCursorText(m.query, searchWidth, len([]rune(m.query))))
 	} else if m.query != "" {
 		headerParts = append(headerParts, "搜索："+m.query)
 	}
-	if m.category != "" {
+	if m.category != "" && m.dashboardMode != dashboardCategory {
 		headerParts = append(headerParts, "分类："+m.category)
 	}
 	if m.filter != filterAll {
@@ -2585,14 +4014,16 @@ func (m Model) View() string {
 
 	var lines []string
 	lines = append(lines, header)
-	lines = append(lines, "")
+	if m.dashboardMode != dashboardCategory {
+		lines = append(lines, "")
+	}
 
 	if len(m.states) == 0 {
 		lines = append(lines, mutedStyle.Render("没有服务器。按 a 添加服务器。"))
 	} else if len(indexes) == 0 {
 		lines = append(lines, mutedStyle.Render("没有匹配的服务器"))
 	} else {
-		lines = append(lines, m.renderDashboardGrid(indexes))
+		lines = append(lines, m.renderDashboard(indexes))
 	}
 
 	helpWidth := m.width
@@ -2600,7 +4031,10 @@ func (m Model) View() string {
 		helpWidth = contentWidth(m.width)
 	}
 	helpBlock := renderDashboardHelp(helpWidth)
-	pageDots := m.dashboardPageDots(len(indexes))
+	pageDots := ""
+	if m.dashboardMode == dashboardCards && !m.searching {
+		pageDots = m.dashboardPageDots(len(indexes))
+	}
 	reservedBottomLines := strings.Count(helpBlock, "\n") + 1
 	if pageDots != "" {
 		reservedBottomLines += strings.Count(pageDots, "\n") + 1
@@ -2623,16 +4057,21 @@ func renderDashboardHelp(width int) string {
 		"登录 Enter",
 		"详情 Space",
 		"命令 m",
+		"批量 b",
+		"历史 i",
+		"总览 w",
+		"视图 z",
 		"收藏 f",
 		"收藏 v",
 		"添加 a",
+		"复制 c",
 		"编辑 e",
 		"删除 x",
 		"上传 u",
 		"下载 d",
 		"刷新 r",
 		"搜索 /",
-		"分类 t",
+		"分类 Tab",
 		"在线 o",
 		"异常 p",
 		"排序 s",
@@ -2645,6 +4084,8 @@ func (m Model) renderAddForm() string {
 	title := "添加服务器"
 	if m.editing {
 		title = "编辑服务器"
+	} else if m.copying {
+		title = "复制服务器"
 	}
 	width := formContentWidth(m.width)
 	if m.useSingleFormPane(width) {
@@ -2836,11 +4277,10 @@ func commandInputText(value string, cursor int, active bool, width int) string {
 	if cursor > len(runes) {
 		cursor = len(runes)
 	}
-	display := value
 	if active {
-		display = string(runes[:cursor]) + "│" + string(runes[cursor:])
+		return "[" + formInputText(value, width, cursor) + "]"
 	}
-	fitted := fit(display, width)
+	fitted := padVisible(value, width)
 	return "[" + fitted + strings.Repeat(" ", maxInt(0, width-runewidth.StringWidth(fitted))) + "]"
 }
 
@@ -2871,36 +4311,63 @@ func commandTextArea(value string, cursor int, active bool, width int, height in
 	if cursor > len(runes) {
 		cursor = len(runes)
 	}
-	text := value
-	if active {
-		text = string(runes[:cursor]) + "│" + string(runes[cursor:])
-	}
-	lines := strings.Split(text, "\n")
 	cursorLine := 0
+	cursorCol := 0
 	if active {
-		cursorLine = strings.Count(string(runes[:cursor]), "\n")
+		cursorLine, cursorCol = cursorTextPosition(runes, cursor)
 	}
-	if len(lines) < height {
-		for len(lines) < height {
-			lines = append(lines, "")
-		}
-	}
+	lines := strings.Split(value, "\n")
+	start := 0
 	if len(lines) > height {
-		start := cursorLine - height + 1
+		start = cursorLine - height + 1
 		if start < 0 {
 			start = 0
 		}
 		if start+height > len(lines) {
 			start = len(lines) - height
 		}
-		lines = lines[start : start+height]
+	}
+	end := start + height
+	if end > len(lines) {
+		end = len(lines)
+	}
+	viewLines := make([]string, 0, height)
+	for i := start; i < end; i++ {
+		if active && i == cursorLine {
+			viewLines = append(viewLines, formInputText(lines[i], bodyWidth, cursorCol))
+			continue
+		}
+		viewLines = append(viewLines, fit(lines[i], bodyWidth))
+	}
+	for len(viewLines) < height {
+		viewLines = append(viewLines, "")
 	}
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(softGray).
 		Padding(0, 1).
 		Width(width).
-		Render(strings.Join(fitLines(lines, width-4), "\n"))
+		Render(strings.Join(viewLines, "\n"))
+}
+
+func cursorTextPosition(runes []rune, cursor int) (int, int) {
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+	line := 0
+	col := 0
+	for i := 0; i < cursor; i++ {
+		if runes[i] == '\n' {
+			line++
+			col = 0
+			continue
+		}
+		col++
+	}
+	return line, col
 }
 
 func (m Model) renderCommandConfirm() string {
@@ -3009,6 +4476,519 @@ func (m Model) renderCommandOutput() string {
 	}, "\n")
 }
 
+func (m Model) renderBatchSelect() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	help := "移动 ↑↓/jk  选择 Space  全选 a  清空 x  下一步 Enter  返回 Esc"
+	bodyHeight := m.height - 2
+	if bodyHeight < 8 {
+		bodyHeight = 8
+	}
+	contentHeight := bodyHeight - 2
+	if contentHeight < 3 {
+		contentHeight = 3
+	}
+	lines := []string{}
+	if len(m.batchIndexes) == 0 {
+		lines = append(lines, mutedStyle.Render("没有可选择的服务器"))
+	} else {
+		start, end := visibleRange(len(m.batchIndexes), m.batchCursor, contentHeight)
+		for i := start; i < end; i++ {
+			index := m.batchIndexes[i]
+			h := m.states[index].Host
+			prefix := " "
+			style := lipgloss.NewStyle()
+			if i == m.batchCursor {
+				prefix = "▶"
+				style = blueStyle.Bold(true)
+			}
+			mark := "[ ]"
+			if m.batchSelected[index] {
+				mark = "[x]"
+			}
+			lines = append(lines, style.Render(fit(fmt.Sprintf("%s %s %s", prefix, mark, hostDisplayName(h)), bodyWidth)))
+		}
+	}
+	for len(lines) < contentHeight {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
+	title := fmt.Sprintf("批量选择服务器  已选%d台", m.batchSelectedCount())
+	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, help)}, "\n")
+}
+
+func (m Model) renderBatchCommandList() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	help := "移动 ↑↓/jk  选择 Enter  返回 Esc"
+	bodyHeight := m.height - 2
+	if bodyHeight < 8 {
+		bodyHeight = 8
+	}
+	targets := m.batchTargetsHeader(width)
+	targetLines := strings.Count(targets, "\n") + 1
+	contentHeight := bodyHeight - 2 - targetLines
+	if contentHeight < 3 {
+		contentHeight = 3
+	}
+	lines := []string{}
+	start, end := visibleRange(len(m.batchCommandItems), m.batchCommandIndex, contentHeight)
+	for i := start; i < end; i++ {
+		item := m.batchCommandItems[i]
+		if item.Header {
+			lines = append(lines, detailSubTitle(item.Name))
+			continue
+		}
+		if item.Spacer {
+			lines = append(lines, "")
+			continue
+		}
+		prefix := " "
+		style := lipgloss.NewStyle()
+		if i == m.batchCommandIndex {
+			prefix = "▶"
+			style = blueStyle.Bold(true)
+		}
+		label := item.Name
+		if item.Temporary {
+			label = "+ " + label
+		}
+		lines = append(lines, style.Render(fit(prefix+" "+label, bodyWidth)))
+	}
+	for len(lines) < contentHeight {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
+	title := fmt.Sprintf("选择批量命令  %d台服务器", m.batchSelectedCount())
+	return strings.Join([]string{titleStyle.Render(fit(title, width)), targets, box, renderHelp(width, help)}, "\n")
+}
+
+func (m Model) renderBatchCommandEdit() string {
+	width := detailFrameWidth(m.width)
+	innerWidth := width - 4
+	if innerWidth < 36 {
+		innerWidth = 36
+	}
+	help := "保存 Enter  换行 Ctrl+J  返回 Esc"
+	targets := m.batchTargetsHeader(width)
+	targetLines := strings.Count(targets, "\n") + 1
+	lines := []string{detailSubTitle("命令内容")}
+	lines = append(lines, commandTextArea(m.commandForm.Command, m.commandCursor, true, innerWidth, m.batchCommandTextAreaHeight(targetLines)))
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(blue).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{titleStyle.Render(fit("批量临时命令", width)), targets, box, renderHelp(width, help)}, "\n")
+}
+
+func (m Model) batchCommandTextAreaHeight(targetLines int) int {
+	height := m.height - targetLines - 7
+	if height < 4 {
+		height = 4
+	}
+	return height
+}
+
+func (m Model) batchTargetsHeader(width int) string {
+	names := make([]string, 0, m.batchSelectedCount())
+	for _, index := range m.selectedBatchHostIndexes() {
+		if index >= 0 && index < len(m.states) {
+			names = append(names, hostDisplayName(m.states[index].Host))
+		}
+	}
+	if len(names) == 0 {
+		return mutedStyle.Render("目标 -")
+	}
+	return mutedStyle.Render(wrapPlainLine("目标 "+strings.Join(names, "、"), width))
+}
+
+func (m Model) renderBatchConfirm() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	lines := []string{
+		modalLine("服务器", fmt.Sprintf("%d台", m.batchSelectedCount()), bodyWidth),
+		modalLine("模板", m.batchCommand.Name, bodyWidth),
+		"",
+		detailSubTitle("目标"),
+	}
+	for _, index := range m.selectedBatchHostIndexes() {
+		lines = append(lines, fit("- "+hostDisplayName(m.states[index].Host), bodyWidth))
+	}
+	lines = append(lines, "", detailSubTitle("命令"))
+	lines = append(lines, strings.Split(wrapPlainLine(m.batchCommand.Command, bodyWidth), "\n")...)
+	scroll := clampInt(m.batchOutputScroll, 0, m.batchConfirmMaxScroll())
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	if len(lines) > height {
+		lines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(yellow).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{titleStyle.Render(fit("确认批量执行", width)), box, renderHelp(width, "滚动 ↑↓/jk  确认 Enter  返回 Esc")}, "\n")
+}
+
+func (m Model) batchConfirmMaxScroll() int {
+	lines := 5 + len(m.selectedBatchHostIndexes()) + len(wrapDetailValue(m.batchCommand.Command, detailFrameWidth(m.width)-4))
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	maxScroll := lines - height
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
+}
+
+func (m Model) renderBatchOutput() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	leftWidth := bodyWidth / 2
+	if leftWidth < 28 {
+		leftWidth = 28
+	}
+	rightWidth := bodyWidth - leftWidth - 2
+	if rightWidth < 24 {
+		rightWidth = 24
+	}
+	left := m.batchResultList(leftWidth)
+	right := m.batchOutputView(rightWidth)
+	body := lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right)
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(body)
+	title := fmt.Sprintf("批量执行结果  成功%d  失败%d", m.batchSuccessCount(), m.batchFailCount())
+	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, "选择 ↑↓/jk  输出 ←→/hl  重试失败 r  返回 q/Esc")}, "\n")
+}
+
+func (m Model) batchResultList(width int) string {
+	lines := make([]string, 0, len(m.batchJobs)+4)
+	displayIndexes := m.batchResultDisplayIndexes()
+	lastGroup := ""
+	for _, i := range displayIndexes {
+		if i < 0 || i >= len(m.batchJobs) {
+			continue
+		}
+		job := m.batchJobs[i]
+		group := batchJobGroup(job)
+		if group != lastGroup {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, batchJobGroupTitle(group))
+			lastGroup = group
+		}
+		prefix := " "
+		style := lipgloss.NewStyle()
+		if i == m.batchOutputIndex {
+			prefix = "▶"
+			style = blueStyle.Bold(true)
+		}
+		state := "等待"
+		if job.Running {
+			state = "执行中"
+		} else if job.Done && job.Err == nil {
+			state = greenStyle.Render("成功")
+		} else if job.Done && job.Err != nil {
+			state = redStyle.Render("失败")
+		}
+		name := "-"
+		if job.HostIndex >= 0 && job.HostIndex < len(m.states) {
+			name = hostDisplayName(m.states[job.HostIndex].Host)
+		}
+		lines = append(lines, style.Render(fit(fmt.Sprintf("%s %s  %s", prefix, state, name), width)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) batchResultDisplayIndexes() []int {
+	groups := []string{"failed", "running", "waiting", "success"}
+	indexes := make([]int, 0, len(m.batchJobs))
+	for _, group := range groups {
+		for i, job := range m.batchJobs {
+			if batchJobGroup(job) == group {
+				indexes = append(indexes, i)
+			}
+		}
+	}
+	return indexes
+}
+
+func batchJobGroup(job batchJob) string {
+	switch {
+	case job.Done && job.Err != nil:
+		return "failed"
+	case job.Running:
+		return "running"
+	case !job.Done:
+		return "waiting"
+	default:
+		return "success"
+	}
+}
+
+func batchJobGroupTitle(group string) string {
+	switch group {
+	case "failed":
+		return detailDangerSubTitle("失败")
+	case "running":
+		return detailSubTitle("执行中")
+	case "waiting":
+		return detailSubTitle("等待")
+	default:
+		return detailSuccessSubTitle("成功")
+	}
+}
+
+func (m Model) batchOutputView(width int) string {
+	if len(m.batchJobs) == 0 || m.batchOutputIndex < 0 || m.batchOutputIndex >= len(m.batchJobs) {
+		return ""
+	}
+	job := m.batchJobs[m.batchOutputIndex]
+	lines := []string{}
+	if job.Running {
+		lines = append(lines, "执行中...")
+	} else if !job.Done {
+		lines = append(lines, "等待执行")
+	} else {
+		output := strings.TrimRight(job.Output, "\n")
+		if output == "" {
+			output = "(无输出)"
+		}
+		lines = append(lines, strings.Split(output, "\n")...)
+		lines = append(lines, "", fmt.Sprintf("退出码 %d", job.ExitCode))
+	}
+	scroll := clampInt(m.batchOutputScroll, 0, m.batchOutputMaxScroll())
+	height := m.height - 6
+	if height < 6 {
+		height = 6
+	}
+	if len(lines) > height {
+		lines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	return strings.Join(fitLines(lines, width), "\n")
+}
+
+func (m Model) batchOutputMaxScroll() int {
+	if len(m.batchJobs) == 0 || m.batchOutputIndex < 0 || m.batchOutputIndex >= len(m.batchJobs) {
+		return 0
+	}
+	job := m.batchJobs[m.batchOutputIndex]
+	lines := 1
+	if job.Done {
+		if output := strings.TrimRight(job.Output, "\n"); output != "" {
+			lines = len(strings.Split(output, "\n")) + 2
+		} else {
+			lines = 3
+		}
+	}
+	height := m.height - 6
+	if height < 6 {
+		height = 6
+	}
+	maxScroll := lines - height
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
+}
+
+func (m Model) renderCommandHistory() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	help := "移动 ↑↓/jk  查看 Enter  搜索 /  重跑 r  删除 x  返回 q/Esc"
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	lines := []string{}
+	entries := m.filteredHistoryEntries()
+	if len(entries) == 0 {
+		lines = append(lines, mutedStyle.Render("暂无命令历史"))
+	} else {
+		start, end := visibleRange(len(entries), m.historyIndex, height)
+		for i := start; i < end; i++ {
+			entry := entries[i]
+			prefix := " "
+			style := lipgloss.NewStyle()
+			if i == m.historyIndex {
+				prefix = "▶"
+				style = blueStyle.Bold(true)
+			}
+			status := historyStatusText(entry.Status)
+			line := fmt.Sprintf("%s %s  %s  %s  %s", prefix, historyTimeShort(entry.Time), status, historyTargetsText(entry, 1), historyCommandName(entry))
+			lines = append(lines, style.Render(fit(line, bodyWidth)))
+		}
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
+	title := fmt.Sprintf("命令历史  %d条", len(entries))
+	if m.historySearch {
+		title += "  搜索：" + inlineCursorText(m.historyQuery, width/3, len([]rune(m.historyQuery)))
+	} else if strings.TrimSpace(m.historyQuery) != "" {
+		title += "  搜索：" + m.historyQuery
+	}
+	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, help)}, "\n")
+}
+
+func (m Model) renderCommandHistoryDetail() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	entry, ok := m.selectedHistoryEntry()
+	if !ok {
+		return "没有命令历史"
+	}
+	lines := []string{
+		modalLine("时间", historyTimeFull(entry.Time), bodyWidth),
+		modalLine("状态", historyStatusPlain(entry.Status), bodyWidth),
+		modalLine("类型", historyKindText(entry), bodyWidth),
+		modalLine("名称", historyCommandName(entry), bodyWidth),
+		"",
+		detailSubTitle("目标"),
+	}
+	for _, target := range entry.Targets {
+		state := historyStatusPlain(target.Status)
+		targetText := fmt.Sprintf("%s  %s  退出码%d", historyTargetName(target), state, target.ExitCode)
+		lines = append(lines, fit(targetText, bodyWidth))
+	}
+	lines = append(lines, "", detailSubTitle("命令"))
+	lines = append(lines, strings.Split(wrapPlainLine(entry.Command, bodyWidth), "\n")...)
+	lines = append(lines, "", detailSubTitle("输出"))
+	for _, target := range entry.Targets {
+		lines = append(lines, fit("["+historyTargetName(target)+"]", bodyWidth))
+		output := strings.TrimRight(target.Output, "\n")
+		if output == "" {
+			output = "(无输出)"
+		}
+		lines = append(lines, strings.Split(wrapPlainLine(output, bodyWidth), "\n")...)
+		lines = append(lines, "")
+	}
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	scroll := clampInt(m.historyScroll, 0, m.commandHistoryDetailMaxScroll())
+	viewLines := lines
+	if len(lines) > height {
+		viewLines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	for len(viewLines) < height {
+		viewLines = append(viewLines, "")
+	}
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(fitLines(viewLines, bodyWidth), "\n"))
+	return strings.Join([]string{titleStyle.Render(fit("命令历史详情", width)), box, renderHelp(width, "滚动 ↑↓/jk  重跑 r  删除 x  返回 q/Esc")}, "\n")
+}
+
+func (m Model) commandHistoryDetailMaxScroll() int {
+	entry, ok := m.selectedHistoryEntry()
+	if !ok {
+		return 0
+	}
+	bodyWidth := detailFrameWidth(m.width) - 4
+	lines := 9 + len(entry.Targets)*3 + len(wrapDetailValue(entry.Command, bodyWidth))
+	for _, target := range entry.Targets {
+		output := strings.TrimRight(target.Output, "\n")
+		if output == "" {
+			lines++
+		} else {
+			lines += len(wrapDetailValue(output, bodyWidth))
+		}
+	}
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	maxScroll := lines - height
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
+}
+
+func historyCommandName(entry config.CommandHistoryEntry) string {
+	name := strings.TrimSpace(entry.Name)
+	if name == "" {
+		return "临时命令"
+	}
+	return name
+}
+
+func historyKindText(entry config.CommandHistoryEntry) string {
+	if entry.Kind == "batch" {
+		return fmt.Sprintf("批量命令 %d台", len(entry.Targets))
+	}
+	return "单台命令"
+}
+
+func historyStatusText(status string) string {
+	if status == "failed" {
+		return redStyle.Render("失败")
+	}
+	return greenStyle.Render("成功")
+}
+
+func historyStatusPlain(status string) string {
+	if status == "failed" {
+		return "失败"
+	}
+	return "成功"
+}
+
+func historyTimeShort(value string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if err != nil {
+		return "--"
+	}
+	return t.Local().Format("01-02 15:04")
+}
+
+func historyTimeFull(value string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if err != nil {
+		return value
+	}
+	return t.Local().Format("2006-01-02 15:04:05")
+}
+
+func historyTargetsText(entry config.CommandHistoryEntry, limit int) string {
+	if len(entry.Targets) == 0 {
+		return "-"
+	}
+	names := make([]string, 0, len(entry.Targets))
+	for _, target := range entry.Targets {
+		names = append(names, historyTargetName(target))
+	}
+	if limit > 0 && len(names) > limit {
+		return fmt.Sprintf("%s 等%d台", names[0], len(names))
+	}
+	return strings.Join(names, "、")
+}
+
+func historyTargetName(target config.CommandHistoryTarget) string {
+	category := strings.TrimSpace(target.Category)
+	name := strings.TrimSpace(target.Name)
+	if category == "" {
+		return name
+	}
+	return "[" + category + "] " + name
+}
+
 func (m Model) renderHelpPanel() string {
 	width := detailFrameWidth(m.width)
 	bodyWidth := width - 4
@@ -3023,16 +5003,21 @@ func (m Model) renderHelpPanel() string {
 		{"Enter", "登录服务器"},
 		{"Space", "查看详情"},
 		{"m", "命令模板"},
+		{"b", "批量命令"},
+		{"i", "命令历史"},
+		{"w", "异常总览"},
+		{"z", "切换首页视图"},
 		{"f", "收藏 / 取消收藏"},
 		{"v", "只看收藏 / 取消筛选"},
 		{"a", "添加服务器"},
+		{"c", "复制服务器"},
 		{"e", "编辑服务器"},
 		{"x", "删除服务器"},
 		{"u", "上传文件或目录"},
 		{"d", "下载文件或目录"},
 		{"r", "刷新监控"},
 		{"/", "搜索"},
-		{"t", "切换分类"},
+		{"Tab", "切换分类"},
 		{"o", "只看在线 / 取消筛选"},
 		{"p", "只看异常 / 取消筛选"},
 		{"s", "切换排序"},
@@ -3054,6 +5039,355 @@ func (m Model) renderHelpPanel() string {
 		box,
 		renderHelp(width, "返回 q/Esc/?"),
 	}, "\n")
+}
+
+type anomalyItem struct {
+	Index  int
+	Checks []checkItem
+}
+
+func (m Model) anomalyItems() []anomalyItem {
+	items := make([]anomalyItem, 0)
+	for i, state := range m.states {
+		checks := actionableChecks(buildChecks(state))
+		if len(checks) == 0 {
+			continue
+		}
+		if !m.anomalyMatchesFilter(checks) {
+			continue
+		}
+		items = append(items, anomalyItem{Index: i, Checks: checks})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		aSevere, aWarn, aTip := checkCounts(items[i].Checks)
+		bSevere, bWarn, bTip := checkCounts(items[j].Checks)
+		if aSevere != bSevere {
+			return aSevere > bSevere
+		}
+		if aWarn != bWarn {
+			return aWarn > bWarn
+		}
+		if aTip != bTip {
+			return aTip > bTip
+		}
+		aHost := m.states[items[i].Index].Host
+		bHost := m.states[items[j].Index].Host
+		if aHost.Category == bHost.Category {
+			return aHost.Name < bHost.Name
+		}
+		return aHost.Category < bHost.Category
+	})
+	return items
+}
+
+func (m Model) anomalyMatchesFilter(checks []checkItem) bool {
+	switch m.anomalyFilter {
+	case anomalySevere:
+		for _, check := range checks {
+			if check.Level == "严重" {
+				return true
+			}
+		}
+		return false
+	case anomalyWarn:
+		for _, check := range checks {
+			if check.Level == "警告" {
+				return true
+			}
+		}
+		return false
+	case anomalyOffline:
+		return checksContainKind(checks, "offline")
+	case anomalyResource:
+		return checksContainKind(checks, "resource")
+	case anomalyContainer:
+		return checksContainKind(checks, "container")
+	case anomalyService:
+		return checksContainKind(checks, "service")
+	case anomalySecurity:
+		return checksContainKind(checks, "security")
+	default:
+		return true
+	}
+}
+
+func checksContainKind(checks []checkItem, kind string) bool {
+	for _, check := range checks {
+		if checkKind(check) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func actionableChecks(checks []checkItem) []checkItem {
+	out := make([]checkItem, 0, len(checks))
+	for _, check := range checks {
+		if check.Level == "严重" || check.Level == "警告" {
+			out = append(out, check)
+		}
+	}
+	return out
+}
+
+func checkCounts(checks []checkItem) (int, int, int) {
+	severe := 0
+	warn := 0
+	tip := 0
+	for _, check := range checks {
+		switch check.Level {
+		case "严重":
+			severe++
+		case "警告":
+			warn++
+		case "提示":
+			tip++
+		}
+	}
+	return severe, warn, tip
+}
+
+func (m Model) renderAnomalyOverview() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 42 {
+		bodyWidth = 42
+	}
+	items := m.anomalyItems()
+	m.anomalyIndex = clampInt(m.anomalyIndex, 0, maxInt(0, len(items)-1))
+	totalSevere, totalWarn := 0, 0
+	for _, item := range items {
+		severe, warn, _ := checkCounts(item.Checks)
+		totalSevere += severe
+		totalWarn += warn
+	}
+	title := fmt.Sprintf("异常总览  %d台  %s", len(items), anomalyFilterName(m.anomalyFilter))
+	if totalSevere > 0 {
+		title += "  " + redStyle.Render(fmt.Sprintf("严重%d", totalSevere))
+	}
+	if totalWarn > 0 {
+		title += "  " + yellowStyle.Render(fmt.Sprintf("警告%d", totalWarn))
+	}
+	if m.refreshStatus != "" {
+		title += "  " + m.refreshStatus
+	}
+	contentHeight := m.height - 4
+	if contentHeight < 8 {
+		contentHeight = 8
+	}
+	lines := []string{}
+	if len(items) == 0 {
+		lines = append(lines, greenStyle.Render("没有发现严重或警告级别的问题。"))
+		lines = append(lines, mutedStyle.Render("提示级别的问题仍可在服务器详情的风险页查看。"))
+	} else {
+		itemHeight := 3
+		rowsVisible := contentHeight / itemHeight
+		if rowsVisible < 1 {
+			rowsVisible = 1
+		}
+		start, end := visibleRange(len(items), m.anomalyIndex, rowsVisible)
+		if end <= start {
+			end = minInt(len(items), start+1)
+		}
+		lastGroup := ""
+		for i := start; i < end; i++ {
+			group := anomalyGroupName(items[i].Checks)
+			if group != lastGroup {
+				if len(lines) > 0 {
+					lines = append(lines, "")
+				}
+				lines = append(lines, anomalyGroupTitle(group))
+				lastGroup = group
+			}
+			if len(lines)+itemHeight > contentHeight {
+				break
+			}
+			lines = append(lines, m.anomalyItemLines(items[i], i == m.anomalyIndex, bodyWidth)...)
+			lines = append(lines, "")
+		}
+	}
+	for len(lines) < contentHeight {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{
+		titleStyle.Render(fitANSI(title, width)),
+		box,
+		renderHelp(width, "移动 ↑↓/jk  详情 Enter/Space  筛选 f/Tab  全部0 严重1 警告2 离线3 资源4 容器5 服务6 安全7  刷新 r  返回 q/Esc"),
+	}, "\n")
+}
+
+func (m Model) anomalyItemLines(item anomalyItem, selected bool, width int) []string {
+	state := m.states[item.Index]
+	h := state.Host
+	metrics := state.Metrics
+	prefix := " "
+	nameStyle := detailValueStyle
+	if selected {
+		prefix = "▶"
+		nameStyle = blueStyle.Bold(true)
+	}
+	severe, warn, _ := checkCounts(item.Checks)
+	summary := []string{}
+	if severe > 0 {
+		summary = append(summary, redStyle.Render(fmt.Sprintf("严重%d", severe)))
+	}
+	if warn > 0 {
+		summary = append(summary, yellowStyle.Render(fmt.Sprintf("警告%d", warn)))
+	}
+	name := hostDisplayName(h)
+	status := "离线"
+	if state.Loading {
+		status = "采集中"
+	} else if metrics.Online {
+		status = "在线"
+	}
+	nameWidth := 30
+	if width < 90 {
+		nameWidth = 24
+	}
+	if width < 72 {
+		nameWidth = 18
+	}
+	nameText := nameStyle.Render(padVisible(fitANSI(name, nameWidth), nameWidth))
+	riskText := padVisible(strings.Join(summary, " "), 10)
+	statusText := padVisible(colorStatus(status, state.Loading, metrics.Online), 6)
+	mainLine := fmt.Sprintf("%s %s  %s  %s  %s  %s",
+		prefix,
+		nameText,
+		statusText,
+		riskText,
+		anomalyResourceText(state),
+		serviceCardText(metrics),
+	)
+	reasons := make([]string, 0, minInt(3, len(item.Checks)))
+	for _, check := range item.Checks {
+		reasons = append(reasons, stripCheckPrefix(check.Text))
+		if len(reasons) >= 3 {
+			break
+		}
+	}
+	reasonLine := "  " + mutedStyle.Render("问题 ") + detailValueStyle.Render(strings.Join(reasons, "；"))
+	return []string{
+		fitANSI(mainLine, width),
+		fitANSI(reasonLine, width),
+	}
+}
+
+func anomalyGroupName(checks []checkItem) string {
+	severe, _, _ := checkCounts(checks)
+	if severe > 0 {
+		return "严重"
+	}
+	return "警告"
+}
+
+func anomalyGroupTitle(group string) string {
+	if group == "严重" {
+		return detailDangerSubTitle("严重")
+	}
+	return detailSubTitle("警告")
+}
+
+func anomalyFilterName(filter anomalyFilterMode) string {
+	switch filter {
+	case anomalySevere:
+		return "严重"
+	case anomalyWarn:
+		return "警告"
+	case anomalyOffline:
+		return "离线"
+	case anomalyResource:
+		return "资源"
+	case anomalyContainer:
+		return "容器"
+	case anomalyService:
+		return "服务"
+	case anomalySecurity:
+		return "安全"
+	default:
+		return "全部"
+	}
+}
+
+func anomalyResourceText(state hostState) string {
+	metrics := state.Metrics
+	if state.Loading || !metrics.Online {
+		return detailValueStyle.Render("CPU -  内存 -  磁盘 -")
+	}
+	return strings.Join([]string{
+		"CPU " + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%.0f%%", metrics.CPUPercent)),
+		"内存 " + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%.0f%%", metrics.MemPercent())),
+		"磁盘 " + metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%.0f%%", metrics.DiskPercent())),
+	}, "  ")
+}
+
+func stripCheckPrefix(value string) string {
+	value = strings.TrimSpace(value)
+	for _, sep := range []string{"：风险，", "：警告，", "：提示，"} {
+		if strings.Contains(value, sep) {
+			parts := strings.SplitN(value, sep, 2)
+			return strings.TrimSpace(parts[0] + "：" + parts[1])
+		}
+	}
+	return value
+}
+
+func anomalyDetailSection(checks []checkItem) string {
+	priority := []struct {
+		Kind    string
+		Section string
+	}{
+		{"offline", "基础信息"},
+		{"expire", "基础信息"},
+		{"container", "容器"},
+		{"service", "服务状态"},
+		{"security", "登录记录"},
+		{"resource", "资源监控"},
+	}
+	for _, item := range priority {
+		for _, check := range checks {
+			if checkKind(check) == item.Kind {
+				return item.Section
+			}
+		}
+	}
+	return "风险提示"
+}
+
+func checkKind(check checkItem) string {
+	text := strings.TrimSpace(check.Text)
+	switch {
+	case strings.HasPrefix(text, "服务器到期："):
+		return "expire"
+	case strings.HasPrefix(text, "服务器状态："):
+		return "offline"
+	case strings.HasPrefix(text, "CPU使用：") ||
+		strings.HasPrefix(text, "内存使用：") ||
+		strings.HasPrefix(text, "磁盘容量："):
+		return "resource"
+	case strings.HasPrefix(text, "容器状态：") ||
+		strings.HasPrefix(text, "容器详情："):
+		return "container"
+	case strings.HasPrefix(text, "系统服务：") ||
+		strings.HasPrefix(text, "健康端口：") ||
+		strings.HasPrefix(text, "端口详情："):
+		return "service"
+	case strings.HasPrefix(text, "允许密码登录：") ||
+		strings.HasPrefix(text, "允许root登录：") ||
+		strings.HasPrefix(text, "密钥登录：") ||
+		strings.HasPrefix(text, "SSH端口：") ||
+		strings.HasPrefix(text, "SSH配置检查：") ||
+		strings.HasPrefix(text, "失败登录来源IP过多："):
+		return "security"
+	default:
+		return "other"
+	}
 }
 
 func (m Model) useSingleFormPane(width int) bool {
@@ -3088,12 +5422,18 @@ func (m Model) renderServerFormPane(title string, width int, height int) string 
 				value = m.categories[m.categoryIndex]
 			}
 			value += mutedStyle.Render("  ←/→")
+		} else if i == expireAtFormIndex {
+			value = dateInputText(m.form.ExpireAt, m.formCursor, m.formPane == 0 && i == m.formIndex)
 		}
 		if m.formPane == 0 && i == m.formIndex {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
-		lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, i != 0, m.formPane == 0 && i == m.formIndex, m.formCursor)))
+		if i == expireAtFormIndex {
+			lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, false, false, m.formCursor)))
+		} else {
+			lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, i != 0, m.formPane == 0 && i == m.formIndex, m.formCursor)))
+		}
 	}
 	for len(lines) < contentHeight {
 		lines = append(lines, "")
@@ -3146,7 +5486,7 @@ func (m Model) renderCategoryPane(width int, height int) string {
 		lines = append(lines, "")
 	}
 	if m.addingCategory {
-		lines = append(lines, blueStyle.Bold(true).Render(fit("新分类 "+m.categoryDraft+"█", innerWidth)))
+		lines = append(lines, blueStyle.Bold(true).Render(prefixedCursorText("新分类 ", m.categoryDraft, innerWidth)))
 	}
 	for len(lines) < contentHeight {
 		lines = append(lines, "")
@@ -3188,7 +5528,39 @@ func formFieldLine(prefix string, label string, value string, width int, boxed b
 	return fit(labelText+" "+value, width)
 }
 
+func dateInputText(value string, cursor int, active bool) string {
+	runes := []rune(dateMask(value))
+	positions := dateInputPositions()
+	if active {
+		cursor = clampInt(cursor, 0, len(positions))
+		if cursor < len(positions) {
+			pos := positions[cursor]
+			runes = append(runes[:pos], append([]rune{'│'}, runes[pos:]...)...)
+		} else {
+			runes = append(runes, '│')
+		}
+	}
+	return "[" + string(runes) + "]"
+}
+
+func dateDigits(value string) string {
+	var out []rune
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			out = append(out, r)
+		}
+	}
+	if len(out) > 8 {
+		out = out[:8]
+	}
+	return string(out)
+}
+
 func formInputText(value string, width int, cursor int) string {
+	return padVisible(inlineCursorText(value, width, cursor), width)
+}
+
+func inlineCursorText(value string, width int, cursor int) string {
 	runes := []rune(value)
 	if cursor < 0 {
 		cursor = 0
@@ -3200,31 +5572,56 @@ func formInputText(value string, width int, cursor int) string {
 		width = 1
 	}
 	contentWidth := width - 1
-	if contentWidth < 0 {
-		contentWidth = 0
+	before := visibleTailByWidth(runes[:cursor], contentWidth)
+	remaining := contentWidth - runewidth.StringWidth(before)
+	if remaining < 0 {
+		remaining = 0
 	}
-	start := 0
-	if cursor > contentWidth {
-		start = cursor - contentWidth
+	after := visibleHeadByWidth(runes[cursor:], remaining)
+	return before + "│" + after
+}
+
+func prefixedCursorText(prefix string, value string, width int) string {
+	inputWidth := width - runewidth.StringWidth(prefix)
+	if inputWidth < 1 {
+		inputWidth = 1
 	}
-	if start > len(runes) {
-		start = len(runes)
+	return fit(prefix+inlineCursorText(value, inputWidth, len([]rune(value))), width)
+}
+
+func visibleTailByWidth(runes []rune, width int) string {
+	if width <= 0 || len(runes) == 0 {
+		return ""
 	}
-	end := start + contentWidth
-	if end > len(runes) {
-		end = len(runes)
+	used := 0
+	start := len(runes)
+	for start > 0 {
+		r := runes[start-1]
+		rw := runewidth.RuneWidth(r)
+		if used+rw > width {
+			break
+		}
+		used += rw
+		start--
 	}
-	visible := string(runes[start:end])
-	cursorPos := cursor - start
-	if cursorPos < 0 {
-		cursorPos = 0
+	return string(runes[start:])
+}
+
+func visibleHeadByWidth(runes []rune, width int) string {
+	if width <= 0 || len(runes) == 0 {
+		return ""
 	}
-	if cursorPos > len([]rune(visible)) {
-		cursorPos = len([]rune(visible))
+	used := 0
+	end := 0
+	for end < len(runes) {
+		rw := runewidth.RuneWidth(runes[end])
+		if used+rw > width {
+			break
+		}
+		used += rw
+		end++
 	}
-	visibleRunes := []rune(visible)
-	withCursor := string(visibleRunes[:cursorPos]) + "│" + string(visibleRunes[cursorPos:])
-	return padVisible(withCursor, width)
+	return string(runes[:end])
 }
 
 func categoryLine(prefix string, category string, count int, width int) string {
@@ -3320,25 +5717,82 @@ func (m Model) renderDetail() string {
 	}
 	idx, _ := m.selectedRealIndex()
 	width := detailFrameWidth(m.width)
-	header := titleStyle.Render(fit("服务器详情  "+m.states[idx].Host.Name, width))
-	help := renderHelp(width, "滚动 ↑↓/jk  登录 Enter  命令 m  上传 u  下载 d  刷新 r  返回 q/Esc")
+	headerText := "服务器详情  " + hostDisplayName(m.states[idx].Host)
+	if checks := m.currentDetailChecks(); len(checks) > 0 {
+		headerText += "  " + riskSummaryText(checks)
+	}
+	header := titleStyle.Render(fitANSI(headerText, width))
+	help := renderHelp(width, "滚动 ↑↓/jk  分类 ←→/Tab  登录 l  命令 m  上传 u  下载 d  刷新 r  返回 q/Esc")
+	tabs := m.renderDetailSectionTabs(width)
 	viewportHeight := m.detailViewportHeight()
 	if viewportHeight < len(lines) {
 		maxScroll := len(lines) - viewportHeight
 		scroll := clampInt(m.detailScroll, 0, maxScroll)
 		lines = lines[scroll : scroll+viewportHeight]
 	}
+	bodyContent := tabs + "\n" + detailFrameSeparator(width-2) + "\n" + strings.Join(lines, "\n")
 	body := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(softGray).
 		Padding(0, 1).
 		Width(width).
-		Render(strings.Join(lines, "\n"))
+		Render(bodyContent)
 	return strings.Join([]string{
 		header,
 		body,
 		help,
 	}, "\n")
+}
+
+func (m Model) renderDetailSectionTabs(width int) string {
+	sections := m.detailSectionNames()
+	activeIndex := m.detailSectionIndex
+	if len(sections) > 0 && activeIndex >= len(sections) {
+		activeIndex = len(sections) - 1
+	}
+	contentWidth := width - 2
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	parts := make([]string, 0, len(sections))
+	for i, section := range sections {
+		label := shortDetailSectionName(section)
+		if i == activeIndex {
+			parts = append(parts, titleStyle.Render(label))
+		} else {
+			parts = append(parts, mutedStyle.Render(label))
+		}
+	}
+	value := strings.Join(parts, "  ")
+	if ansi.StringWidth(value) > contentWidth && activeIndex > 0 {
+		value = strings.Join(parts[activeIndex:], "  ")
+	}
+	line := padVisible(fitANSI(value, contentWidth), contentWidth)
+	return line
+}
+
+func detailFrameSeparator(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	return cardBorderStyle.Render(strings.Repeat("─", width))
+}
+
+func shortDetailSectionName(section string) string {
+	switch section {
+	case "基础信息":
+		return "基础"
+	case "资源监控":
+		return "资源"
+	case "服务状态":
+		return "服务"
+	case "登录记录":
+		return "登录"
+	case "风险提示":
+		return "风险"
+	default:
+		return section
+	}
 }
 
 func (m Model) detailLines() ([]string, bool) {
@@ -3371,6 +5825,13 @@ func (m Model) detailLines() ([]string, bool) {
 		m.detailRow("内核", emptyDash(metrics.Kernel)),
 		m.detailRow("架构", emptyDash(metrics.Arch)),
 		m.detailRow("来源", h.File),
+		m.detailRow("到期时间", emptyDash(h.ExpireAt)),
+		m.detailRow("剩余时间", expireDetailText(h.ExpireAt)),
+		m.detailRow("备注", emptyDash(h.Note)),
+		m.detailRow("最近登录", lastLoginDetail(m.lastLogin(h))),
+	}
+	checks := buildChecks(state)
+	lines = append(lines,
 		"",
 		sectionTitle("资源监控"),
 		detailSubTitle("CPU"),
@@ -3399,24 +5860,108 @@ func (m Model) detailLines() ([]string, bool) {
 		sectionTitle("服务状态"),
 		detailSubTitle("健康"),
 		m.detailRow("健康端口", healthPortsText(metrics)),
-		m.detailRow("监听端口", emptyDash(metrics.Ports)),
 		"",
-		detailSubTitle("容器"),
-	}
-	lines = append(lines, dockerDetailRows(m, metrics)...)
+		detailSubTitle("端口"),
+	)
+	lines = append(lines, portDetailRows(m, state)...)
 	lines = append(lines,
 		"",
 		detailSubTitle("异常"),
 		m.detailRow("异常服务", failedServiceText(metrics, 8)),
+		"",
+		sectionTitle("容器"),
+		detailSubTitle("状态"),
 	)
+	lines = append(lines, dockerDetailRows(m, metrics, state)...)
+	lines = append(lines, "", detailSubTitle("详情"))
+	lines = append(lines, containerDetailRows(m, state)...)
 	if metrics.Error != "" {
 		lines = append(lines, "", sectionTitle("最近错误"), m.detailRow("错误", metrics.Error))
 	}
+	lines = append(lines, "", sectionTitle("登录记录"), detailSuccessSubTitle("成功"))
+	lines = append(lines, loginSummaryDetailRows(m, state.LoginLoading, state.LoginSummary, state.LoginError, false)...)
+	lines = append(lines, "", detailDangerSubTitle("失败"))
+	lines = append(lines, loginSummaryDetailRows(m, state.LoginLoading, state.FailedLoginSummary, state.FailedLoginError, true)...)
+	lines = append(lines, "", sectionTitle("风险提示"))
+	lines = append(lines, checkSuggestionRows(m, state, checks)...)
+	lines = m.activeDetailSectionLines(lines)
 	return lines, true
 }
 
+func (m Model) currentDetailChecks() []checkItem {
+	idx, ok := m.selectedRealIndex()
+	if !ok {
+		return nil
+	}
+	return buildChecks(m.states[idx])
+}
+
+func (m Model) activeDetailSectionLines(lines []string) []string {
+	sections := m.detailSectionNames()
+	if len(sections) == 0 {
+		return lines
+	}
+	index := clampInt(m.detailSectionIndex, 0, len(sections)-1)
+	target := sections[index]
+	out := []string{}
+	inSection := false
+	for _, line := range lines {
+		name, isSection := detailSectionNameFromLine(line)
+		if isSection {
+			if name == target {
+				inSection = true
+				out = append(out, m.renderDetailSectionLine(name, line))
+				continue
+			}
+			if inSection {
+				break
+			}
+			continue
+		}
+		if inSection {
+			out = append(out, line)
+		}
+	}
+	if len(out) == 0 {
+		return []string{m.renderDetailSectionLine(target, sectionTitle(target)), m.detailRow("状态", "暂无内容")}
+	}
+	return out
+}
+
+func (m Model) renderDetailSectionLine(name string, fallback string) string {
+	sections := m.detailSectionNames()
+	selected := false
+	if m.detailSectionIndex >= 0 && m.detailSectionIndex < len(sections) {
+		selected = sections[m.detailSectionIndex] == name
+	}
+	marker := "  "
+	style := detailSectionStyle
+	if selected {
+		marker = "▶ "
+		style = blueStyle.Bold(true)
+	}
+	if name == "" {
+		return fallback
+	}
+	return marker + style.Render("["+name+"]")
+}
+
+func detailSectionNameFromLine(line string) (string, bool) {
+	plain := ansi.Strip(line)
+	plain = strings.TrimSpace(strings.TrimPrefix(plain, "▶"))
+	if !strings.HasPrefix(plain, "[") {
+		return "", false
+	}
+	start := strings.Index(plain, "[")
+	end := strings.Index(plain, "]")
+	if start < 0 || end <= start {
+		return "", false
+	}
+	return plain[start+1 : end], true
+}
+
 func (m Model) detailViewportHeight() int {
-	height := m.height - 4
+	height := m.height - 6
 	if height < 5 {
 		height = 5
 	}
@@ -3564,6 +6109,25 @@ func renderTransferPane(title string, choices []choice, index int, width int, he
 	return style.Render(strings.Join(lines, "\n"))
 }
 
+func (m Model) renderDashboard(indexes []int) string {
+	if m.searching {
+		return m.renderDashboardList(indexes, m.width)
+	}
+	if m.dashboardMode == dashboardCategory {
+		return m.renderDashboardCategory(indexes)
+	}
+	return m.renderDashboardGrid(indexes)
+}
+
+func dashboardModeName(mode dashboardMode) string {
+	switch mode {
+	case dashboardCategory:
+		return "分类"
+	default:
+		return "卡片"
+	}
+}
+
 func (m Model) renderDashboardGrid(indexes []int) string {
 	totalWidth := m.width
 	if totalWidth <= 0 {
@@ -3593,20 +6157,489 @@ func (m Model) renderDashboardGrid(indexes []int) string {
 
 	var out []string
 	for i := start; i < end; i += cols {
+		rowEnd := i + cols
+		if rowEnd > end {
+			rowEnd = end
+		}
+		rowHasNote := false
+		for j := i; j < rowEnd; j++ {
+			if strings.TrimSpace(indexesHostNote(m.states, indexes[j])) != "" {
+				rowHasNote = true
+				break
+			}
+		}
 		var row []string
 		for col := 0; col < cols; col++ {
 			cardWidth := cardWidths[col]
 			if i+col >= end {
-				row = append(row, padBlock(blankCard(cardWidth), cardWidth))
+				row = append(row, padBlock(blankCard(cardWidth, rowHasNote), cardWidth))
 				continue
 			}
 			visibleIndex := i + col
 			realIndex := indexes[visibleIndex]
-			row = append(row, padBlock(m.renderCard(realIndex, visibleIndex == m.selected, cardWidth), cardWidth))
+			row = append(row, padBlock(m.renderCard(realIndex, visibleIndex == m.selected, cardWidth, rowHasNote), cardWidth))
 		}
 		out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, row...))
 	}
 	return strings.Join(out, "\n")
+}
+
+func (m Model) renderDashboardList(indexes []int, width int) string {
+	if width <= 0 {
+		width = contentWidth(m.width)
+	}
+	height := m.dashboardListHeight()
+	start, end := visibleRange(len(indexes), m.selected, height)
+	lines := make([]string, 0, height)
+	for i := start; i < end; i++ {
+		realIndex := indexes[i]
+		lines = append(lines, m.dashboardListLine(realIndex, i == m.selected, width))
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) dashboardListHeight() int {
+	height := m.height - 4
+	if height < 5 {
+		height = 5
+	}
+	return height
+}
+
+func (m Model) dashboardListLine(index int, selected bool, width int) string {
+	state := m.states[index]
+	h := state.Host
+	metrics := state.Metrics
+	prefix := " "
+	nameStyle := detailValueStyle
+	if selected {
+		prefix = "▶"
+		nameStyle = blueStyle.Bold(true)
+	}
+	status := "离线"
+	if state.Loading {
+		status = "采集"
+	} else if metrics.Online {
+		status = "在线"
+	}
+	nameWidth := 28
+	if width < 110 {
+		nameWidth = 22
+	}
+	if width < 78 {
+		nameWidth = 16
+	}
+	name := nameStyle.Render(padVisible(fitANSI(hostDisplayName(h), nameWidth), nameWidth))
+	statusText := padVisible(colorStatus(status, state.Loading, metrics.Online), 6)
+	cpu, mem, disk := dashboardListResourceColumns(state)
+	containerText, serviceText := dashboardListServiceColumns(metrics)
+	expire := padVisible(expireCardTextOrDash(h.ExpireAt), 10)
+	addressWidth := 22
+	if width < 100 {
+		addressWidth = 16
+	}
+	address := cardMutedStyle.Render(padVisible(fit(h.Address(), addressWidth), addressWidth))
+	line := fmt.Sprintf("%s %s  %s  %s  %s  %s  %s  %s  %s  %s", prefix, name, statusText, cpu, mem, disk, containerText, serviceText, expire, address)
+	return fitANSI(line, width)
+}
+
+func dashboardListResourceColumns(state hostState) (string, string, string) {
+	metrics := state.Metrics
+	if state.Loading || !metrics.Online {
+		return detailValueStyle.Render(padVisible("CPU -", 7)),
+			detailValueStyle.Render(padVisible("内存 -", 8)),
+			detailValueStyle.Render(padVisible("磁盘 -", 8))
+	}
+	cpu := "CPU " + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%3.0f%%", metrics.CPUPercent))
+	mem := "内存 " + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%3.0f%%", metrics.MemPercent()))
+	disk := "磁盘 " + metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%3.0f%%", metrics.DiskPercent()))
+	return padVisible(cpu, 7), padVisible(mem, 8), padVisible(disk, 8)
+}
+
+func dashboardListServiceColumns(metrics monitor.Metrics) (string, string) {
+	total := dockerTotal(metrics)
+	containerRaw := fmt.Sprintf("容器 %d/%d/%d", metrics.DockerFailed, metrics.DockerRunning, total)
+	if total == 0 {
+		containerRaw = "容器 0"
+	}
+	container := cardMutedStyle.Render("容器 ")
+	if metrics.DockerFailed > 0 {
+		container += redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
+	} else if total == 0 {
+		container += cardMutedStyle.Render("0")
+	} else {
+		container += cardMutedStyle.Render(fmt.Sprintf("0/%d/%d", metrics.DockerRunning, total))
+	}
+	serviceNumber := cardMutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+	if metrics.FailedServices > 0 {
+		serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+	}
+	service := cardMutedStyle.Render("服务 ") + serviceNumber
+	return padVisible(container, maxInt(12, ansi.StringWidth(containerRaw))), padVisible(service, 7)
+}
+
+func compactResourceTriplet(state hostState) (string, string, string) {
+	metrics := state.Metrics
+	if state.Loading || !metrics.Online {
+		return detailValueStyle.Render("CPU-"), detailValueStyle.Render("内-"), detailValueStyle.Render("磁-")
+	}
+	return "CPU" + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%.0f", metrics.CPUPercent)),
+		"内" + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%.0f", metrics.MemPercent())),
+		"磁" + metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%.0f", metrics.DiskPercent()))
+}
+
+func compactServicePair(metrics monitor.Metrics) (string, string) {
+	total := dockerTotal(metrics)
+	container := "容器0"
+	if total > 0 {
+		if metrics.DockerFailed > 0 {
+			container = "容器" + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
+		} else {
+			container = cardMutedStyle.Render(fmt.Sprintf("容器0/%d/%d", metrics.DockerRunning, total))
+		}
+	} else {
+		container = cardMutedStyle.Render(container)
+	}
+	serviceNumber := cardMutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+	if metrics.FailedServices > 0 {
+		serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+	}
+	return container, cardMutedStyle.Render("服务") + serviceNumber
+}
+
+func compactExpireText(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return cardMutedStyle.Render("到期-")
+	}
+	return expireCardText(value)
+}
+
+func expireCardTextOrDash(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return cardMutedStyle.Render("到期 -")
+	}
+	return expireCardText(value)
+}
+
+func (m Model) renderDashboardCategory(indexes []int) string {
+	width := contentWidth(m.width)
+	if width <= 0 {
+		width = contentWidth(m.width)
+	}
+	if width < 100 {
+		return m.renderDashboardCategoryTop(indexes, width)
+	}
+	leftWidth := 24
+	if width >= 120 {
+		leftWidth = 28
+	}
+	gap := 0
+	height := m.dashboardCategoryBodyHeight()
+	rightWidth := width - leftWidth - gap
+	if rightWidth < 34 {
+		return m.renderDashboardCategoryTop(indexes, width)
+	}
+	left := m.renderDashboardCategoryPane(leftWidth, height)
+	right := m.renderDashboardCategoryServerPane(indexes, rightWidth, height)
+	return lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+}
+
+func (m Model) renderDashboardCategoryTop(indexes []int, width int) string {
+	if width < 34 {
+		width = 34
+	}
+	contentWidth := width - 4
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	bar := m.renderDashboardCategoryTopBar(contentWidth)
+	height := m.dashboardCategoryBodyHeight() - 2
+	if height < 3 {
+		height = 3
+	}
+	list := m.renderDashboardCategoryServers(indexes, contentWidth, height)
+	content := strings.Join([]string{
+		bar,
+		detailFrameSeparator(contentWidth),
+		list,
+	}, "\n")
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width - 2).
+		Render(content)
+}
+
+func (m Model) renderDashboardCategoryTopBar(width int) string {
+	items := m.dashboardCategoryItems()
+	selected := m.dashboardCategorySelectedIndex(items)
+	if width < 10 {
+		width = 10
+	}
+	parts := make([]string, 0, len(items))
+	for i, item := range items {
+		label := fmt.Sprintf("%s %d", item.Label, item.Count)
+		if i == selected {
+			label = titleStyle.Render(label)
+		} else {
+			label = mutedStyle.Render(label)
+		}
+		parts = append(parts, label)
+	}
+	value := ""
+	if len(parts) > 0 {
+		value = strings.Join(parts, "  ")
+		if ansi.StringWidth(value) > width && selected > 0 {
+			value = strings.Join(parts[selected:], "  ")
+		}
+	}
+	return padVisible(fitANSI(value, width), width)
+}
+
+func (m Model) dashboardCategoryBodyHeight() int {
+	height := m.height - 4
+	if height < 5 {
+		height = 5
+	}
+	return height
+}
+
+func (m Model) renderDashboardCategoryServers(indexes []int, width int, height int) string {
+	start, end := visibleRange(len(indexes), m.selected, height)
+	lines := []string{}
+	for i := start; i < end; i++ {
+		lines = append(lines, padVisible(m.dashboardCategoryServerLine(indexes[i], i == m.selected, width), width))
+	}
+	for len(lines) < height {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderDashboardCategoryServerPane(indexes []int, width int, height int) string {
+	border := softGray
+	styleWidth := width - 2
+	contentWidth := width - 4
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(border).
+		Padding(0, 1).
+		Width(styleWidth).
+		Render(m.renderDashboardCategoryServers(indexes, contentWidth, height))
+}
+
+func dashboardCategoryNameWidth(width int) int {
+	nameWidth := 24
+	if width < 92 {
+		nameWidth = 20
+	}
+	if width < 74 {
+		nameWidth = 16
+	}
+	return nameWidth
+}
+
+func (m Model) dashboardCategoryServerLine(index int, selected bool, width int) string {
+	state := m.states[index]
+	h := state.Host
+	metrics := state.Metrics
+	nameStyle := detailValueStyle
+	if selected {
+		nameStyle = blueStyle.Bold(true)
+	}
+	status := "离线"
+	if state.Loading {
+		status = "采集"
+	} else if metrics.Online {
+		status = "在线"
+	}
+	nameWidth := dashboardCategoryNameWidth(width)
+	name := nameStyle.Render(padVisible(fitANSI(hostDisplayName(h), nameWidth), nameWidth))
+	statusText := colorStatus(status, state.Loading, metrics.Online)
+	cpu, mem, disk := compactResourceTriplet(state)
+	container, service := compactServicePair(metrics)
+	timeText := cardHeaderMeta(h, metrics)
+	cell := func(value string, cellWidth int) string {
+		return padVisible(fitANSI(value, cellWidth), cellWidth)
+	}
+	fields := []string{
+		name,
+		cell(statusText, 4),
+		cell(cpu, 6),
+		cell(mem, 5),
+		cell(disk, 5),
+		cell(container, 11),
+		cell(service, 7),
+	}
+	fields = append(fields, cell(timeText, 8))
+	line := strings.Join(fields, " ")
+	used := ansi.StringWidth(line)
+	if remaining := width - used - 1; remaining >= 8 {
+		line += " " + cell(cardMutedStyle.Render(h.Address()), remaining)
+	}
+	return fitANSI(line, width)
+}
+
+func (m Model) renderDashboardCategoryPane(width int, height int) string {
+	items := m.dashboardCategoryItems()
+	active := m.dashboardMode == dashboardCategory && m.dashboardFocus == 0
+	selected := m.dashboardCategorySelectedIndex(items)
+	contentWidth := width - 4
+	if contentWidth < 10 {
+		contentWidth = 10
+	}
+	lines := []string{titleStyle.Render(fit("分类", contentWidth))}
+	listHeight := height - 2
+	if listHeight < 1 {
+		listHeight = 1
+	}
+	start, end := visibleRange(len(items), selected, listHeight)
+	for i := start; i < end; i++ {
+		item := items[i]
+		prefix := " "
+		style := detailValueStyle
+		if i == selected {
+			prefix = "▶"
+			if active {
+				style = blueStyle.Bold(true)
+			}
+		}
+		count := mutedStyle.Render(fmt.Sprintf("%d", item.Count))
+		countWidth := ansi.StringWidth(count)
+		labelWidth := contentWidth - countWidth - 3
+		if labelWidth < 4 {
+			labelWidth = 4
+		}
+		label := style.Render(fit(item.Label, labelWidth))
+		line := prefix + " " + label
+		spaces := contentWidth - ansi.StringWidth(line) - countWidth
+		if spaces < 1 {
+			spaces = 1
+		}
+		lines = append(lines, padVisible(line+strings.Repeat(" ", spaces)+count, contentWidth))
+	}
+	for len(lines) < height {
+		lines = append(lines, strings.Repeat(" ", contentWidth))
+	}
+	border := softGray
+	if active {
+		border = blue
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(0, 1).Width(width - 2).Render(strings.Join(lines, "\n"))
+}
+
+type dashboardCategoryItem struct {
+	Label string
+	Kind  string
+	Value string
+	Count int
+}
+
+func (m Model) dashboardCategoryItems() []dashboardCategoryItem {
+	items := []dashboardCategoryItem{
+		{Label: "全部", Kind: "all", Count: len(m.states)},
+	}
+	seen := map[string]bool{}
+	categories := []string{}
+	for _, state := range m.states {
+		cat := state.Host.Category
+		if cat != "" && !seen[cat] {
+			seen[cat] = true
+			categories = append(categories, cat)
+		}
+	}
+	sort.Strings(categories)
+	for _, category := range categories {
+		cat := category
+		items = append(items, dashboardCategoryItem{
+			Label: category,
+			Kind:  "category",
+			Value: category,
+			Count: m.countHosts(func(state hostState) bool { return state.Host.Category == cat }),
+		})
+	}
+	return items
+}
+
+func (m Model) countHosts(match func(hostState) bool) int {
+	count := 0
+	for _, state := range m.states {
+		if match(state) {
+			count++
+		}
+	}
+	return count
+}
+
+func (m Model) dashboardCategorySelectedIndex(items []dashboardCategoryItem) int {
+	for i, item := range items {
+		switch item.Kind {
+		case "favorite":
+			if m.favoriteOnly {
+				return i
+			}
+		case "problem":
+			if m.filter == filterProblem {
+				return i
+			}
+		case "online":
+			if m.filter == filterOnline {
+				return i
+			}
+		case "category":
+			if !m.favoriteOnly && m.filter == filterAll && m.category == item.Value {
+				return i
+			}
+		case "all":
+			if !m.favoriteOnly && m.filter == filterAll && m.category == "" {
+				return i
+			}
+		}
+	}
+	return 0
+}
+
+func (m Model) dashboardCategoryActiveLabel() string {
+	items := m.dashboardCategoryItems()
+	if len(items) == 0 {
+		return "全部"
+	}
+	index := m.dashboardCategorySelectedIndex(items)
+	if index < 0 || index >= len(items) {
+		return "全部"
+	}
+	return items[index].Label
+}
+
+func (m *Model) applyDashboardCategoryItem(item dashboardCategoryItem) {
+	m.favoriteOnly = false
+	m.filter = filterAll
+	m.category = ""
+	switch item.Kind {
+	case "favorite":
+		m.favoriteOnly = true
+	case "problem":
+		m.filter = filterProblem
+	case "online":
+		m.filter = filterOnline
+	case "category":
+		m.category = item.Value
+	}
+	m.selected = 0
+}
+
+func indexesHostNote(states []hostState, index int) string {
+	if index < 0 || index >= len(states) {
+		return ""
+	}
+	return states[index].Host.Note
 }
 
 func (m Model) dashboardPageDots(totalItems int) string {
@@ -3770,7 +6803,7 @@ func withVerticalNav(content string, totalWidth, totalItems, cols, startRow, row
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) renderCard(index int, selected bool, width int) string {
+func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine bool) string {
 	state := m.states[index]
 	h := state.Host
 	metrics := state.Metrics
@@ -3807,9 +6840,13 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 	cpuLine := cardMetricLine("CPU", cpu, cpuCoresText(metrics), innerWidth)
 	memLine := cardMetricLine("内存", mem, bytesPair(metrics.MemUsed, metrics.MemTotal), innerWidth)
 	diskLine := cardMetricLine("磁盘", disk, bytesPair(metrics.DiskUsed, metrics.DiskTotal), innerWidth)
-	uptimeLabel := mutedStyle.Render(cardUptimeShort(metrics.Uptime))
+	uptimeLabel := cardHeaderMeta(h, metrics)
 	loadLine := fit(fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15)), innerWidth)
 	serviceLine := ansi.Truncate(serviceCardText(metrics), innerWidth, "…")
+	riskText := cardRiskText(buildChecks(state), innerWidth)
+	if riskText != "" {
+		serviceLine = ansi.Truncate(serviceLine+"  "+riskText, innerWidth, "…")
+	}
 	titleText := name
 	if categoryLabel != "" {
 		titleText = favoriteMark + categoryLabel + " " + name
@@ -3833,7 +6870,12 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 		port = "22"
 	}
 	userPort += ":" + port
-	addressLine := fit(fmt.Sprintf("%s %s", h.Address(), userPort), innerWidth)
+	addressText := fmt.Sprintf("%s %s", h.Address(), userPort)
+	if recent := lastLoginCard(m.lastLogin(h)); recent != "" {
+		addressText += "  " + recent
+	}
+	addressLine := fit(addressText, innerWidth)
+	noteLine := cardNoteText(h.Note, innerWidth)
 	stateMark := colorStatus("●", state.Loading, metrics.Online)
 	lines := []string{
 		cardTopLine(cardWidth, title, uptimeLabel, stateMark, borderStyle),
@@ -3844,21 +6886,28 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 		cardInnerSeparatorLine(cardWidth, borderStyle),
 		cardMutedContentLine(cardWidth, loadLine, borderStyle),
 		cardContentLine(cardWidth, serviceLine, borderStyle),
-		cardBottomLine(cardWidth, borderStyle),
 	}
+	if noteLine != "" || reserveNoteLine {
+		lines = append(lines, cardMutedContentLine(cardWidth, noteLine, borderStyle))
+	}
+	lines = append(lines, cardBottomLine(cardWidth, borderStyle))
 	return strings.Join(lines, "\n")
 }
 
-func blankCard(width int) string {
+func blankCard(width int, reserveNoteLine bool) string {
 	innerWidth := width - 4
 	if innerWidth < 30 {
 		innerWidth = 30
+	}
+	height := dashboardCardInnerHeight
+	if reserveNoteLine {
+		height++
 	}
 	return lipgloss.NewStyle().
 		Border(lipgloss.HiddenBorder()).
 		Padding(0, 1).
 		Width(innerWidth).
-		Height(dashboardCardInnerHeight).
+		Height(height).
 		Render("")
 }
 
@@ -3876,7 +6925,7 @@ func metricLine(label, value string) string {
 	if padding < 1 {
 		padding = 1
 	}
-	return mutedStyle.Render(label) + strings.Repeat(" ", padding) + value
+	return cardMutedStyle.Render(label) + strings.Repeat(" ", padding) + value
 }
 
 func cardMetricLine(label string, base string, extra string, width int) string {
@@ -3889,7 +6938,7 @@ func compactCardMetric(label string, base string, extra string, width int) strin
 	if extra == "" || extra == "-" {
 		return base
 	}
-	full := base + "  " + mutedStyle.Render(extra)
+	full := base + "  " + cardMutedStyle.Render(extra)
 	if ansi.StringWidth(metricLine(label, full)) <= width {
 		return full
 	}
@@ -3985,6 +7034,72 @@ func cardTopLine(width int, title string, meta string, dot string, borderStyle l
 	return left + prefix + title + titleGap + borderStyle.Render(strings.Repeat("─", fillWidth)) + suffix + right
 }
 
+func cardNoteText(note string, width int) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
+	}
+	return fit("备注 "+note, width)
+}
+
+func cardHeaderMeta(h host.Host, metrics monitor.Metrics) string {
+	if strings.TrimSpace(h.ExpireAt) != "" {
+		return expireCardText(h.ExpireAt)
+	}
+	return cardMutedStyle.Render(cardUptimeShort(metrics.Uptime))
+}
+
+func expireCardText(value string) string {
+	days, ok := expireDays(value)
+	if !ok {
+		return redStyle.Render("到期格式错")
+	}
+	switch {
+	case days < 0:
+		return redStyle.Render("已过期")
+	case days == 0:
+		return redStyle.Render("今天到期")
+	case days <= 7:
+		return yellowStyle.Render(fmt.Sprintf("到期%d天", days))
+	default:
+		return cardMutedStyle.Render(fmt.Sprintf("到期%d天", days))
+	}
+}
+
+func expireDetailText(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	days, ok := expireDays(value)
+	if !ok {
+		return redStyle.Render("格式错误")
+	}
+	switch {
+	case days < 0:
+		return redStyle.Render(fmt.Sprintf("已过期%d天", -days))
+	case days == 0:
+		return redStyle.Render("今天到期")
+	case days <= 7:
+		return yellowStyle.Render(fmt.Sprintf("剩余%d天", days))
+	default:
+		return fmt.Sprintf("剩余%d天", days)
+	}
+}
+
+func expireDays(value string) (int, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	expire, err := time.ParseInLocation("2006-01-02", value, time.Local)
+	if err != nil {
+		return 0, false
+	}
+	now := time.Now().In(time.Local)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	return int(expire.Sub(today).Hours() / 24), true
+}
+
 func cardContentLine(width int, content string, borderStyle lipgloss.Style) string {
 	innerWidth := width - 2
 	contentWidth := innerWidth - 2
@@ -3995,7 +7110,7 @@ func cardContentLine(width int, content string, borderStyle lipgloss.Style) stri
 func cardMutedContentLine(width int, content string, borderStyle lipgloss.Style) string {
 	innerWidth := width - 2
 	contentWidth := innerWidth - 2
-	line := mutedStyle.Render(padVisible(content, contentWidth))
+	line := cardMutedStyle.Render(padVisible(content, contentWidth))
 	return borderStyle.Render("│") + " " + line + " " + borderStyle.Render("│")
 }
 
@@ -4005,7 +7120,7 @@ func cardInnerSeparatorLine(width int, borderStyle lipgloss.Style) string {
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	line := subtleLineStyle.Render(dashedLine(contentWidth))
+	line := cardBorderStyle.Render(dashedLine(contentWidth))
 	return borderStyle.Render("│") + " " + line + " " + borderStyle.Render("│")
 }
 
@@ -4209,11 +7324,19 @@ func cleanTransferOutput(output string) string {
 }
 
 func sectionTitle(value string) string {
-	return blueStyle.Bold(true).Render("[" + value + "]")
+	return detailSectionStyle.Render("[" + value + "]")
 }
 
 func detailSubTitle(value string) string {
-	return blueStyle.Render("· " + value)
+	return detailSubTitleStyle.Render("· " + value)
+}
+
+func detailSuccessSubTitle(value string) string {
+	return detailSuccessStyle.Render("· " + value)
+}
+
+func detailDangerSubTitle(value string) string {
+	return detailDangerStyle.Render("· " + value)
 }
 
 func (m Model) detailRow(label, value string) string {
@@ -4222,7 +7345,7 @@ func (m Model) detailRow(label, value string) string {
 	if padding < 1 {
 		padding = 1
 	}
-	prefix := mutedStyle.Render(label) + strings.Repeat(" ", padding)
+	prefix := detailLabelStyle.Render(label) + strings.Repeat(" ", padding)
 	continuationPrefix := strings.Repeat(" ", labelWidth)
 	valueWidth := m.detailContentWidth() - labelWidth
 	if valueWidth < 12 {
@@ -4233,11 +7356,18 @@ func (m Model) detailRow(label, value string) string {
 		return prefix
 	}
 	lines := make([]string, 0, len(parts))
-	lines = append(lines, prefix+parts[0])
+	lines = append(lines, prefix+detailValue(parts[0]))
 	for _, part := range parts[1:] {
-		lines = append(lines, continuationPrefix+part)
+		lines = append(lines, continuationPrefix+detailValue(part))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func detailValue(value string) string {
+	if strings.Contains(value, "\x1b[") {
+		return value
+	}
+	return detailValueStyle.Render(value)
 }
 
 func (m Model) detailContentWidth() int {
@@ -4389,38 +7519,706 @@ func limitedDockerNames(names []string, count int, limit int) string {
 	return strings.Join(out, "、")
 }
 
-func dockerDetailRows(m Model, metrics monitor.Metrics) []string {
+func dockerDetailRows(m Model, metrics monitor.Metrics, state hostState) []string {
 	total := dockerTotal(metrics)
+	if len(state.ContainerDetails) > 0 {
+		total = len(state.ContainerDetails)
+	}
+	lines := []string{}
 	if total == 0 {
+		lines = append(lines, m.detailRow("状态", "未发现"))
+	} else {
+		running, stopped, failed := containerDetailCounts(state.ContainerDetails)
+		if len(state.ContainerDetails) == 0 && (metrics.DockerRunning > 0 || metrics.DockerStopped > 0 || metrics.DockerFailed > 0) {
+			running = metrics.DockerRunning
+			stopped = metrics.DockerStopped
+			failed = metrics.DockerFailed
+		}
+		lines = append(lines,
+			m.detailRow("总数", fmt.Sprintf("%d", total)),
+			m.detailRow("运行", fmt.Sprintf("%d", running)),
+			m.detailRow("停止", fmt.Sprintf("%d", stopped)),
+			m.detailRow("故障", fmt.Sprintf("%d", failed)),
+		)
+	}
+	return lines
+}
+
+func portDetailRows(m Model, state hostState) []string {
+	if state.LoginLoading {
+		return []string{m.detailRow("状态", "加载中")}
+	}
+	if strings.TrimSpace(state.PortDetailsError) != "" {
+		return []string{m.detailRow("状态", redStyle.Render(state.PortDetailsError))}
+	}
+	if len(state.PortDetails) == 0 {
 		return []string{m.detailRow("状态", "未发现")}
 	}
-	return []string{
-		m.detailRow("总数", fmt.Sprintf("%d", total)),
-		m.detailRow("运行", fmt.Sprintf("%d", metrics.DockerRunning)),
-		m.detailRow("停止", fmt.Sprintf("%d", metrics.DockerStopped)),
-		m.detailRow("故障", fmt.Sprintf("%d", metrics.DockerFailed)),
-		m.detailRow("运行容器", dockerRunningText(metrics, 8)),
-		m.detailRow("停止容器", dockerStoppedText(metrics, 8)),
-		m.detailRow("故障容器", dockerFailedText(metrics, 8)),
+	groups := groupedPortDetails(state.PortDetails)
+	lines := []string{}
+	groupDefs := []struct {
+		Title string
+		Key   string
+	}{
+		{"系统端口", "system"},
+		{"Docker端口", "docker"},
+		{"应用端口", "app"},
 	}
+	first := true
+	for _, group := range groupDefs {
+		items := groups[group.Key]
+		if len(items) == 0 {
+			continue
+		}
+		if !first {
+			lines = append(lines, "")
+		}
+		first = false
+		lines = append(lines, detailSubTitle(fmt.Sprintf("%s %d", group.Title, len(items))))
+		lines = append(lines, portDetailItemRows(m, items)...)
+	}
+	return lines
+}
+
+func portDetailItemRows(m Model, items []portDetail) []string {
+	labelWidth := len("tcp/10000")
+	processWidth := len("docker-proxy")
+	for _, item := range items {
+		label := strings.TrimSpace(item.Protocol + "/" + item.Port)
+		if width := runewidth.StringWidth(label); width > labelWidth {
+			labelWidth = width
+		}
+		process := portProcessText(item)
+		if process == "" {
+			process = "-"
+		}
+		if width := runewidth.StringWidth(process); width > processWidth {
+			processWidth = width
+		}
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		process := portProcessText(item)
+		if process == "" {
+			process = "-"
+		}
+		pid := item.PID
+		if pid == "" {
+			pid = "-"
+		}
+		if item.Count > 1 {
+			pid = fmt.Sprintf("%s 等%d个", pid, item.Count)
+		}
+		label := strings.TrimSpace(item.Protocol + "/" + item.Port)
+		processPadding := processWidth - runewidth.StringWidth(process) + 2
+		if processPadding < 1 {
+			processPadding = 1
+		}
+		value := process + strings.Repeat(" ", processPadding) + "pid:" + pid
+		lines = append(lines, detailAlignedRow(m, label, value, labelWidth))
+	}
+	return lines
+}
+
+func groupedPortDetails(items []portDetail) map[string][]portDetail {
+	groups := map[string][]portDetail{"system": {}, "docker": {}, "app": {}}
+	for _, item := range items {
+		group := portDetailGroup(item)
+		groups[group] = append(groups[group], item)
+	}
+	return groups
+}
+
+func portDetailGroup(item portDetail) string {
+	if strings.TrimSpace(item.Container) != "" || strings.TrimSpace(item.Process) == "docker-proxy" {
+		return "docker"
+	}
+	port, _ := strconv.Atoi(item.Port)
+	if port > 0 && port < 1024 {
+		return "system"
+	}
+	return "app"
+}
+
+func portProcessText(item portDetail) string {
+	container := strings.TrimSpace(item.Container)
+	if container != "" && strings.TrimSpace(item.Process) == "docker-proxy" {
+		return container
+	}
+	return strings.TrimSpace(item.Process)
+}
+
+func detailAlignedRow(m Model, label, value string, labelWidth int) string {
+	padding := labelWidth - runewidth.StringWidth(label) + 2
+	if padding < 1 {
+		padding = 1
+	}
+	prefix := detailLabelStyle.Render(label) + strings.Repeat(" ", padding)
+	continuationPrefix := strings.Repeat(" ", labelWidth+2)
+	valueWidth := m.detailContentWidth() - labelWidth - 2
+	if valueWidth < 12 {
+		valueWidth = 12
+	}
+	parts := wrapDetailValue(value, valueWidth)
+	if len(parts) == 0 {
+		return prefix
+	}
+	lines := make([]string, 0, len(parts))
+	lines = append(lines, prefix+detailValue(parts[0]))
+	for _, part := range parts[1:] {
+		lines = append(lines, continuationPrefix+detailValue(part))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func containerDetailRows(m Model, state hostState) []string {
+	if state.LoginLoading {
+		return []string{m.detailRow("状态", "加载中")}
+	}
+	if strings.TrimSpace(state.ContainerError) != "" {
+		return []string{m.detailRow("状态", redStyle.Render(state.ContainerError))}
+	}
+	if len(state.ContainerDetails) == 0 {
+		return []string{m.detailRow("状态", "未发现")}
+	}
+	lines := []string{}
+	groups := []struct {
+		Title string
+		Kind  string
+		Style lipgloss.Style
+	}{
+		{"故障", "failed", detailDangerStyle},
+		{"运行", "running", detailSubTitleStyle},
+		{"停止", "stopped", detailSubTitleStyle},
+	}
+	firstGroup := true
+	for _, group := range groups {
+		items := filterContainersByKind(state.ContainerDetails, group.Kind)
+		if len(items) == 0 {
+			continue
+		}
+		if !firstGroup {
+			lines = append(lines, "")
+		}
+		firstGroup = false
+		lines = append(lines, group.Style.Render(fmt.Sprintf("· %s %d", group.Title, len(items))))
+		nameWidth := containerNameWidth(items)
+		for i, item := range items {
+			lines = append(lines, containerDetailItemRows(m, item, nameWidth, i+1)...)
+		}
+	}
+	return lines
+}
+
+func containerNameWidth(items []containerDetail) int {
+	width := 10
+	for _, item := range items {
+		if w := runewidth.StringWidth(item.Name); w > width {
+			width = w
+		}
+	}
+	if width > 28 {
+		width = 28
+	}
+	return width
+}
+
+func containerDetailItemRows(m Model, item containerDetail, nameWidth int, index int) []string {
+	status := item.Status
+	if status == "" {
+		status = "-"
+	}
+	ports := item.Ports
+	state := coloredContainerStatus(containerStatusSummary(status), containerDetailKind(item))
+	prefix := detailLabelStyle.Render(fmt.Sprintf("%02d  ", index))
+	name := detailValueStyle.Render(padVisible(fit(item.Name, nameWidth), nameWidth))
+	line := fitANSI(prefix+name+"  "+state, m.detailContentWidth())
+	lines := []string{line}
+	indent := strings.Repeat(" ", 4)
+	if strings.TrimSpace(item.Image) != "" {
+		lines = append(lines, containerIndentedLine(m, indent, "镜像", item.Image))
+	}
+	if simplified := simplifyDockerPorts(ports); simplified != "" {
+		lines = append(lines, containerIndentedLine(m, indent, "端口", simplified))
+	}
+	return lines
+}
+
+func containerIndentedLine(m Model, indent string, label string, value string) string {
+	prefixText := indent + label + " "
+	prefix := detailLabelStyle.Render(prefixText)
+	width := m.detailContentWidth() - ansi.StringWidth(prefixText)
+	if width < 12 {
+		width = 12
+	}
+	parts := wrapDetailValue(value, width)
+	if len(parts) == 0 {
+		return prefix
+	}
+	lines := []string{prefix + detailValue(parts[0])}
+	continuation := strings.Repeat(" ", ansi.StringWidth(prefixText))
+	for _, part := range parts[1:] {
+		lines = append(lines, continuation+detailValue(part))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func containerStatusSummary(status string) string {
+	raw := strings.TrimSpace(status)
+	lower := strings.ToLower(raw)
+	switch {
+	case strings.Contains(lower, "unhealthy"):
+		return strings.TrimSpace("异常 " + dockerStatusAge(raw, "Up"))
+	case strings.HasPrefix(lower, "up "):
+		age := dockerStatusAge(raw, "Up")
+		if strings.Contains(lower, "healthy") {
+			return strings.TrimSpace("健康 " + age)
+		}
+		return strings.TrimSpace("运行 " + age)
+	case strings.HasPrefix(lower, "restarting"):
+		return strings.TrimSpace("重启中 " + dockerStatusAgo(raw))
+	case strings.HasPrefix(lower, "exited"):
+		return strings.TrimSpace("退出 " + dockerStatusAgo(raw))
+	case strings.HasPrefix(lower, "created"):
+		return strings.TrimSpace("已创建 " + dockerStatusAgo(raw))
+	default:
+		return raw
+	}
+}
+
+func dockerStatusAge(status string, prefix string) string {
+	status = strings.TrimSpace(status)
+	status = strings.TrimPrefix(status, prefix)
+	if idx := strings.Index(status, "("); idx >= 0 {
+		status = status[:idx]
+	}
+	return shortDockerDuration(status)
+}
+
+func dockerStatusAgo(status string) string {
+	status = strings.TrimSpace(status)
+	if idx := strings.LastIndex(status, ")"); idx >= 0 && idx < len(status)-1 {
+		status = status[idx+1:]
+	}
+	status = strings.TrimSuffix(strings.TrimSpace(status), "ago")
+	return shortDockerDuration(status)
+}
+
+func shortDockerDuration(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "Created ")
+	fields := strings.Fields(value)
+	if len(fields) < 2 {
+		return value
+	}
+	unit := fields[1]
+	switch {
+	case strings.HasPrefix(unit, "second"):
+		unit = "秒"
+	case strings.HasPrefix(unit, "minute"):
+		unit = "分"
+	case strings.HasPrefix(unit, "hour"):
+		unit = "时"
+	case strings.HasPrefix(unit, "day"):
+		unit = "天"
+	case strings.HasPrefix(unit, "week"):
+		unit = "周"
+	case strings.HasPrefix(unit, "month"):
+		unit = "月"
+	case strings.HasPrefix(unit, "year"):
+		unit = "年"
+	}
+	return fields[0] + unit
+}
+
+func simplifyDockerPorts(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		text := simplifyDockerPort(strings.TrimSpace(part))
+		if text == "" || seen[text] {
+			continue
+		}
+		seen[text] = true
+		out = append(out, text)
+	}
+	return strings.Join(out, ", ")
+}
+
+func simplifyDockerPort(value string) string {
+	if value == "" {
+		return ""
+	}
+	left, right, ok := strings.Cut(value, "->")
+	if !ok {
+		return value
+	}
+	hostPort := portFromAddress(left)
+	if hostPort == "" {
+		return value
+	}
+	host := dockerPortHost(left)
+	target := strings.TrimSpace(right)
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		return hostPort + "->" + target
+	}
+	return host + ":" + hostPort + "->" + target
+}
+
+func dockerPortHost(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "[") {
+		if idx := strings.LastIndex(value, "]:"); idx >= 0 {
+			return strings.Trim(value[:idx+1], "[]")
+		}
+	}
+	if idx := strings.LastIndex(value, ":"); idx >= 0 {
+		return value[:idx]
+	}
+	return ""
+}
+
+func coloredContainerStatus(status string, kind string) string {
+	switch kind {
+	case "failed":
+		return redStyle.Render(status)
+	default:
+		return detailValueStyle.Render(status)
+	}
+}
+
+func filterContainersByKind(items []containerDetail, kind string) []containerDetail {
+	out := []containerDetail{}
+	for _, item := range items {
+		if containerDetailKind(item) == kind {
+			out = append(out, item)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a := strings.ToLower(out[i].Name)
+		b := strings.ToLower(out[j].Name)
+		if a == b {
+			return strings.ToLower(out[i].Image) < strings.ToLower(out[j].Image)
+		}
+		return a < b
+	})
+	return out
+}
+
+func containerDetailKind(item containerDetail) string {
+	status := strings.ToLower(item.Status)
+	switch {
+	case strings.Contains(status, "restarting") || strings.Contains(status, "dead") || strings.Contains(status, "unhealthy"):
+		return "failed"
+	case strings.HasPrefix(status, "up "):
+		return "running"
+	default:
+		return "stopped"
+	}
+}
+
+func containerDetailCounts(items []containerDetail) (int, int, int) {
+	running := 0
+	stopped := 0
+	failed := 0
+	for _, item := range items {
+		switch containerDetailKind(item) {
+		case "running":
+			running++
+		case "failed":
+			failed++
+		default:
+			stopped++
+		}
+	}
+	return running, stopped, failed
+}
+
+func loginSummaryDetailRows(m Model, loading bool, summary []string, errText string, danger bool) []string {
+	if loading {
+		return []string{m.detailRow("状态", "加载中")}
+	}
+	if strings.TrimSpace(errText) != "" {
+		return []string{m.detailRow("状态", redStyle.Render(errText))}
+	}
+	if len(summary) == 0 {
+		return []string{m.detailRow("状态", "未发现")}
+	}
+	lines := make([]string, 0, len(summary))
+	for _, line := range summary {
+		label, value, ok := strings.Cut(line, "\t")
+		if !ok {
+			label = "记录"
+			value = line
+		}
+		if danger && label == "统计" {
+			value = redStyle.Render(value)
+		}
+		lines = append(lines, m.detailRow(label, value))
+	}
+	return lines
+}
+
+func checkSuggestionRows(m Model, state hostState, checks []checkItem) []string {
+	if state.LoginLoading {
+		return []string{m.detailRow("状态", "检查中")}
+	}
+	rows := make([]string, 0, len(checks))
+	for _, check := range checks {
+		if check.Level == "正常" {
+			continue
+		}
+		rows = append(rows, m.detailRow(check.Level, styleCheck(check.Level, check.Text)))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, m.detailRow("正常", "未发现明显风险"))
+	}
+	return rows
+}
+
+func riskSummaryText(checks []checkItem) string {
+	counts := map[string]int{}
+	for _, check := range checks {
+		counts[check.Level]++
+	}
+	if counts["严重"] == 0 && counts["警告"] == 0 && counts["提示"] == 0 {
+		return greenStyle.Render("正常")
+	}
+	parts := []string{}
+	if counts["严重"] > 0 {
+		parts = append(parts, redStyle.Render(fmt.Sprintf("严重%d", counts["严重"])))
+	}
+	if counts["警告"] > 0 {
+		parts = append(parts, yellowStyle.Render(fmt.Sprintf("警告%d", counts["警告"])))
+	}
+	if counts["提示"] > 0 {
+		parts = append(parts, detailValueStyle.Render(fmt.Sprintf("提示%d", counts["提示"])))
+	}
+	return strings.Join(parts, "  ")
+}
+
+func cardRiskText(checks []checkItem, width int) string {
+	counts := map[string]int{}
+	for _, check := range checks {
+		counts[check.Level]++
+	}
+	if counts["严重"] == 0 && counts["警告"] == 0 {
+		return ""
+	}
+	text := cardMutedStyle.Render("风险 ")
+	if counts["严重"] > 0 {
+		text += redStyle.Render(fmt.Sprintf("%d", counts["严重"]))
+	}
+	if counts["严重"] > 0 && counts["警告"] > 0 {
+		text += cardMutedStyle.Render("/")
+	}
+	if counts["警告"] > 0 {
+		text += yellowStyle.Render(fmt.Sprintf("%d", counts["警告"]))
+	}
+	return ansi.Truncate(text, width, "…")
+}
+
+type checkItem struct {
+	Level string
+	Text  string
+}
+
+func buildChecks(state hostState) []checkItem {
+	metrics := state.Metrics
+	var checks []checkItem
+	add := func(level string, text string) {
+		checks = append(checks, checkItem{Level: level, Text: text})
+	}
+	if strings.TrimSpace(state.Host.ExpireAt) != "" {
+		if days, ok := expireDays(state.Host.ExpireAt); ok {
+			switch {
+			case days < 0:
+				add("严重", fmt.Sprintf("服务器到期：风险，已过期%d天，建议确认续费或下线", -days))
+			case days == 0:
+				add("严重", "服务器到期：风险，今天到期，建议立即续费")
+			case days <= 7:
+				add("警告", fmt.Sprintf("服务器到期：警告，剩余%d天，建议提前续费", days))
+			case days <= 30:
+				add("提示", fmt.Sprintf("服务器到期：提示，剩余%d天", days))
+			}
+		} else {
+			add("警告", "服务器到期：警告，到期时间格式错误，应为 YYYY-MM-DD")
+		}
+	}
+	if !metrics.Online {
+		add("严重", "服务器状态：风险，当前离线，监控数据不可用")
+		return checks
+	}
+	if value := strings.ToLower(strings.TrimSpace(state.SSHDSecurity["passwordauthentication"])); value == "yes" {
+		add("严重", "允许密码登录：风险，建议关闭 PasswordAuthentication")
+	} else if value == "no" {
+		add("正常", "SSH密码登录已关闭")
+	} else if state.SSHDSecurityError != "" {
+		add("提示", "SSH配置检查：提示，"+state.SSHDSecurityError)
+	}
+	if value := strings.ToLower(strings.TrimSpace(state.SSHDSecurity["permitrootlogin"])); value == "yes" {
+		add("严重", "允许root登录：风险，建议设置 PermitRootLogin no")
+	} else if value == "without-password" || value == "prohibit-password" {
+		add("警告", "允许root登录：警告，未完全禁用，建议设置 PermitRootLogin no")
+	} else if value == "no" {
+		add("正常", "Root登录已关闭")
+	}
+	if value := strings.ToLower(strings.TrimSpace(state.SSHDSecurity["pubkeyauthentication"])); value == "no" {
+		add("警告", "密钥登录：警告，SSH密钥登录已关闭，建议确认是否符合预期")
+	}
+	sshPort := strings.TrimSpace(state.Host.Port)
+	if sshPort == "" {
+		sshPort = "22"
+	}
+	add("提示", fmt.Sprintf("SSH端口：提示，当前端口%s，建议安全组只允许你的IP连接", sshPort))
+	failedCount := loginSummaryCount(state.FailedLoginSummary)
+	failedSourceCount := loginSummaryUniqueSourceCount(state.FailedLoginSummary)
+	failedScan := loginSummaryValue(state.FailedLoginSummary, "疑似扫描")
+	if failedCount >= 100 {
+		add("严重", fmt.Sprintf("失败登录来源IP过多：风险，最近%d条失败登录，建议限制安全组或启用fail2ban", failedCount))
+	} else if failedCount >= 20 {
+		add("警告", fmt.Sprintf("失败登录来源IP过多：警告，最近%d条失败登录，建议关注来源IP", failedCount))
+	} else if failedSourceCount >= 3 {
+		add("警告", fmt.Sprintf("失败登录来源IP过多：警告，发现%d个来源IP，建议确认是否为扫描", failedSourceCount))
+	}
+	if failedScan != "" && failedScan != "-" {
+		add("警告", "失败登录来源IP过多：警告，"+failedScan)
+	}
+	if metrics.DiskPercent() >= 90 {
+		add("严重", fmt.Sprintf("磁盘容量：风险，使用率%.0f%%，建议尽快清理", metrics.DiskPercent()))
+	} else if metrics.DiskPercent() >= 80 {
+		add("警告", fmt.Sprintf("磁盘容量：警告，使用率%.0f%%，建议关注容量", metrics.DiskPercent()))
+	}
+	if metrics.MemPercent() >= 90 {
+		add("警告", fmt.Sprintf("内存使用：警告，使用率%.0f%%，建议排查进程", metrics.MemPercent()))
+	}
+	if metrics.CPUPercent >= 90 {
+		add("警告", fmt.Sprintf("CPU使用：警告，使用率%.0f%%，建议排查负载", metrics.CPUPercent))
+	}
+	_, detailStopped, detailFailed := containerDetailCounts(state.ContainerDetails)
+	dockerFailed := metrics.DockerFailed
+	if dockerFailed == 0 {
+		dockerFailed = detailFailed
+	}
+	if dockerFailed > 0 {
+		add("警告", fmt.Sprintf("容器状态：警告，存在%d个故障容器，建议查看容器详情", dockerFailed))
+	}
+	if metrics.DockerTotal == 0 && len(state.ContainerDetails) > 0 && detailStopped > 0 {
+		add("提示", fmt.Sprintf("容器状态：提示，存在%d个停止容器", detailStopped))
+	}
+	if strings.TrimSpace(state.ContainerError) != "" {
+		add("提示", "容器详情：提示，"+state.ContainerError)
+	}
+	if strings.TrimSpace(state.PortDetailsError) != "" {
+		add("提示", "端口详情：提示，"+state.PortDetailsError)
+	}
+	if metrics.FailedServices > 0 {
+		add("警告", fmt.Sprintf("系统服务：警告，存在%d个异常服务", metrics.FailedServices))
+	}
+	if metrics.HealthTotal() > 0 && metrics.HealthOK() < metrics.HealthTotal() {
+		add("警告", fmt.Sprintf("健康端口：警告，%d/%d正常", metrics.HealthOK(), metrics.HealthTotal()))
+	}
+	if len(state.PortDetails) > 0 {
+		publicDockerPorts := publicDockerProxyPorts(state.PortDetails)
+		if publicDockerPorts > 0 {
+			add("提示", fmt.Sprintf("公网端口：提示，发现%d个Docker映射端口，建议只开放必要端口", publicDockerPorts))
+		}
+	}
+	return checks
+}
+
+func publicDockerProxyPorts(ports []portDetail) int {
+	count := 0
+	for _, port := range ports {
+		if strings.TrimSpace(port.Container) != "" || strings.TrimSpace(port.Process) == "docker-proxy" {
+			count++
+		}
+	}
+	return count
+}
+
+func styleCheck(level string, text string) string {
+	switch level {
+	case "严重":
+		return redStyle.Render(text)
+	case "警告":
+		return yellowStyle.Render(text)
+	case "正常":
+		return greenStyle.Render(text)
+	default:
+		return detailValueStyle.Render(text)
+	}
+}
+
+func loginSummaryCount(summary []string) int {
+	for _, row := range summary {
+		label, value, ok := strings.Cut(row, "\t")
+		if !ok || label != "统计" {
+			continue
+		}
+		re := regexp.MustCompile(`\d+`)
+		match := re.FindString(value)
+		if match == "" {
+			return 0
+		}
+		n, _ := strconv.Atoi(match)
+		return n
+	}
+	return 0
+}
+
+func loginSummaryUniqueSourceCount(summary []string) int {
+	for _, row := range summary {
+		label, value, ok := strings.Cut(row, "\t")
+		if !ok || label != "来源IP" {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if value == "" || value == "-" {
+			return 0
+		}
+		count := 0
+		for _, part := range strings.Split(value, "、") {
+			if strings.TrimSpace(part) != "" {
+				count++
+			}
+		}
+		return count
+	}
+	return 0
+}
+
+func loginSummaryValue(summary []string, label string) string {
+	for _, row := range summary {
+		got, value, ok := strings.Cut(row, "\t")
+		if ok && got == label {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func serviceCardText(metrics monitor.Metrics) string {
 	total := dockerTotal(metrics)
-	containerText := mutedStyle.Render(fmt.Sprintf("容器 %d/%d/%d", metrics.DockerFailed, metrics.DockerRunning, total))
+	containerText := cardMutedStyle.Render(fmt.Sprintf("容器 %d/%d/%d", metrics.DockerFailed, metrics.DockerRunning, total))
 	if total == 0 {
-		containerText = mutedStyle.Render("容器 0")
+		containerText = cardMutedStyle.Render("容器 0")
 	}
 	if metrics.DockerFailed > 0 {
-		containerText = mutedStyle.Render("容器 ") + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + mutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
+		containerText = cardMutedStyle.Render("容器 ") + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
 	}
-	serviceNumber := mutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+	serviceNumber := cardMutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	if metrics.FailedServices > 0 {
 		serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	}
-	serviceText := mutedStyle.Render("服务 ") + serviceNumber
+	serviceText := cardMutedStyle.Render("服务 ") + serviceNumber
 	if metrics.HealthTotal() > 0 {
-		healthNumber := mutedStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
+		healthNumber := cardMutedStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
 		switch {
 		case metrics.HealthOK() == metrics.HealthTotal():
 			healthNumber = greenStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
@@ -4429,7 +8227,7 @@ func serviceCardText(metrics monitor.Metrics) string {
 		default:
 			healthNumber = yellowStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
 		}
-		healthText := mutedStyle.Render("健康 ") + healthNumber
+		healthText := cardMutedStyle.Render("健康 ") + healthNumber
 		return fmt.Sprintf("%s  %s  %s", healthText, containerText, serviceText)
 	}
 	return fmt.Sprintf("%s  %s", containerText, serviceText)
@@ -4508,6 +8306,459 @@ func cardUptimeShort(value string) string {
 		minutes = 1
 	}
 	return fmt.Sprintf("%d分", minutes)
+}
+
+func lastLoginDetail(value time.Time) string {
+	if value.IsZero() {
+		return "-"
+	}
+	relative := relativeTime(value)
+	if relative != "刚刚" {
+		relative += "前"
+	}
+	return value.Format("2006-01-02 15:04") + "（" + relative + "）"
+}
+
+func lastLoginCard(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	relative := relativeTime(value)
+	if relative == "刚刚" {
+		return relative
+	}
+	return relative + "前"
+}
+
+func relativeTime(value time.Time) string {
+	if value.IsZero() {
+		return "-"
+	}
+	d := time.Since(value)
+	if d < 0 {
+		d = 0
+	}
+	minutes := int(d.Minutes())
+	if minutes < 1 {
+		return "刚刚"
+	}
+	if minutes < 60 {
+		return fmt.Sprintf("%d分", minutes)
+	}
+	hours := int(d.Hours())
+	if hours < 24 {
+		return fmt.Sprintf("%d时", hours)
+	}
+	days := hours / 24
+	if days < 30 {
+		return fmt.Sprintf("%d天", days)
+	}
+	months := days / 30
+	if months < 12 {
+		return fmt.Sprintf("%d月", months)
+	}
+	return fmt.Sprintf("%d年", days/365)
+}
+
+func parseLoginRecords(output string, limit int) []string {
+	var records []string
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "wtmp begins") ||
+			strings.HasPrefix(lower, "btmp begins") ||
+			strings.HasPrefix(lower, "reboot ") ||
+			strings.HasPrefix(lower, "shutdown ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		records = append(records, strings.Join(fields, " "))
+		if limit > 0 && len(records) >= limit {
+			break
+		}
+	}
+	return records
+}
+
+func failedLoginScript() string {
+	return `if ! command -v lastb >/dev/null 2>&1; then
+  echo "__SSHM_LASTB_UNAVAILABLE__"
+  exit 0
+fi
+out=$(lastb -n 100 2>&1)
+code=$?
+if [ "$code" -ne 0 ]; then
+  out=$(sudo -n lastb -n 100 2>&1)
+  code=$?
+fi
+if [ "$code" -ne 0 ]; then
+  echo "__SSHM_LASTB_PERMISSION__"
+  printf '%s\n' "$out"
+  exit 0
+fi
+printf '%s\n' "$out"`
+}
+
+func portDetailScript() string {
+	return `if ! command -v ss >/dev/null 2>&1; then
+  echo "__SSHM_SS_UNAVAILABLE__"
+  exit 0
+fi
+out=$(ss -H -tulnp 2>&1)
+code=$?
+if [ "$code" -eq 0 ] && ! printf '%s\n' "$out" | grep -q 'users:('; then
+  sudo_out=$(sudo -n ss -H -tulnp 2>&1)
+  sudo_code=$?
+  if [ "$sudo_code" -eq 0 ]; then
+    out="$sudo_out"
+  fi
+fi
+if [ "$code" -ne 0 ]; then
+  sudo_out=$(sudo -n ss -H -tulnp 2>&1)
+  sudo_code=$?
+  if [ "$sudo_code" -ne 0 ]; then
+    echo "__SSHM_SS_PERMISSION__"
+    printf '%s\n' "$sudo_out"
+    exit 0
+  fi
+  out="$sudo_out"
+fi
+printf '%s\n' "$out"`
+}
+
+func containerDetailScript() string {
+	return `if ! command -v docker >/dev/null 2>&1; then
+  echo "__SSHM_DOCKER_UNAVAILABLE__"
+  exit 0
+fi
+out=$(docker ps -a --format '{{.Names}}	{{.Image}}	{{.Status}}	{{.Ports}}' 2>&1)
+code=$?
+if [ "$code" -ne 0 ]; then
+  out=$(sudo -n docker ps -a --format '{{.Names}}	{{.Image}}	{{.Status}}	{{.Ports}}' 2>&1)
+  code=$?
+fi
+if [ "$code" -ne 0 ]; then
+  echo "__SSHM_DOCKER_PERMISSION__"
+  printf '%s\n' "$out"
+  exit 0
+fi
+printf '%s\n' "$out"`
+}
+
+func sshdSecurityScript() string {
+	return `if command -v sshd >/dev/null 2>&1; then
+  sshd -T 2>/dev/null | awk '/^(passwordauthentication|permitrootlogin|pubkeyauthentication) / {print $1"="$2}'
+elif [ -x /usr/sbin/sshd ]; then
+  /usr/sbin/sshd -T 2>/dev/null | awk '/^(passwordauthentication|permitrootlogin|pubkeyauthentication) / {print $1"="$2}'
+fi`
+}
+
+func parseSSHDSettings(output string) map[string]string {
+	settings := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		settings[strings.ToLower(strings.TrimSpace(key))] = strings.ToLower(strings.TrimSpace(value))
+	}
+	return settings
+}
+
+func parsePortDetails(output string) ([]portDetail, string) {
+	if strings.Contains(output, "__SSHM_SS_UNAVAILABLE__") {
+		return nil, "ss不可用"
+	}
+	if strings.Contains(output, "__SSHM_SS_PERMISSION__") {
+		return nil, "需要root权限（可配置sudo -n ss）"
+	}
+	lines := strings.Split(output, "\n")
+	grouped := map[string]*portDetail{}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Netid") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		local := fields[4]
+		port := portFromAddress(local)
+		if port == "" || port == "*" {
+			continue
+		}
+		processText := ""
+		if len(fields) > 6 {
+			processText = strings.Join(fields[6:], " ")
+		}
+		process, pid := processFromSS(processText)
+		key := fields[0] + "/" + port + "/" + process
+		if item, ok := grouped[key]; ok {
+			item.Count++
+			if item.PID == "" && pid != "" {
+				item.PID = pid
+			}
+			continue
+		}
+		grouped[key] = &portDetail{Protocol: fields[0], Port: port, Process: process, PID: pid, Count: 1}
+	}
+	out := make([]portDetail, 0, len(grouped))
+	for _, item := range grouped {
+		out = append(out, *item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		pi, _ := strconv.Atoi(out[i].Port)
+		pj, _ := strconv.Atoi(out[j].Port)
+		if pi == pj {
+			return out[i].Protocol < out[j].Protocol
+		}
+		return pi < pj
+	})
+	return out, ""
+}
+
+func portFromAddress(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.HasPrefix(value, "[") {
+		if idx := strings.LastIndex(value, "]:"); idx >= 0 {
+			return strings.TrimSpace(value[idx+2:])
+		}
+	}
+	idx := strings.LastIndex(value, ":")
+	if idx < 0 || idx == len(value)-1 {
+		return ""
+	}
+	return strings.TrimSpace(value[idx+1:])
+}
+
+func processFromSS(value string) (string, string) {
+	name := ""
+	pid := ""
+	if idx := strings.Index(value, "\""); idx >= 0 {
+		rest := value[idx+1:]
+		if end := strings.Index(rest, "\""); end >= 0 {
+			name = rest[:end]
+		}
+	}
+	if idx := strings.Index(value, "pid="); idx >= 0 {
+		rest := value[idx+4:]
+		end := 0
+		for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+			end++
+		}
+		pid = rest[:end]
+	}
+	return name, pid
+}
+
+func parseContainerDetails(output string) ([]containerDetail, string) {
+	if strings.Contains(output, "__SSHM_DOCKER_UNAVAILABLE__") {
+		return nil, "未安装Docker"
+	}
+	if strings.Contains(output, "__SSHM_DOCKER_PERMISSION__") {
+		return nil, "需要Docker权限（可配置sudo -n docker）"
+	}
+	lines := strings.Split(output, "\n")
+	out := make([]containerDetail, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 3 {
+			continue
+		}
+		item := containerDetail{
+			Name:   strings.TrimSpace(parts[0]),
+			Image:  strings.TrimSpace(parts[1]),
+			Status: strings.TrimSpace(parts[2]),
+		}
+		if len(parts) >= 4 {
+			item.Ports = strings.TrimSpace(parts[3])
+		}
+		if item.Name != "" {
+			out = append(out, item)
+		}
+	}
+	return out, ""
+}
+
+func associatePortContainers(ports []portDetail, containers []containerDetail) {
+	portMap := containerPublishedPortMap(containers)
+	for i := range ports {
+		key := strings.ToLower(ports[i].Protocol) + "/" + ports[i].Port
+		if names := portMap[key]; len(names) > 0 {
+			ports[i].Container = strings.Join(names, "、")
+		}
+	}
+}
+
+func containerPublishedPortMap(containers []containerDetail) map[string][]string {
+	out := map[string][]string{}
+	for _, container := range containers {
+		name := strings.TrimSpace(container.Name)
+		if name == "" {
+			continue
+		}
+		for _, part := range strings.Split(container.Ports, ",") {
+			hostPort, proto, ok := parseDockerPublishedPort(part)
+			if !ok {
+				continue
+			}
+			key := proto + "/" + hostPort
+			if !stringSliceContains(out[key], name) {
+				out[key] = append(out[key], name)
+			}
+		}
+	}
+	return out
+}
+
+func parseDockerPublishedPort(value string) (string, string, bool) {
+	value = strings.TrimSpace(value)
+	left, right, ok := strings.Cut(value, "->")
+	if !ok {
+		return "", "", false
+	}
+	hostPort := portFromAddress(left)
+	if hostPort == "" {
+		return "", "", false
+	}
+	proto := "tcp"
+	if idx := strings.LastIndex(right, "/"); idx >= 0 && idx < len(right)-1 {
+		proto = strings.ToLower(strings.TrimSpace(right[idx+1:]))
+	}
+	if proto != "tcp" && proto != "udp" {
+		proto = "tcp"
+	}
+	return hostPort, proto, true
+}
+
+func stringSliceContains(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func failedLoginSummary(output string) ([]string, string) {
+	if strings.Contains(output, "__SSHM_LASTB_UNAVAILABLE__") {
+		return nil, "lastb不可用"
+	}
+	if strings.Contains(output, "__SSHM_LASTB_PERMISSION__") {
+		return nil, "需要root权限（可配置sudo -n lastb）"
+	}
+	return loginSummaryRows(parseLoginRecords(output, 100)), ""
+}
+
+func loginSummaryRows(records []string) []string {
+	if len(records) == 0 {
+		return nil
+	}
+	ipCounts := map[string]int{}
+	userCounts := map[string]int{}
+	ipUsers := map[string]map[string]bool{}
+	for _, record := range records {
+		fields := strings.Fields(record)
+		if len(fields) > 0 {
+			userCounts[fields[0]]++
+		}
+		if len(fields) > 2 {
+			ipCounts[fields[2]]++
+			if ipUsers[fields[2]] == nil {
+				ipUsers[fields[2]] = map[string]bool{}
+			}
+			if len(fields) > 0 {
+				ipUsers[fields[2]][fields[0]] = true
+			}
+		}
+	}
+	rows := []string{
+		fmt.Sprintf("统计\t最近%d条", len(records)),
+		fmt.Sprintf("来源IP\t%s", topCountsText(ipCounts, 3)),
+		fmt.Sprintf("用户名\t%s", topCountsText(userCounts, 5)),
+		fmt.Sprintf("最近\t%s", records[0]),
+	}
+	if scanText := suspiciousScanText(ipUsers); scanText != "" {
+		rows = append(rows, fmt.Sprintf("疑似扫描\t%s", scanText))
+	}
+	return rows
+}
+
+func suspiciousScanText(ipUsers map[string]map[string]bool) string {
+	type item struct {
+		IP    string
+		Users int
+	}
+	items := []item{}
+	for ip, users := range ipUsers {
+		if len(users) >= 3 {
+			items = append(items, item{IP: ip, Users: len(users)})
+		}
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Users == items[j].Users {
+			return items[i].IP < items[j].IP
+		}
+		return items[i].Users > items[j].Users
+	})
+	limit := minInt(3, len(items))
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		parts = append(parts, fmt.Sprintf("%s 尝试%d个用户名", items[i].IP, items[i].Users))
+	}
+	return strings.Join(parts, "、")
+}
+
+func topCountsText(counts map[string]int, limit int) string {
+	if len(counts) == 0 {
+		return "-"
+	}
+	type item struct {
+		Value string
+		Count int
+	}
+	items := make([]item, 0, len(counts))
+	for value, count := range counts {
+		if strings.TrimSpace(value) == "" {
+			continue
+		}
+		items = append(items, item{Value: value, Count: count})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Count == items[j].Count {
+			return items[i].Value < items[j].Value
+		}
+		return items[i].Count > items[j].Count
+	})
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		parts = append(parts, fmt.Sprintf("%s %d次", items[i].Value, items[i].Count))
+	}
+	return strings.Join(parts, "、")
 }
 
 func firstUptimeNumber(value string, pattern string) int {
@@ -4616,21 +8867,34 @@ func fit(s string, width int) string {
 	return string(runes) + "…"
 }
 
-var (
-	green    = lipgloss.Color("42")
-	yellow   = lipgloss.Color("214")
-	red      = lipgloss.Color("196")
-	blue     = lipgloss.Color("39")
-	textGray = lipgloss.Color("245")
-	softGray = lipgloss.Color("235")
-	lineGray = lipgloss.Color("234")
+func fitANSI(s string, width int) string {
+	return ansi.Truncate(s, width, "…")
+}
 
-	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(blue)
-	mutedStyle      = lipgloss.NewStyle().Foreground(textGray)
-	helpStyle       = lipgloss.NewStyle().Foreground(textGray)
-	navStyle        = lipgloss.NewStyle().Foreground(textGray)
-	barEmptyStyle   = lipgloss.NewStyle().Foreground(softGray)
-	subtleLineStyle = lipgloss.NewStyle().Foreground(lineGray)
+var (
+	green     = lipgloss.Color("42")
+	yellow    = lipgloss.Color("214")
+	red       = lipgloss.Color("196")
+	blue      = lipgloss.Color("39")
+	textGray  = lipgloss.Color("245")
+	valueGray = lipgloss.Color("252")
+	cyan      = lipgloss.Color("45")
+	softGray  = lipgloss.Color("235")
+	lineGray  = lipgloss.Color("234")
+
+	titleStyle          = lipgloss.NewStyle().Bold(true).Foreground(blue)
+	mutedStyle          = lipgloss.NewStyle().Foreground(textGray)
+	cardMutedStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("248"))
+	helpStyle           = lipgloss.NewStyle().Foreground(textGray)
+	navStyle            = lipgloss.NewStyle().Foreground(textGray)
+	barEmptyStyle       = lipgloss.NewStyle().Foreground(softGray)
+	subtleLineStyle     = lipgloss.NewStyle().Foreground(lineGray)
+	detailSectionStyle  = lipgloss.NewStyle().Bold(true).Foreground(blue)
+	detailSubTitleStyle = lipgloss.NewStyle().Foreground(cyan)
+	detailSuccessStyle  = lipgloss.NewStyle().Foreground(green)
+	detailDangerStyle   = lipgloss.NewStyle().Foreground(red)
+	detailLabelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	detailValueStyle    = lipgloss.NewStyle().Foreground(valueGray)
 
 	cardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

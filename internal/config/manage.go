@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/YaMaiDay/sshm/internal/host"
 )
@@ -17,6 +18,8 @@ type HostInput struct {
 	IdentityFile string
 	ProxyJump    string
 	Password     string
+	Note         string
+	ExpireAt     string
 	Favorite     bool
 	HealthPorts  []int
 }
@@ -58,6 +61,8 @@ func InputFromHost(h host.Host, password string) HostInput {
 		IdentityFile: h.IdentityFile,
 		ProxyJump:    h.ProxyJump,
 		Password:     password,
+		Note:         h.Note,
+		ExpireAt:     h.ExpireAt,
 		Favorite:     h.Favorite,
 		HealthPorts:  normalizeHealthPorts(h.HealthPorts),
 	}
@@ -150,6 +155,8 @@ func hostFromInput(home string, input HostInput) host.Host {
 		ProxyJump:    strings.TrimSpace(input.ProxyJump),
 		Password:     password,
 		Category:     strings.TrimSpace(input.Category),
+		Note:         strings.TrimSpace(input.Note),
+		ExpireAt:     strings.TrimSpace(input.ExpireAt),
 		Favorite:     input.Favorite,
 		HealthPorts:  normalizeHealthPorts(input.HealthPorts),
 		File:         ServersPath(home),
@@ -175,6 +182,23 @@ func validateHostInput(input HostInput) error {
 	}
 	if strings.TrimSpace(input.Category) == "" {
 		return fmt.Errorf("分类不能为空")
+	}
+	if err := ValidateExpireAt(input.ExpireAt); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ValidateExpireAt(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	if len(value) != len("2006-01-02") {
+		return fmt.Errorf("到期时间未填写完整")
+	}
+	if _, err := time.Parse("2006-01-02", value); err != nil {
+		return fmt.Errorf("到期时间不是有效日期")
 	}
 	return nil
 }
