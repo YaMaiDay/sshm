@@ -9,8 +9,11 @@ type Metrics struct {
 	CPUPercent     float64
 	MemUsed        uint64
 	MemTotal       uint64
+	MemAvailable   uint64
 	DiskUsed       uint64
 	DiskTotal      uint64
+	DiskAvailable  uint64
+	DiskAvailKnown bool
 	Load1          string
 	Load5          string
 	Load15         string
@@ -31,6 +34,13 @@ func (m Metrics) MemPercent() float64 {
 }
 
 func (m Metrics) DiskPercent() float64 {
+	if m.DiskAvailKnown {
+		usable := m.DiskUsed + m.DiskAvailable
+		if usable == 0 {
+			return 0
+		}
+		return float64(m.DiskUsed) * 100 / float64(usable)
+	}
 	if m.DiskTotal == 0 {
 		return 0
 	}

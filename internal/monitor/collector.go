@@ -145,11 +145,21 @@ func parseMetrics(output string) (Metrics, error) {
 	if len(mem) >= 2 {
 		m.MemTotal, _ = strconv.ParseUint(mem[0], 10, 64)
 		m.MemUsed, _ = strconv.ParseUint(mem[1], 10, 64)
+		if len(mem) >= 3 {
+			m.MemAvailable, _ = strconv.ParseUint(mem[2], 10, 64)
+			if m.MemTotal >= m.MemAvailable {
+				m.MemUsed = m.MemTotal - m.MemAvailable
+			}
+		}
 	}
 	disk := strings.Fields(values["DISK"])
 	if len(disk) >= 2 {
 		m.DiskTotal, _ = strconv.ParseUint(disk[0], 10, 64)
 		m.DiskUsed, _ = strconv.ParseUint(disk[1], 10, 64)
+		if len(disk) >= 3 {
+			m.DiskAvailable, _ = strconv.ParseUint(disk[2], 10, 64)
+			m.DiskAvailKnown = true
+		}
 	}
 	m.CPUPercent = cpuPercent(values["CPU1"], values["CPU2"])
 	m.Uptime = values["UPTIME"]
@@ -219,11 +229,11 @@ const remoteScript = `sh -c '
 echo HOSTNAME=$(hostname 2>/dev/null)
 if [ -r /etc/os-release ]; then . /etc/os-release; echo OS="${PRETTY_NAME:-$NAME}"; else echo OS="$(uname -s 2>/dev/null)"; fi
 echo CPU1="$(awk '"'"'/^cpu /{print}'"'"' /proc/stat 2>/dev/null)"
-sleep 0.25
+sleep 0.5
 echo CPU2="$(awk '"'"'/^cpu /{print}'"'"' /proc/stat 2>/dev/null)"
 echo LOAD="$(cat /proc/loadavg 2>/dev/null | awk '"'"'{print $1" "$2" "$3}'"'"')"
-echo MEM="$(free -b 2>/dev/null | awk '"'"'/^Mem:/{print $2" "$3}'"'"')"
-echo DISK="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $2" "$3}'"'"')"
+echo MEM="$(free -b 2>/dev/null | awk '"'"'/^Mem:/{print $2" "$3" "$7}'"'"')"
+echo DISK="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $2" "$3" "$4}'"'"')"
 echo UPTIME="$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
 echo DOCKER="$(docker ps -q 2>/dev/null | wc -l | tr -d '"'"' '"'"')"
 FAILED_UNITS_VALUE="$(systemctl --failed --no-legend --plain 2>/dev/null | awk '"'"'{print $1}'"'"' | paste -sd, - 2>/dev/null)"

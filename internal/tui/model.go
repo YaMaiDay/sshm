@@ -2285,7 +2285,7 @@ func compactPercentBar(value float64, total int) string {
 	if value > 0 && filled == 0 {
 		filled = 1
 	}
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", total-filled)
+	bar := strings.Repeat("▰", filled) + strings.Repeat("▱", total-filled)
 	return fmt.Sprintf("%s %3.0f%%", bar, value)
 }
 
@@ -2364,7 +2364,7 @@ func percentBarWidth(value float64, total int) string {
 	} else if value >= 70 {
 		style = yellowStyle
 	}
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", total-filled)
+	bar := strings.Repeat("▰", filled) + strings.Repeat("▱", total-filled)
 	return style.Render(fmt.Sprintf("%s %3.0f%%", bar, value))
 }
 
