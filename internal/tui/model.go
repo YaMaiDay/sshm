@@ -1379,10 +1379,7 @@ func (m Model) startTransferPanel(idx int, mode transferMode) Model {
 }
 
 func hostDisplayName(h host.Host) string {
-	if strings.TrimSpace(h.Category) == "" {
-		return h.Name
-	}
-	return h.Category + "/" + h.Name
+	return "[" + strings.TrimSpace(h.Category) + "] " + h.Name
 }
 
 func transferPanelStatus(mode transferMode) string {
