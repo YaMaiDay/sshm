@@ -19,7 +19,6 @@
 
 <p align="center">
   <a href="#-安装">安装</a> ·
-  <a href="#-一眼能做什么">一眼能做什么</a> ·
   <a href="#-快速开始">快速开始</a> ·
   <a href="#-核心功能">功能</a> ·
   <a href="https://github.com/YaMaiDay/sshm/releases">下载</a> ·
@@ -28,23 +27,9 @@
 
 ---
 
-## 🎯 一眼能做什么
+## 🎯 亮点
 
 一个面板，管服务器、看监控、进 SSH、传文件、跑命令。
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | sh
-sshm
-```
-
-Windows PowerShell：
-
-```powershell
-irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
-sshm
-```
-
-核心体验：
 
 - **监控**：CPU、内存、磁盘、负载、容器、端口。
 - **登录**：调用系统 `ssh`，保留原生终端体验。
@@ -52,47 +37,33 @@ sshm
 - **运维**：命令模板、批量命令、命令历史、上传下载。
 - **安全**：成功/失败登录摘要、SSH 风险提示。
 
-## ✨ 为什么用 sshm
-
-如果你习惯待在终端里，`sshm` 可以把“找服务器、看状态、登录、传文件、执行命令”这些动作压到一个入口里。
-
-| 以前 | 现在 |
-| --- | --- |
-| 找 IP、端口、用户名 | 统一服务器面板 |
-| 登录后手动 `top` / `df` | 主面板直接看监控 |
-| 重复敲部署命令 | 保存模板或批量执行 |
-| 手写 `scp` | 双栏选择上传下载 |
-| 想看 SSH 是否被扫 | 详情页看登录和风险 |
-
 ## ⚡ 安装
 
-安装脚本会下载 GitHub 最新 Release。重复执行同一条命令即可更新到最新版。
+安装脚本会下载 GitHub 最新 Release；重复执行同一条命令即可更新。
 
-### macOS / Linux
+macOS / Linux：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | sh
 ```
 
-macOS 上如果存在 Homebrew 目录，默认会安装到 `/opt/homebrew/bin/sshm`；其他 macOS / Linux 环境默认安装到 `/usr/local/bin/sshm`。可以用 `SSHM_INSTALL_DIR` 覆盖。
-
-### Windows PowerShell（测试阶段）
+Windows PowerShell：
 
 ```powershell
 irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 ```
 
-安装完成后运行：
+运行：
 
 ```sh
 sshm
-```
-
-查看当前版本：
-
-```sh
 sshm --version
 ```
+
+<details>
+<summary>其他安装方式</summary>
+
+macOS 上如果存在 Homebrew 目录，默认会安装到 `/opt/homebrew/bin/sshm`；其他 macOS / Linux 环境默认安装到 `/usr/local/bin/sshm`。可以用 `SSHM_INSTALL_DIR` 覆盖。
 
 如果之前用过本地开发版 alias，当前终端可能还会指向旧路径。可以重新打开终端，或执行：
 
@@ -100,9 +71,6 @@ sshm --version
 unalias sshm 2>/dev/null || true
 hash -r
 ```
-
-<details>
-<summary>其他安装方式</summary>
 
 指定安装目录：
 
@@ -146,11 +114,7 @@ Releases 页面会提供各平台二进制包和 `checksums.txt` 校验文件。
 
 ## ⌨️ 快速开始
 
-```sh
-sshm
-```
-
-第一次打开后，按 `a` 添加服务器。添加服务器时左边填写服务器信息，右边管理分类，`Tab` 切换左右区域，`Enter` 保存。添加完成后主面板会自动采集监控数据，选中服务器后可以直接登录、看详情、传文件或执行命令模板。
+第一次打开后按 `a` 添加服务器，`Enter` 保存。添加完成后主面板会自动采集监控数据。
 
 ```text
 更多    ?
