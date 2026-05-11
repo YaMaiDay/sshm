@@ -206,11 +206,33 @@ sudo apt install openssh-client sshpass
 
 ## 🗂️ 文件位置
 
-一键安装只安装程序本体，服务器配置会保存在用户目录里。
+一键安装只安装程序本体。配置、模板、历史都放在用户目录，不会写进项目目录。
+
+macOS / Linux：
+
+```sh
+~/.config/sshm/servers.toml    # 服务器
+~/.config/sshm/commands.toml   # 命令模板
+~/.config/sshm/history.toml    # 命令历史
+~/.config/sshm/config.toml     # 应用配置
+~/.config/sshm/state.toml      # 本机状态
+```
+
+Windows：
+
+```text
+%USERPROFILE%\.config\sshm\servers.toml
+%USERPROFILE%\.config\sshm\commands.toml
+%USERPROFILE%\.config\sshm\history.toml
+%APPDATA%\sshm\config.toml
+```
+
+<details>
+<summary>查看完整文件位置</summary>
 
 | 类型 | macOS / Linux | Windows |
 | --- | --- | --- |
-| 程序本体 | macOS Homebrew 环境默认 `/opt/homebrew/bin/sshm`，其他环境默认 `/usr/local/bin/sshm`，也可自定义安装目录 | `%LOCALAPPDATA%\Programs\sshm\sshm.exe` 或自定义安装目录 |
+| 程序本体 | `/opt/homebrew/bin/sshm` 或 `/usr/local/bin/sshm` | `%LOCALAPPDATA%\Programs\sshm\sshm.exe` |
 | 服务器配置 | `~/.config/sshm/servers.toml` | `%USERPROFILE%\.config\sshm\servers.toml` |
 | 命令模板 | `~/.config/sshm/commands.toml` | `%USERPROFILE%\.config\sshm\commands.toml` |
 | 命令历史 | `~/.config/sshm/history.toml` | `%USERPROFILE%\.config\sshm\history.toml` |
@@ -223,22 +245,29 @@ sudo apt install openssh-client sshpass
 open ~/.config/sshm
 ```
 
-查看服务器配置：
-
-```sh
-cat ~/.config/sshm/servers.toml
-```
+</details>
 
 ## ⚙️ 配置
 
-服务器数据保存在：
+大部分配置都可以在 TUI 里完成，手动改文件也可以。
 
-```text
-~/.config/sshm/servers.toml
-```
+| 文件 | 用途 |
+| --- | --- |
+| `servers.toml` | 服务器、分类、密钥、密码、备注、到期时间、健康端口 |
+| `commands.toml` | 全局模板、单服务器模板 |
+| `config.toml` | 刷新间隔、连接超时、本地/远程常用目录 |
+
+认证逻辑：
+
+- 配了 `key_path`：只用当前服务器配置的密钥。
+- 配了 `password`：允许密码和 PAM。
+- 密钥和密码都有：先密钥，后密码。
+- 两者都没有：交给系统 OpenSSH / ssh-agent。
 
 <details>
-<summary>查看 servers.toml 示例</summary>
+<summary>查看配置示例</summary>
+
+`servers.toml`
 
 ```toml
 categories = ["production", "staging"]
@@ -250,84 +279,16 @@ host = "203.0.113.10"
 user = "deploy"
 port = 22
 key_path = "~/.ssh/id_ed25519"
-proxy_jump = ""
 password = ""
 note = "线上 Web 入口"
 expire_at = "2026-08-31"
 favorite = true
 health_ports = [80, 443, 8080]
-
-[[servers]]
-category = "staging"
-name = "demo-db"
-host = "198.51.100.20"
-user = "admin"
-port = 22
-key_path = ""
-proxy_jump = ""
-password = "example-password"
-note = "测试数据库"
-expire_at = ""
-favorite = false
-health_ports = [5432]
 ```
 
-</details>
-
-认证方式自动判断：
-
-- `key_path` 不为空时，只使用当前服务器配置里的密钥
-- `password` 不为空时允许 `password` 和 `keyboard-interactive` / PAM
-- `key_path` 和 `password` 同时存在时，先用当前配置的密钥，再用当前配置的密码
-- 两者都为空时交给系统 OpenSSH、ssh-agent 或默认配置处理
-
-连接、监控、上传下载和远程目录选择都会禁用 SSH 连接复用，避免同 IP、同用户的不同服务器配置误复用到旧连接。
-
-可选字段：
-
-- `favorite = true`：标记收藏服务器，面板里可按 `f` 收藏/取消收藏，按 `v` 只看收藏。
-- `note = "线上 Web 入口"`：服务器备注，会显示在卡片和详情里，也可以被搜索匹配。
-- `expire_at = "2026-08-31"`：服务器到期日期，格式固定为 `YYYY-MM-DD`。卡片和详情会显示剩余时间，已过期、今天到期或 7 天内到期会用颜色提示。
-- `health_ports = [80, 443]`：在详情页和面板里显示健康端口状态。当前检查逻辑基于远端监听端口，端口在服务器上监听就显示正常。
-
-应用配置保存在：
-
-```text
-~/.config/sshm/config.toml
-```
-
-<details>
-<summary>查看 config.toml 示例</summary>
+`commands.toml`
 
 ```toml
-refresh_interval = "5s"
-connect_timeout = "2s"
-command_timeout = "6s"
-
-local_dirs = [".", "~/Downloads", "~/Desktop", "~/Documents", "~"]
-remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
-```
-
-</details>
-
-命令模板单独保存在：
-
-```text
-~/.config/sshm/commands.toml
-```
-
-可以在 TUI 里按 `m` 添加、编辑、删除模板，也可以手动编辑这个文件。
-
-<details>
-<summary>查看 commands.toml 示例</summary>
-
-```toml
-[[global]]
-name = "查看磁盘"
-command = """
-df -h
-"""
-
 [[global]]
 name = "查看容器"
 command = """
@@ -344,27 +305,35 @@ docker compose up -d
 """
 ```
 
+`config.toml`
+
+```toml
+refresh_interval = "5s"
+connect_timeout = "2s"
+command_timeout = "6s"
+
+local_dirs = ["~/Downloads", "~/Desktop", "~"]
+remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
+```
+
 </details>
 
-命令模板分两种：
+## 🧰 命令模板
 
-- `global`：全局模板，所有服务器都能使用。
-- `server`：单服务器模板，只在对应 `分类/服务器名` 下显示。
+主面板或详情页按 `m` 打开命令模板。
 
-在主面板或详情页选中服务器后，按 `m` 打开命令模板。模板列表里可以执行、新增、编辑、删除模板。
-- 模板编辑里 `Enter` 保存，`Ctrl+J` 在命令内容中换行。
-- 执行前会显示完整命令，确认后才会通过 SSH 在远端执行。
-- 模板可以保存为全局模板，也可以保存为当前服务器专用模板；新增模板时默认使用当前服务器。
-- 模板列表里提供 `+ 临时命令`，适合临时执行一次性的多行命令。
+| 操作 | 说明 |
+| --- | --- |
+| 单台模板 | 当前服务器执行 |
+| 全局模板 | 所有服务器可用 |
+| 临时命令 | 不保存，执行一次 |
+| 批量命令 | 按 `b` 选择多台服务器串行执行 |
+| 命令历史 | 按 `i` 查看输出、退出码、重新执行 |
 
-主面板按 `b` 可以进入批量命令：
+模板编辑里 `Ctrl+J` 换行，执行前会显示完整命令并要求确认。
 
-- `Space` 勾选多台服务器，`a` 全选当前列表，`x` 清空选择。
-- 批量命令只使用全局模板或临时命令，避免混用不同服务器的专用模板。
-- 执行前会显示目标服务器和完整命令，确认后按服务器顺序串行执行。
-- 结果页显示每台服务器成功、失败、等待或执行中状态，并可查看单台输出。
-
-主面板按 `i` 可以查看命令历史：
+<details>
+<summary>查看命令历史规则</summary>
 
 - 单台命令、临时命令、批量命令执行完成后都会记录。
 - 历史里可以查看执行时间、目标服务器、命令内容、退出码和输出。
@@ -372,9 +341,14 @@ docker compose up -d
 - `x` 删除当前历史记录，删除前会二次确认。
 - 默认最多保留最近 100 条历史，每台服务器输出只保存最后 200 行，避免历史文件过大。
 
+</details>
+
 ## 🔄 数据迁移
 
-如果 `servers.toml` 不存在，首次启动会尝试从这些旧配置迁移：
+首次启动时，如果没有 `servers.toml`，会尝试从 OpenSSH 配置和旧密码文件迁移。
+
+<details>
+<summary>查看迁移来源</summary>
 
 ```text
 ~/.ssh/config
@@ -385,16 +359,17 @@ docker compose up -d
 
 迁移后，添加、编辑、删除、登录、监控、上传和下载都以 `servers.toml` 为准。保存配置时会直接覆盖 `servers.toml`，不会自动生成 `.bak` 备份文件。
 
+</details>
+
 ## 🖥️ 登录体验
 
-登录服务器时，`sshm` 会临时让出终端控制权，直接运行系统 `ssh` 或 `sshpass ssh`，并强制分配交互式 TTY。
+登录时直接运行系统 `ssh` 或 `sshpass ssh`，并临时让出终端控制权。
 
-这意味着进入服务器后：
+进入服务器后就是原生 SSH：
 
-- `Ctrl+C` 会中断远程命令
-- 删除键、方向键、Tab 补全按远程 shell 的规则工作
-- `vim`、`top`、`htop`、`tmux` 等交互式程序按正常 SSH 方式运行
-- 退出远程服务器后会回到 `sshm` 面板
+- `vim`、`top`、`htop`、`tmux` 正常运行。
+- `Ctrl+C`、方向键、删除键、Tab 补全都按远程 shell 规则工作。
+- 退出远程服务器后回到 `sshm` 面板。
 
 如果本机 OpenSSH 支持 `WarnWeakCrypto`，`sshm` 会自动隐藏下面这类 post-quantum 提示：
 
@@ -406,7 +381,7 @@ WARNING: connection is not using a post-quantum key exchange algorithm
 
 ## 📡 监控方式
 
-`sshm` 通过 SSH 执行远程只读命令采集 Linux 服务器状态，不安装 agent，不修改服务器配置。
+通过 SSH 执行远程只读命令采集状态，不安装 agent，不修改服务器配置。
 
 | 默认策略 | 值 |
 | --- | --- |
@@ -415,23 +390,24 @@ WARNING: connection is not using a post-quantum key exchange algorithm
 | 单台采集超时 | 6 秒 |
 | 离线判断 | 在线服务器连续失败 2 次后显示离线 |
 
-主面板支持卡片和分类两种视图，按 `z` 循环切换。卡片视图适合看资源概览；分类视图会显示 `全部` 和真实服务器分类，收藏、在线、异常仍通过快捷键筛选。终端宽度足够时分类在左侧；宽度小于 100 列时自动切成顶部分类条和下方服务器列表。搜索时会自动以列表结果展示，`↑↓` / `j/k` 选择结果，`Enter` 登录，`Space` 查看详情。
+| 面板 | 说明 |
+| --- | --- |
+| 卡片视图 | 看资源概览 |
+| 分类视图 | 按分类查看服务器，窄屏自动切顶部分类 |
+| 详情页 | 基础、资源、服务、容器、登录、风险分组 |
+| 异常总览 | 按严重和警告数量优先查看问题服务器 |
 
-主面板显示短进度条，方便快速扫 CPU、内存、磁盘使用率和容量。服务器卡片会显示备注、到期剩余时间或运行时间、最近登录时间，弱化地址、负载、容器等辅助信息，并用分隔线区分资源指标和状态摘要。详情页会展示更完整的资源信息，包括 CPU 核心数和型号、内核、架构、到期时间、最近登录时间、成功/失败登录摘要、检查建议、内存可用量、Swap、根分区文件系统、磁盘可用量和 inode 使用情况。详情页按基础、资源、服务、容器、登录、风险分组，左右键或 `Tab` 切换分类，内容超出窗口高度时可以用 `↑↓` 或 `j/k` 上下滚动。
+<details>
+<summary>查看采集和风险检查细节</summary>
 
-登录记录只在打开详情页时查询一次，详情页按 `r` 刷新时会重新查询；主面板自动刷新不会查询登录记录。成功登录使用 `last -n 100` 统计摘要，失败登录使用 `lastb -n 100`，如果普通用户权限不足会尝试 `sudo -n lastb -n 100`，仍不可用时显示需要 root 权限。
+- 资源：CPU、内存、Swap、磁盘、inode、负载、运行时间。
+- 服务：健康端口、监听端口、异常 systemd 服务。
+- 容器：`docker ps -a` 统计运行、停止、故障容器。
+- 登录：成功登录用 `last -n 100`，失败登录用 `lastb -n 100`，权限不足时尝试 `sudo -n lastb -n 100`。
+- 风险：到期时间、资源使用率、健康端口、故障容器、异常服务、失败登录数量、密码登录、Root 登录。
+- 采集命令：`/proc/stat`、`/proc/loadavg`、`free`、`df`、`uname`、`uptime`、`systemctl --failed`、`docker ps -a`、`ss` 或 `netstat`。
 
-主面板按 `w` 可以打开异常总览，按严重和警告数量排序显示有问题的服务器。异常总览里 `f` / `Tab` 可以切换筛选，也可以直接按 `0` 全部、`1` 严重、`2` 警告、`3` 离线、`4` 资源、`5` 容器、`6` 服务、`7` 安全。`Enter` 或 `Space` 可直接进入对应详情页，并自动切到更相关的详情分类。
-
-检查建议位于详情页底部，会基于服务器到期时间、资源使用率、健康端口、故障容器、异常服务、失败登录数量，以及 `sshd -T` 中的密码登录和 Root 登录配置给出严重、警告、提示或正常项。安全相关建议会尽量明确显示成检查项，例如 `允许密码登录：风险`、`允许root登录：风险`、`SSH端口：提示`、`失败登录来源IP过多：风险`，方便快速判断该改哪里。
-
-服务信息会按详情分类拆开显示：
-
-- 健康：自定义 `health_ports` 是否在远端监听，以及当前监听端口列表。
-- 容器：通过 `docker ps -a` 统计总数、运行、停止、故障，并按状态列出容器名称、状态、镜像和端口。`restarting` / `dead` 计为故障，`exited` / `created` / `paused` 计为停止。
-- 系统服务：通过 `systemctl --failed` 显示失败服务数量和名称。
-
-采集内容包括 `/proc/stat`、`/proc/loadavg`、`/proc/cpuinfo`、`free`、`df`、`uname`、`uptime`、`systemctl --failed`、`docker ps -a`、`ss` 或 `netstat`。
+</details>
 
 ## 📁 文件传输
 
@@ -444,13 +420,7 @@ WARNING: connection is not using a post-quantum key exchange algorithm
 
 ## 💻 平台支持
 
-| 平台 | 状态 |
-| --- | --- |
-| macOS | ✅ 推荐 |
-| Linux | ✅ 推荐 |
-| Windows Terminal + OpenSSH | 🧪 实验性 |
-
-Windows 目前可编译运行，但本地路径选择和 `sshpass` 体验没有 macOS/Linux 完整。
+macOS / Linux 推荐使用。Windows Terminal + OpenSSH 可用，但本地路径选择和 `sshpass` 体验还不如 macOS/Linux 完整。
 
 ## 🧭 设计取舍
 
