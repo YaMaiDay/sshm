@@ -329,9 +329,9 @@ WARNING: connection is not using a post-quantum key exchange algorithm
 
 Windows 目前可编译运行，但本地路径选择和 `sshpass` 体验没有 macOS/Linux 完整。
 
-## 🧭 与 OmnySSH 的差异
+## 🧭 设计取舍
 
-| 项目 | sshm |
+| 项目 | 说明 |
 | --- | --- |
 | 开发语言 | Go |
 | 交互语言 | 中文优先 |
