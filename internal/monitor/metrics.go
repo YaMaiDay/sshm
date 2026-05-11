@@ -6,14 +6,26 @@ type Metrics struct {
 	Online         bool
 	OS             string
 	RemoteHostname string
+	Kernel         string
+	Arch           string
 	CPUPercent     float64
+	CPUCores       int
+	CPUModel       string
 	MemUsed        uint64
 	MemTotal       uint64
 	MemAvailable   uint64
+	SwapUsed       uint64
+	SwapTotal      uint64
+	SwapFree       uint64
 	DiskUsed       uint64
 	DiskTotal      uint64
 	DiskAvailable  uint64
 	DiskAvailKnown bool
+	DiskFilesystem string
+	DiskMountpoint string
+	InodeUsed      uint64
+	InodeTotal     uint64
+	InodeAvailable uint64
 	Load1          string
 	Load5          string
 	Load15         string
@@ -45,4 +57,22 @@ func (m Metrics) DiskPercent() float64 {
 		return 0
 	}
 	return float64(m.DiskUsed) * 100 / float64(m.DiskTotal)
+}
+
+func (m Metrics) SwapPercent() float64 {
+	if m.SwapTotal == 0 {
+		return 0
+	}
+	return float64(m.SwapUsed) * 100 / float64(m.SwapTotal)
+}
+
+func (m Metrics) InodePercent() float64 {
+	usable := m.InodeUsed + m.InodeAvailable
+	if usable > 0 {
+		return float64(m.InodeUsed) * 100 / float64(usable)
+	}
+	if m.InodeTotal == 0 {
+		return 0
+	}
+	return float64(m.InodeUsed) * 100 / float64(m.InodeTotal)
 }

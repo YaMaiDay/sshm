@@ -78,9 +78,14 @@ func main() {
 		fmt.Printf("服务器：%s/%s\n", h.Category, h.Name)
 		fmt.Printf("在线: %v\n", m.Online)
 		fmt.Printf("系统: %s\n", m.OS)
-		fmt.Printf("CPU: %.0f%%\n", m.CPUPercent)
-		fmt.Printf("内存: %.0f%%\n", m.MemPercent())
-		fmt.Printf("磁盘: %.0f%%\n", m.DiskPercent())
+		fmt.Printf("内核: %s\n", m.Kernel)
+		fmt.Printf("架构: %s\n", m.Arch)
+		fmt.Printf("CPU: %.0f%% %s %s\n", m.CPUPercent, cpuCoresText(m), m.CPUModel)
+		fmt.Printf("内存: %.0f%% %s / %s\n", m.MemPercent(), bytesHuman(m.MemUsed), bytesHuman(m.MemTotal))
+		fmt.Printf("Swap: %.0f%% %s / %s\n", m.SwapPercent(), bytesHuman(m.SwapUsed), bytesHuman(m.SwapTotal))
+		fmt.Printf("磁盘: %.0f%% %s / %s\n", m.DiskPercent(), bytesHuman(m.DiskUsed), bytesHuman(m.DiskTotal))
+		fmt.Printf("磁盘挂载: %s %s\n", m.DiskMountpoint, m.DiskFilesystem)
+		fmt.Printf("inode: %.0f%% %s / %s\n", m.InodePercent(), countHuman(m.InodeUsed), countHuman(m.InodeTotal))
 		fmt.Printf("负载: %s %s %s\n", m.Load1, m.Load5, m.Load15)
 		fmt.Printf("运行: %s\n", m.Uptime)
 		if m.Error != "" {
@@ -137,4 +142,45 @@ func findHost(hosts []host.Host, query string) (host.Host, error) {
 		return host.Host{}, fmt.Errorf("服务器名称不唯一，请使用 分类/名称：%s", strings.Join(options, "、"))
 	}
 	return host.Host{}, fmt.Errorf("没有找到指定服务器：%s", query)
+}
+
+func cpuCoresText(metrics monitor.Metrics) string {
+	if metrics.CPUCores <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d核", metrics.CPUCores)
+}
+
+func bytesHuman(value uint64) string {
+	if value == 0 {
+		return "-"
+	}
+	units := []string{"B", "K", "M", "G", "T"}
+	f := float64(value)
+	unit := 0
+	for f >= 1024 && unit < len(units)-1 {
+		f /= 1024
+		unit++
+	}
+	if unit == 0 {
+		return fmt.Sprintf("%.0f%s", f, units[unit])
+	}
+	return fmt.Sprintf("%.1f%s", f, units[unit])
+}
+
+func countHuman(value uint64) string {
+	if value == 0 {
+		return "-"
+	}
+	units := []string{"", "K", "M", "B"}
+	f := float64(value)
+	unit := 0
+	for f >= 1000 && unit < len(units)-1 {
+		f /= 1000
+		unit++
+	}
+	if unit == 0 {
+		return fmt.Sprintf("%.0f", f)
+	}
+	return fmt.Sprintf("%.1f%s", f, units[unit])
 }

@@ -150,6 +150,7 @@ type Model struct {
 	filter         filterMode
 	sortBy         sortMode
 	category       string
+	detailScroll   int
 	activeTransfer activeTransfer
 	collectRound   int
 	manualRound    int
@@ -383,6 +384,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case " ":
 			if _, ok := m.selectedRealIndex(); ok {
 				m.mode = modeDetail
+				m.detailScroll = 0
 			}
 		case "a", "A":
 			return m.startAddForm(), nil
@@ -763,6 +765,11 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q", "Q", "ctrl+c", "b", "B", "left":
 		m.mode = modeDashboard
+		m.detailScroll = 0
+	case "j", "J", "down":
+		m.detailScroll = clampInt(m.detailScroll+1, 0, m.detailMaxScroll())
+	case "k", "K", "up":
+		m.detailScroll = clampInt(m.detailScroll-1, 0, m.detailMaxScroll())
 	case "u", "U":
 		if idx, ok := m.selectedRealIndex(); ok {
 			return m.startUpload(idx), nil
@@ -1522,6 +1529,16 @@ func (m *Model) move(delta int) {
 	}
 }
 
+func clampInt(value int, min int, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
 func (m Model) selectedRealIndex() (int, bool) {
 	indexes := m.filteredIndexes()
 	if len(indexes) == 0 || m.selected < 0 || m.selected >= len(indexes) {
@@ -1887,9 +1904,23 @@ func (m Model) renderDeleteConfirm() string {
 }
 
 func (m Model) renderDetail() string {
-	idx, ok := m.selectedRealIndex()
+	lines, ok := m.detailLines()
 	if !ok {
 		return "没有选中的服务器"
+	}
+	viewportHeight := m.detailViewportHeight()
+	if viewportHeight < len(lines) {
+		maxScroll := len(lines) - viewportHeight
+		scroll := clampInt(m.detailScroll, 0, maxScroll)
+		lines = lines[scroll : scroll+viewportHeight]
+	}
+	return detailStyle.Render(strings.Join(lines, "\n"))
+}
+
+func (m Model) detailLines() ([]string, bool) {
+	idx, ok := m.selectedRealIndex()
+	if !ok {
+		return nil, false
 	}
 	state := m.states[idx]
 	h := state.Host
@@ -1911,15 +1942,35 @@ func (m Model) renderDetail() string {
 		detailRow("用户", h.User),
 		detailRow("端口", h.Port),
 		detailRow("分类", emptyDash(h.Category)),
+		detailRow("主机名", emptyDash(metrics.RemoteHostname)),
 		detailRow("系统", emptyDash(metrics.OS)),
+		detailRow("内核", emptyDash(metrics.Kernel)),
+		detailRow("架构", emptyDash(metrics.Arch)),
 		detailRow("来源", h.File),
 		"",
 		sectionTitle("资源监控"),
-		detailRow("CPU", percentBar(metrics.CPUPercent)),
-		detailRow("内存", fmt.Sprintf("%s  %s / %s", percentBar(metrics.MemPercent()), bytesHuman(metrics.MemUsed), bytesHuman(metrics.MemTotal))),
-		detailRow("磁盘", fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.DiskPercent(), 80, 90), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
+		detailSubTitle("CPU"),
+		detailRow("使用率", percentBar(metrics.CPUPercent)),
+		detailRow("核心数", cpuCoresText(metrics)),
+		detailRow("型号", emptyDash(metrics.CPUModel)),
+		"",
+		detailSubTitle("内存"),
+		detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBar(metrics.MemPercent()), bytesHuman(metrics.MemUsed), bytesHuman(metrics.MemTotal))),
+		detailRow("可用", bytesHuman(metrics.MemAvailable)),
+		detailRow("Swap", swapUsageText(metrics)),
+		detailRow("Swap可用", swapFreeText(metrics)),
+		"",
+		detailSubTitle("磁盘"),
+		detailRow("挂载点", emptyDash(metrics.DiskMountpoint)),
+		detailRow("文件系统", emptyDash(metrics.DiskFilesystem)),
+		detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.DiskPercent(), 80, 90), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
+		detailRow("可用", bytesHuman(metrics.DiskAvailable)),
+		detailRow("inode", inodeUsageText(metrics)),
+		detailRow("inode可用", countHuman(metrics.InodeAvailable)),
+		"",
+		detailSubTitle("系统"),
 		detailRow("负载", fmt.Sprintf("%s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))),
-		detailRow("运行", uptimeCN(metrics.Uptime)),
+		detailRow("运行时间", uptimeCN(metrics.Uptime)),
 		"",
 		sectionTitle("服务状态"),
 		detailRow("容器", fmt.Sprintf("%d 运行中", metrics.DockerRunning)),
@@ -1929,8 +1980,28 @@ func (m Model) renderDetail() string {
 	if metrics.Error != "" {
 		lines = append(lines, "", sectionTitle("最近错误"), detailRow("错误", metrics.Error))
 	}
-	lines = append(lines, "", helpStyle.Render("回车 登录  u上传  d下载  r刷新  q/退出键 返回"))
-	return detailStyle.Render(strings.Join(lines, "\n"))
+	lines = append(lines, "", helpStyle.Render("↑↓/jk 上下滚动  回车 登录  u上传  d下载  r刷新  q/退出键 返回"))
+	return lines, true
+}
+
+func (m Model) detailViewportHeight() int {
+	height := m.height - 4
+	if height < 5 {
+		height = 5
+	}
+	return height
+}
+
+func (m Model) detailMaxScroll() int {
+	lines, ok := m.detailLines()
+	if !ok {
+		return 0
+	}
+	maxScroll := len(lines) - m.detailViewportHeight()
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
 }
 
 func (m Model) renderPicker() string {
@@ -2216,17 +2287,17 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 		categoryLabel = ""
 	}
 	name := fit(h.Name, nameWidth)
-	barWidth := 32
+	barWidth := 12
 	if innerWidth < 42 {
-		barWidth = 22
+		barWidth = 8
 	}
 	cpu := percentBarWidth(metrics.CPUPercent, barWidth)
 	mem := percentBarWidth(metrics.MemPercent(), barWidth)
 	disk := percentBarWidthWithThreshold(metrics.DiskPercent(), barWidth, 80, 90)
 
-	cpuLine := metricLine("CPU", cpu)
-	memLine := metricLine("内存", mem)
-	diskLine := metricLine("磁盘", disk)
+	cpuLine := metricLine("CPU", strings.TrimSpace(cpu+"  "+cpuCoresText(metrics)))
+	memLine := metricLine("内存", strings.TrimSpace(mem+"  "+bytesPair(metrics.MemUsed, metrics.MemTotal)))
+	diskLine := metricLine("磁盘", strings.TrimSpace(disk+"  "+bytesPair(metrics.DiskUsed, metrics.DiskTotal)))
 	runLine := fit("⏱️ "+uptimeCN(metrics.Uptime), innerWidth)
 	loadLine := fit(fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15)), innerWidth)
 	serviceLine := fit(fmt.Sprintf("🐳 %d 运行中  ⚠️ %d", metrics.DockerRunning, metrics.FailedServices), innerWidth)
@@ -2546,8 +2617,12 @@ func sectionTitle(value string) string {
 	return blueStyle.Bold(true).Render("[" + value + "]")
 }
 
+func detailSubTitle(value string) string {
+	return blueStyle.Render("· " + value)
+}
+
 func detailRow(label, value string) string {
-	const labelWidth = 8
+	const labelWidth = 10
 	padding := labelWidth - runewidth.StringWidth(label)
 	if padding < 1 {
 		padding = 1
@@ -2641,6 +2716,58 @@ func bytesHuman(value uint64) string {
 		return fmt.Sprintf("%.0f%s", f, units[unit])
 	}
 	return fmt.Sprintf("%.1f%s", f, units[unit])
+}
+
+func bytesPair(used uint64, total uint64) string {
+	if used == 0 && total == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s", bytesHuman(used), bytesHuman(total))
+}
+
+func swapUsageText(metrics monitor.Metrics) string {
+	if metrics.SwapTotal == 0 {
+		return "未配置"
+	}
+	return fmt.Sprintf("%s  %s / %s", percentBar(metrics.SwapPercent()), bytesHuman(metrics.SwapUsed), bytesHuman(metrics.SwapTotal))
+}
+
+func swapFreeText(metrics monitor.Metrics) string {
+	if metrics.SwapTotal == 0 {
+		return "-"
+	}
+	return bytesHuman(metrics.SwapFree)
+}
+
+func inodeUsageText(metrics monitor.Metrics) string {
+	if metrics.InodeTotal == 0 && metrics.InodeUsed == 0 && metrics.InodeAvailable == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.InodePercent(), 80, 90), countHuman(metrics.InodeUsed), countHuman(metrics.InodeTotal))
+}
+
+func countHuman(value uint64) string {
+	if value == 0 {
+		return "-"
+	}
+	units := []string{"", "K", "M", "B"}
+	f := float64(value)
+	unit := 0
+	for f >= 1000 && unit < len(units)-1 {
+		f /= 1000
+		unit++
+	}
+	if unit == 0 {
+		return fmt.Sprintf("%.0f", f)
+	}
+	return fmt.Sprintf("%.1f%s", f, units[unit])
+}
+
+func cpuCoresText(metrics monitor.Metrics) string {
+	if metrics.CPUCores <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d核", metrics.CPUCores)
 }
 
 func fit(s string, width int) string {

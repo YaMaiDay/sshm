@@ -137,6 +137,8 @@ func parseMetrics(output string) (Metrics, error) {
 
 	m.RemoteHostname = values["HOSTNAME"]
 	m.OS = values["OS"]
+	m.Kernel = values["KERNEL"]
+	m.Arch = values["ARCH"]
 	load := strings.Fields(values["LOAD"])
 	if len(load) >= 3 {
 		m.Load1, m.Load5, m.Load15 = load[0], load[1], load[2]
@@ -152,6 +154,12 @@ func parseMetrics(output string) (Metrics, error) {
 			}
 		}
 	}
+	swap := strings.Fields(values["SWAP"])
+	if len(swap) >= 3 {
+		m.SwapTotal, _ = strconv.ParseUint(swap[0], 10, 64)
+		m.SwapUsed, _ = strconv.ParseUint(swap[1], 10, 64)
+		m.SwapFree, _ = strconv.ParseUint(swap[2], 10, 64)
+	}
 	disk := strings.Fields(values["DISK"])
 	if len(disk) >= 2 {
 		m.DiskTotal, _ = strconv.ParseUint(disk[0], 10, 64)
@@ -161,7 +169,17 @@ func parseMetrics(output string) (Metrics, error) {
 			m.DiskAvailKnown = true
 		}
 	}
+	m.DiskFilesystem = values["DISK_FS"]
+	m.DiskMountpoint = values["DISK_MOUNT"]
+	inode := strings.Fields(values["INODE"])
+	if len(inode) >= 3 {
+		m.InodeTotal, _ = strconv.ParseUint(inode[0], 10, 64)
+		m.InodeUsed, _ = strconv.ParseUint(inode[1], 10, 64)
+		m.InodeAvailable, _ = strconv.ParseUint(inode[2], 10, 64)
+	}
 	m.CPUPercent = cpuPercent(values["CPU1"], values["CPU2"])
+	m.CPUCores, _ = strconv.Atoi(strings.TrimSpace(values["CPU_CORES"]))
+	m.CPUModel = values["CPU_MODEL"]
 	m.Uptime = values["UPTIME"]
 	m.DockerRunning, _ = strconv.Atoi(strings.TrimSpace(values["DOCKER"]))
 	m.FailedServices, _ = strconv.Atoi(strings.TrimSpace(values["FAILED"]))
@@ -228,12 +246,21 @@ func sum(values []uint64) uint64 {
 const remoteScript = `sh -c '
 echo HOSTNAME=$(hostname 2>/dev/null)
 if [ -r /etc/os-release ]; then . /etc/os-release; echo OS="${PRETTY_NAME:-$NAME}"; else echo OS="$(uname -s 2>/dev/null)"; fi
+echo KERNEL="$(uname -r 2>/dev/null)"
+echo ARCH="$(uname -m 2>/dev/null)"
 echo CPU1="$(awk '"'"'/^cpu /{print}'"'"' /proc/stat 2>/dev/null)"
 sleep 0.5
 echo CPU2="$(awk '"'"'/^cpu /{print}'"'"' /proc/stat 2>/dev/null)"
+echo CPU_CORES="$(nproc 2>/dev/null || grep -c "^processor" /proc/cpuinfo 2>/dev/null)"
+CPU_MODEL_VALUE="$(grep -m1 -E "model name|Hardware|Processor" /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed "s/^[[:space:]]*//")"
+echo CPU_MODEL="$CPU_MODEL_VALUE"
 echo LOAD="$(cat /proc/loadavg 2>/dev/null | awk '"'"'{print $1" "$2" "$3}'"'"')"
 echo MEM="$(free -b 2>/dev/null | awk '"'"'/^Mem:/{print $2" "$3" "$7}'"'"')"
+echo SWAP="$(free -b 2>/dev/null | awk '"'"'/^Swap:/{print $2" "$3" "$4}'"'"')"
 echo DISK="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $2" "$3" "$4}'"'"')"
+echo DISK_FS="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $1}'"'"')"
+echo DISK_MOUNT="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $6}'"'"')"
+echo INODE="$(df -Pi / 2>/dev/null | awk '"'"'NR==2{print $2" "$3" "$4}'"'"')"
 echo UPTIME="$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
 echo DOCKER="$(docker ps -q 2>/dev/null | wc -l | tr -d '"'"' '"'"')"
 FAILED_UNITS_VALUE="$(systemctl --failed --no-legend --plain 2>/dev/null | awk '"'"'{print $1}'"'"' | paste -sd, - 2>/dev/null)"

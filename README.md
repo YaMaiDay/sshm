@@ -127,6 +127,7 @@ sshm
 ```text
 导航    ↑↓←→
 登录    Enter        详情    Space
+详情    ↑↓/jk 滚动   q/Esc 返回
 管理    a 添加       e 编辑       x 删除
 传输    u 上传       d 下载
 视图    / 搜索       t 分类       o 在线       p 异常       s 排序
@@ -141,7 +142,8 @@ sshm
 | 🖥️ | 全中文 TUI 监控面板 | ✅ 已支持 |
 | 🗂️ | 服务器分类管理 | ✅ 已支持 |
 | ✏️ | 添加、编辑、删除服务器 | ✅ 已支持 |
-| 📊 | CPU / 内存 / 磁盘 / 负载 / 运行时间 | ✅ 已支持 |
+| 📊 | CPU / 内存 / Swap / 磁盘 / inode / 负载 / 运行时间 | ✅ 已支持 |
+| 🔬 | 详情页展示 CPU 型号、核心数、内核、架构、文件系统 | ✅ 已支持 |
 | 🐳 | Docker 容器数量和异常服务提示 | ✅ 已支持 |
 | 🔎 | 搜索、筛选、排序、手动刷新 | ✅ 已支持 |
 | 🔐 | 系统 `ssh` 登录 | ✅ 已支持 |
@@ -304,7 +306,9 @@ WARNING: connection is not using a post-quantum key exchange algorithm
 | 单台采集超时 | 6 秒 |
 | 离线判断 | 在线服务器连续失败 2 次后显示离线 |
 
-采集内容包括 `/proc/stat`、`/proc/loadavg`、`free`、`df`、`uptime`、`systemctl --failed`、`docker ps`、`ss` 或 `netstat`。
+主面板显示短进度条，方便快速扫 CPU、内存、磁盘使用率和容量。详情页会展示更完整的资源信息，包括 CPU 核心数和型号、内核、架构、内存可用量、Swap、根分区文件系统、磁盘可用量和 inode 使用情况。详情内容超出窗口高度时，可以用 `↑↓` 或 `j/k` 上下滚动。
+
+采集内容包括 `/proc/stat`、`/proc/loadavg`、`/proc/cpuinfo`、`free`、`df`、`uname`、`uptime`、`systemctl --failed`、`docker ps`、`ss` 或 `netstat`。
 
 ## 📁 文件传输
 

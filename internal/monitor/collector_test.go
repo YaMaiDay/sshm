@@ -1,6 +1,9 @@
 package monitor
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseMetricsUsesAvailableMemory(t *testing.T) {
 	metrics, err := parseMetrics("MEM=1000 700 400\n")
@@ -35,5 +38,53 @@ func TestDiskPercentUsesDfUsableSpaceWhenFull(t *testing.T) {
 
 	if got := metrics.DiskPercent(); got != 100 {
 		t.Fatalf("DiskPercent = %v, want 100", got)
+	}
+}
+
+func TestParseMetricsCPUInfo(t *testing.T) {
+	metrics, err := parseMetrics("CPU_CORES=4\nCPU_MODEL=Intel Xeon Test\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if metrics.CPUCores != 4 {
+		t.Fatalf("CPUCores = %d, want 4", metrics.CPUCores)
+	}
+	if metrics.CPUModel != "Intel Xeon Test" {
+		t.Fatalf("CPUModel = %q, want %q", metrics.CPUModel, "Intel Xeon Test")
+	}
+}
+
+func TestParseMetricsDetailInfo(t *testing.T) {
+	metrics, err := parseMetrics(strings.Join([]string{
+		"HOSTNAME=server-1",
+		"KERNEL=5.10.0-test",
+		"ARCH=x86_64",
+		"SWAP=2000 500 1500",
+		"DISK_FS=/dev/xvda1",
+		"DISK_MOUNT=/",
+		"INODE=1000 250 750",
+	}, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if metrics.RemoteHostname != "server-1" {
+		t.Fatalf("RemoteHostname = %q, want %q", metrics.RemoteHostname, "server-1")
+	}
+	if metrics.Kernel != "5.10.0-test" {
+		t.Fatalf("Kernel = %q, want %q", metrics.Kernel, "5.10.0-test")
+	}
+	if metrics.Arch != "x86_64" {
+		t.Fatalf("Arch = %q, want %q", metrics.Arch, "x86_64")
+	}
+	if metrics.SwapTotal != 2000 || metrics.SwapUsed != 500 || metrics.SwapFree != 1500 {
+		t.Fatalf("swap = %d/%d/%d, want 2000/500/1500", metrics.SwapTotal, metrics.SwapUsed, metrics.SwapFree)
+	}
+	if metrics.DiskFilesystem != "/dev/xvda1" || metrics.DiskMountpoint != "/" {
+		t.Fatalf("disk = %q %q, want /dev/xvda1 /", metrics.DiskFilesystem, metrics.DiskMountpoint)
+	}
+	if got := metrics.InodePercent(); got != 25 {
+		t.Fatalf("InodePercent = %v, want 25", got)
 	}
 }
