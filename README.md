@@ -141,10 +141,12 @@ sshm
 | --- | --- | --- |
 | 🖥️ | 全中文 TUI 监控面板 | ✅ 已支持 |
 | 🗂️ | 服务器分类管理 | ✅ 已支持 |
+| ⭐ | 收藏服务器、只看收藏 | ✅ 已支持 |
 | ✏️ | 添加、编辑、删除服务器 | ✅ 已支持 |
 | 📊 | CPU / 内存 / Swap / 磁盘 / inode / 负载 / 运行时间 | ✅ 已支持 |
 | 🔬 | 详情页展示 CPU 型号、核心数、内核、架构、文件系统 | ✅ 已支持 |
-| 🐳 | Docker 容器数量和异常服务提示 | ✅ 已支持 |
+| 🐳 | Docker 运行/停止/故障容器统计和名称 | ✅ 已支持 |
+| 🩺 | 自定义健康端口检查 | ✅ 已支持 |
 | 🔎 | 搜索、筛选、排序、手动刷新 | ✅ 已支持 |
 | 🔐 | 系统 `ssh` 登录 | ✅ 已支持 |
 | ⌨️ | 原生终端交互，支持 Ctrl+C / 删除键 / Tab | ✅ 已支持 |
@@ -222,6 +224,8 @@ port = 22
 key_path = "~/.ssh/id_ed25519"
 proxy_jump = ""
 password = ""
+favorite = true
+health_ports = [80, 443, 8080]
 
 [[servers]]
 category = "staging"
@@ -232,16 +236,25 @@ port = 22
 key_path = ""
 proxy_jump = ""
 password = "example-password"
+favorite = false
+health_ports = [5432]
 ```
 
 </details>
 
 认证方式自动判断：
 
-- `key_path` 不为空时使用密钥
+- `key_path` 不为空时，只使用当前服务器配置里的密钥
 - `password` 不为空时允许 `password` 和 `keyboard-interactive` / PAM
-- `key_path` 和 `password` 同时存在时，允许 `publickey,password,keyboard-interactive`
+- `key_path` 和 `password` 同时存在时，先用当前配置的密钥，再用当前配置的密码
 - 两者都为空时交给系统 OpenSSH、ssh-agent 或默认配置处理
+
+连接、监控、上传下载和远程目录选择都会禁用 SSH 连接复用，避免同 IP、同用户的不同服务器配置误复用到旧连接。
+
+可选字段：
+
+- `favorite = true`：标记收藏服务器，面板里可按 `f` 收藏/取消收藏，按 `v` 只看收藏。
+- `health_ports = [80, 443]`：在详情页和面板里显示健康端口状态。当前检查逻辑基于远端监听端口，端口在服务器上监听就显示正常。
 
 应用配置保存在：
 
@@ -308,7 +321,13 @@ WARNING: connection is not using a post-quantum key exchange algorithm
 
 主面板显示短进度条，方便快速扫 CPU、内存、磁盘使用率和容量。详情页会展示更完整的资源信息，包括 CPU 核心数和型号、内核、架构、内存可用量、Swap、根分区文件系统、磁盘可用量和 inode 使用情况。详情内容超出窗口高度时，可以用 `↑↓` 或 `j/k` 上下滚动。
 
-采集内容包括 `/proc/stat`、`/proc/loadavg`、`/proc/cpuinfo`、`free`、`df`、`uname`、`uptime`、`systemctl --failed`、`docker ps`、`ss` 或 `netstat`。
+服务状态会按健康、容器、系统服务分组显示：
+
+- 健康：自定义 `health_ports` 是否在远端监听，以及当前监听端口列表。
+- 容器：通过 `docker ps -a` 统计总数、运行、停止、故障，并显示运行容器、停止容器和故障容器名称。`restarting` / `dead` 计为故障，`exited` / `created` / `paused` 计为停止。
+- 系统服务：通过 `systemctl --failed` 显示失败服务数量和名称。
+
+采集内容包括 `/proc/stat`、`/proc/loadavg`、`/proc/cpuinfo`、`free`、`df`、`uname`、`uptime`、`systemctl --failed`、`docker ps -a`、`ss` 或 `netstat`。
 
 ## 📁 文件传输
 

@@ -142,6 +142,7 @@ func runSSH(h host.Host, script string) (string, error) {
 		"-o", "StrictHostKeyChecking=accept-new",
 	}
 	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
+	args = append(args, sshconfig.StrictSSHArgs(h)...)
 	if h.Port != "" {
 		args = append(args, "-p", h.Port)
 	}

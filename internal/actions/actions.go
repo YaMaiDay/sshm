@@ -110,6 +110,7 @@ func sshArgs(h host.Host) []string {
 		"-o", "StrictHostKeyChecking=accept-new",
 	}
 	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
+	args = append(args, sshconfig.StrictSSHArgs(h)...)
 	if h.Port != "" {
 		args = append(args, "-p", h.Port)
 	}
@@ -129,6 +130,7 @@ func scpArgs(h host.Host) []string {
 		"-o", "LogLevel=ERROR",
 	}
 	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
+	args = append(args, sshconfig.StrictSSHArgs(h)...)
 	if h.Port != "" {
 		args = append(args, "-P", h.Port)
 	}
@@ -142,19 +144,7 @@ func scpArgs(h host.Host) []string {
 }
 
 func passwordSSHOptions(h host.Host) []string {
-	authMethods := "password,keyboard-interactive"
-	if strings.TrimSpace(h.IdentityFile) != "" {
-		authMethods = "publickey,password,keyboard-interactive"
-	}
-	args := []string{
-		"-o", "PreferredAuthentications=" + authMethods,
-		"-o", "PasswordAuthentication=yes",
-		"-o", "KbdInteractiveAuthentication=yes",
-	}
-	if strings.TrimSpace(h.IdentityFile) == "" {
-		args = append(args, "-o", "PubkeyAuthentication=no")
-	}
-	return args
+	return sshconfig.PasswordAuthArgs(h)
 }
 
 func tempPasswordFile(password string) (string, error) {

@@ -17,14 +17,16 @@ type serversFile struct {
 }
 
 type serverEntry struct {
-	Category  string `toml:"category"`
-	Name      string `toml:"name"`
-	Host      string `toml:"host"`
-	User      string `toml:"user"`
-	Port      int    `toml:"port"`
-	KeyPath   string `toml:"key_path"`
-	ProxyJump string `toml:"proxy_jump"`
-	Password  string `toml:"password"`
+	Category    string `toml:"category"`
+	Name        string `toml:"name"`
+	Host        string `toml:"host"`
+	User        string `toml:"user"`
+	Port        int    `toml:"port"`
+	KeyPath     string `toml:"key_path"`
+	ProxyJump   string `toml:"proxy_jump"`
+	Password    string `toml:"password"`
+	Favorite    bool   `toml:"favorite,omitempty"`
+	HealthPorts []int  `toml:"health_ports,omitempty"`
 }
 
 func ServersPath(home string) string {
@@ -64,6 +66,8 @@ func LoadServerHosts(home string) ([]host.Host, bool, error) {
 			ProxyJump:    strings.TrimSpace(entry.ProxyJump),
 			Password:     password,
 			Category:     category,
+			Favorite:     entry.Favorite,
+			HealthPorts:  normalizeHealthPorts(entry.HealthPorts),
 			File:         path,
 			HasPassword:  password != "",
 		})
@@ -166,14 +170,16 @@ func SaveServerData(home string, categories []string, hosts []host.Host) error {
 			category = "default"
 		}
 		file.Servers = append(file.Servers, serverEntry{
-			Category:  category,
-			Name:      strings.TrimSpace(h.Name),
-			Host:      strings.TrimSpace(h.HostName),
-			User:      strings.TrimSpace(h.User),
-			Port:      port,
-			KeyPath:   strings.TrimSpace(h.IdentityFile),
-			ProxyJump: strings.TrimSpace(h.ProxyJump),
-			Password:  strings.TrimSpace(h.Password),
+			Category:    category,
+			Name:        strings.TrimSpace(h.Name),
+			Host:        strings.TrimSpace(h.HostName),
+			User:        strings.TrimSpace(h.User),
+			Port:        port,
+			KeyPath:     strings.TrimSpace(h.IdentityFile),
+			ProxyJump:   strings.TrimSpace(h.ProxyJump),
+			Password:    strings.TrimSpace(h.Password),
+			Favorite:    h.Favorite,
+			HealthPorts: normalizeHealthPorts(h.HealthPorts),
 		})
 	}
 	data, err := toml.Marshal(file)

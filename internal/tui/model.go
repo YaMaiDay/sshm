@@ -139,6 +139,7 @@ type Model struct {
 	panel          transferPanel
 	form           addForm
 	formIndex      int
+	formCursor     int
 	formPane       int
 	categories     []string
 	categoryIndex  int
@@ -150,6 +151,7 @@ type Model struct {
 	filter         filterMode
 	sortBy         sortMode
 	category       string
+	favoriteOnly   bool
 	detailScroll   int
 	activeTransfer activeTransfer
 	collectRound   int
@@ -215,6 +217,7 @@ type addForm struct {
 	IdentityFile string
 	ProxyJump    string
 	Password     string
+	HealthPorts  string
 }
 
 func (f addForm) fields() []struct {
@@ -233,6 +236,7 @@ func (f addForm) fields() []struct {
 		{"密钥文件", f.IdentityFile},
 		{"密码", f.Password},
 		{"跳板机", f.ProxyJump},
+		{"健康端口", f.HealthPorts},
 	}
 }
 
@@ -378,6 +382,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.filter = filterProblem
 			}
 			m.selected = 0
+		case "f", "F":
+			if idx, ok := m.selectedRealIndex(); ok {
+				return m.toggleFavorite(idx)
+			}
+		case "v", "V":
+			m.favoriteOnly = !m.favoriteOnly
+			m.selected = 0
+			if m.favoriteOnly {
+				m.status = "筛选：收藏"
+			} else {
+				m.status = "已取消收藏筛选"
+			}
 		case "t", "T":
 			m.cycleCategory()
 			m.selected = 0
@@ -428,6 +444,7 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.formPane == 1 {
 		return m.updateCategoryPane(msg)
 	}
+	fieldCount := len(m.form.fields())
 	switch msg.String() {
 	case "esc", "q", "Q", "ctrl+c":
 		m.mode = modeDashboard
@@ -435,23 +452,42 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		m.formPane = 1
 	case "down":
-		m.formIndex = (m.formIndex + 1) % 8
+		m.formIndex = (m.formIndex + 1) % fieldCount
+		m.formCursor = m.formValueLen()
 	case "shift+tab":
 		m.formPane = 1
 	case "up":
 		m.formIndex--
 		if m.formIndex < 0 {
-			m.formIndex = 7
+			m.formIndex = fieldCount - 1
 		}
+		m.formCursor = m.formValueLen()
 	case "left":
 		if m.formIndex == 0 {
 			m.moveCategory(-1)
+		} else {
+			m.moveFormCursor(-1)
 		}
 	case "right":
 		if m.formIndex == 0 {
 			m.moveCategory(1)
+		} else {
+			m.moveFormCursor(1)
 		}
 	case "enter":
+		healthPorts, err := config.ParseHealthPorts(m.form.HealthPorts)
+		if err != nil {
+			m.status = "保存失败：" + err.Error()
+			return m, nil
+		}
+		favorite := false
+		if m.editing {
+			if m.editIndex < 0 || m.editIndex >= len(m.states) {
+				m.status = "编辑失败：没有选中的服务器"
+				return m, nil
+			}
+			favorite = m.states[m.editIndex].Host.Favorite
+		}
 		input := config.HostInput{
 			Category:     m.form.Category,
 			Name:         m.form.Name,
@@ -461,12 +497,10 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			IdentityFile: m.form.IdentityFile,
 			ProxyJump:    m.form.ProxyJump,
 			Password:     m.form.Password,
+			Favorite:     favorite,
+			HealthPorts:  healthPorts,
 		}
 		if m.editing {
-			if m.editIndex < 0 || m.editIndex >= len(m.states) {
-				m.status = "编辑失败：没有选中的服务器"
-				return m, nil
-			}
 			if err := config.EditHost(m.home, m.states[m.editIndex].Host, input); err != nil {
 				m.status = "编辑失败：" + err.Error()
 				return m, nil
@@ -637,6 +671,7 @@ func (m Model) startAddForm() Model {
 	m.reloadCategories("")
 	m.mode = modeAddForm
 	m.formIndex = 0
+	m.formCursor = 0
 	m.formPane = 0
 	m.editing = false
 	m.editIndex = -1
@@ -654,6 +689,7 @@ func (m Model) startEditForm(idx int) Model {
 	m.reloadCategories(input.Category)
 	m.mode = modeAddForm
 	m.formIndex = 0
+	m.formCursor = 0
 	m.formPane = 0
 	m.editing = true
 	m.editIndex = idx
@@ -668,6 +704,7 @@ func (m Model) startEditForm(idx int) Model {
 		IdentityFile: input.IdentityFile,
 		ProxyJump:    input.ProxyJump,
 		Password:     input.Password,
+		HealthPorts:  config.FormatHealthPorts(input.HealthPorts),
 	}
 	m.status = "编辑服务器"
 	return m
@@ -688,45 +725,123 @@ func (m *Model) reloadHosts(hosts []host.Host) {
 	m.reloadCategories("")
 }
 
-func (m *Model) formAppend(s string) {
-	switch m.formIndex {
-	case 0:
-		m.form.Category += s
-	case 1:
-		m.form.Name += s
-	case 2:
-		m.form.HostName += s
-	case 3:
-		m.form.User += s
-	case 4:
-		m.form.Port += s
-	case 5:
-		m.form.IdentityFile += s
-	case 6:
-		m.form.Password += s
-	case 7:
-		m.form.ProxyJump += s
+func (m Model) toggleFavorite(index int) (tea.Model, tea.Cmd) {
+	if index < 0 || index >= len(m.states) {
+		return m, nil
 	}
+	hosts := make([]host.Host, len(m.states))
+	for i, state := range m.states {
+		hosts[i] = state.Host
+	}
+	hosts[index].Favorite = !hosts[index].Favorite
+	if err := config.SaveServerHosts(m.home, hosts); err != nil {
+		m.status = "收藏更新失败：" + err.Error()
+		return m, nil
+	}
+	m.states[index].Host.Favorite = hosts[index].Favorite
+	if hosts[index].Favorite {
+		m.status = "已收藏：" + hosts[index].Name
+	} else {
+		m.status = "已取消收藏：" + hosts[index].Name
+	}
+	if m.favoriteOnly && !hosts[index].Favorite {
+		m.selected = 0
+	}
+	return m, nil
+}
+
+func (m *Model) formAppend(s string) {
+	if m.formIndex == 0 {
+		return
+	}
+	value := []rune(m.formValue())
+	if m.formCursor < 0 {
+		m.formCursor = 0
+	}
+	if m.formCursor > len(value) {
+		m.formCursor = len(value)
+	}
+	insert := []rune(s)
+	next := append([]rune{}, value[:m.formCursor]...)
+	next = append(next, insert...)
+	next = append(next, value[m.formCursor:]...)
+	m.setFormValue(string(next))
+	m.formCursor += len(insert)
 }
 
 func (m *Model) formBackspace() {
-	switch m.formIndex {
-	case 0:
+	if m.formIndex == 0 {
 		return
+	}
+	value := []rune(m.formValue())
+	if m.formCursor <= 0 || len(value) == 0 {
+		return
+	}
+	if m.formCursor > len(value) {
+		m.formCursor = len(value)
+	}
+	next := append([]rune{}, value[:m.formCursor-1]...)
+	next = append(next, value[m.formCursor:]...)
+	m.setFormValue(string(next))
+	m.formCursor--
+}
+
+func (m *Model) moveFormCursor(delta int) {
+	m.formCursor += delta
+	if m.formCursor < 0 {
+		m.formCursor = 0
+	}
+	maxCursor := m.formValueLen()
+	if m.formCursor > maxCursor {
+		m.formCursor = maxCursor
+	}
+}
+
+func (m Model) formValueLen() int {
+	return len([]rune(m.formValue()))
+}
+
+func (m Model) formValue() string {
+	switch m.formIndex {
 	case 1:
-		m.form.Name = removeLastRune(m.form.Name)
+		return m.form.Name
 	case 2:
-		m.form.HostName = removeLastRune(m.form.HostName)
+		return m.form.HostName
 	case 3:
-		m.form.User = removeLastRune(m.form.User)
+		return m.form.User
 	case 4:
-		m.form.Port = removeLastRune(m.form.Port)
+		return m.form.Port
 	case 5:
-		m.form.IdentityFile = removeLastRune(m.form.IdentityFile)
+		return m.form.IdentityFile
 	case 6:
-		m.form.Password = removeLastRune(m.form.Password)
+		return m.form.Password
 	case 7:
-		m.form.ProxyJump = removeLastRune(m.form.ProxyJump)
+		return m.form.ProxyJump
+	case 8:
+		return m.form.HealthPorts
+	default:
+		return ""
+	}
+}
+
+func (m *Model) setFormValue(value string) {
+	switch m.formIndex {
+	case 1:
+		m.form.Name = value
+	case 2:
+		m.form.HostName = value
+	case 3:
+		m.form.User = value
+	case 4:
+		m.form.Port = value
+	case 5:
+		m.form.IdentityFile = value
+	case 6:
+		m.form.Password = value
+	case 7:
+		m.form.ProxyJump = value
+	case 8:
+		m.form.HealthPorts = value
 	}
 }
 
@@ -782,6 +897,10 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx, ok := m.selectedRealIndex(); ok {
 			m.states[idx].Loading = true
 			return m, m.collectOne(idx)
+		}
+	case "f", "F":
+		if idx, ok := m.selectedRealIndex(); ok {
+			return m.toggleFavorite(idx)
 		}
 	case "enter":
 		if idx, ok := m.selectedRealIndex(); ok {
@@ -1555,6 +1674,9 @@ func (m Model) filteredIndexes() []int {
 		if m.category != "" && h.Category != m.category {
 			continue
 		}
+		if m.favoriteOnly && !h.Favorite {
+			continue
+		}
 		if m.filter == filterOnline && !state.Metrics.Online {
 			continue
 		}
@@ -1731,6 +1853,9 @@ func (m Model) View() string {
 	if m.filter != filterAll {
 		headerParts = append(headerParts, "筛选："+m.filterName())
 	}
+	if m.favoriteOnly {
+		headerParts = append(headerParts, "只看收藏")
+	}
 	if m.sortBy != sortDefault {
 		headerParts = append(headerParts, "排序："+m.sortName())
 	}
@@ -1755,7 +1880,7 @@ func (m Model) View() string {
 		lines = append(lines, m.renderDashboardGrid(indexes))
 	}
 
-	help := "↑↓←→/hjkl 移动  回车登录  空格详情  a添加  e编辑  x删除  u上传  d下载  r刷新  /搜索  t分类  o在线  p异常  s排序  q退出"
+	help := "↑↓←→/hjkl 移动  回车登录  空格详情  f收藏  v只看收藏  a添加  e编辑  x删除  u上传  d下载  r刷新  /搜索  t分类  o在线  p异常  s排序  q退出"
 	helpBlock := renderHelp(contentWidth(m.width), help)
 	lines = padToBottom(lines, m.height, strings.Count(helpBlock, "\n")+1)
 	lines = append(lines, helpBlock)
@@ -1832,14 +1957,12 @@ func (m Model) renderServerFormPane(title string, width int) string {
 				value = m.categories[m.categoryIndex]
 			}
 			value += mutedStyle.Render("  ←/→")
-		} else if m.formPane == 0 && i == m.formIndex {
-			value += "█"
 		}
 		if m.formPane == 0 && i == m.formIndex {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
-		lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, i != 0)))
+		lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, i != 0, m.formPane == 0 && i == m.formIndex, m.formCursor)))
 	}
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1891,7 +2014,7 @@ func (m Model) renderCategoryPane(width int) string {
 	return style.Render(strings.Join(lines, "\n"))
 }
 
-func formFieldLine(prefix string, label string, value string, width int, boxed bool) string {
+func formFieldLine(prefix string, label string, value string, width int, boxed bool, active bool, cursor int) string {
 	const labelWidth = 12
 	labelText := prefix + " " + padVisible(label, labelWidth)
 	valueWidth := width - ansi.StringWidth(labelText) - 1
@@ -1899,18 +2022,61 @@ func formFieldLine(prefix string, label string, value string, width int, boxed b
 		valueWidth = 8
 	}
 	if boxed {
-		if valueWidth > 20 {
-			valueWidth = 20
+		if valueWidth > 32 {
+			valueWidth = 32
 		}
 		boxWidth := valueWidth - 2
 		if boxWidth < 4 {
 			boxWidth = 4
 		}
-		value = "[" + padVisible(value, boxWidth) + "]"
+		if active {
+			value = "[" + formInputText(value, boxWidth, cursor) + "]"
+		} else {
+			value = "[" + padVisible(value, boxWidth) + "]"
+		}
 	} else {
 		value = fit(value, valueWidth)
 	}
 	return fit(labelText+" "+value, width)
+}
+
+func formInputText(value string, width int, cursor int) string {
+	runes := []rune(value)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+	if width < 1 {
+		width = 1
+	}
+	contentWidth := width - 1
+	if contentWidth < 0 {
+		contentWidth = 0
+	}
+	start := 0
+	if cursor > contentWidth {
+		start = cursor - contentWidth
+	}
+	if start > len(runes) {
+		start = len(runes)
+	}
+	end := start + contentWidth
+	if end > len(runes) {
+		end = len(runes)
+	}
+	visible := string(runes[start:end])
+	cursorPos := cursor - start
+	if cursorPos < 0 {
+		cursorPos = 0
+	}
+	if cursorPos > len([]rune(visible)) {
+		cursorPos = len([]rune(visible))
+	}
+	visibleRunes := []rune(visible)
+	withCursor := string(visibleRunes[:cursorPos]) + "│" + string(visibleRunes[cursorPos:])
+	return padVisible(withCursor, width)
 }
 
 func categoryLine(prefix string, category string, count int, width int) string {
@@ -2009,6 +2175,8 @@ func (m Model) detailLines() ([]string, bool) {
 		m.detailRow("用户", h.User),
 		m.detailRow("端口", h.Port),
 		m.detailRow("分类", emptyDash(h.Category)),
+		m.detailRow("收藏", yesNo(h.Favorite)),
+		m.detailRow("认证方式", authText(h)),
 		m.detailRow("主机名", emptyDash(metrics.RemoteHostname)),
 		m.detailRow("系统", emptyDash(metrics.OS)),
 		m.detailRow("内核", emptyDash(metrics.Kernel)),
@@ -2040,10 +2208,18 @@ func (m Model) detailLines() ([]string, bool) {
 		m.detailRow("运行时间", uptimeCN(metrics.Uptime)),
 		"",
 		sectionTitle("服务状态"),
-		m.detailRow("容器", fmt.Sprintf("%d 运行中", metrics.DockerRunning)),
-		m.detailRow("异常服务", failedServiceText(metrics, 8)),
+		detailSubTitle("健康"),
+		m.detailRow("健康端口", healthPortsText(metrics)),
 		m.detailRow("监听端口", emptyDash(metrics.Ports)),
+		"",
+		detailSubTitle("容器"),
 	}
+	lines = append(lines, dockerDetailRows(m, metrics)...)
+	lines = append(lines,
+		"",
+		detailSubTitle("异常"),
+		m.detailRow("异常服务", failedServiceText(metrics, 8)),
+	)
 	if metrics.Error != "" {
 		lines = append(lines, "", sectionTitle("最近错误"), m.detailRow("错误", metrics.Error))
 	}
@@ -2360,12 +2536,17 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 	if category == "" {
 		category = "未分类"
 	}
+	favoriteMark := ""
+	if h.Favorite {
+		favoriteMark = yellowStyle.Render("★") + " "
+	}
 	categoryLabel := "[" + category + "]"
 	categoryWidth := runewidth.StringWidth(categoryLabel)
-	nameWidth := innerWidth - categoryWidth - 2
+	nameWidth := innerWidth - categoryWidth - ansi.StringWidth(favoriteMark) - 2
 	if nameWidth < 8 {
 		nameWidth = innerWidth
 		categoryLabel = ""
+		favoriteMark = ""
 	}
 	name := fit(h.Name, nameWidth)
 	barWidth := 12
@@ -2379,12 +2560,12 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 	cpuLine := cardMetricLine("CPU", cpu, cpuCoresText(metrics), innerWidth)
 	memLine := cardMetricLine("内存", mem, bytesPair(metrics.MemUsed, metrics.MemTotal), innerWidth)
 	diskLine := cardMetricLine("磁盘", disk, bytesPair(metrics.DiskUsed, metrics.DiskTotal), innerWidth)
-	runLine := fit("⏱️ "+uptimeCN(metrics.Uptime), innerWidth)
+	runLine := fit("运行 "+uptimeCN(metrics.Uptime), innerWidth)
 	loadLine := fit(fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15)), innerWidth)
-	serviceLine := fit(fmt.Sprintf("🐳 %d 运行中  ⚠️ %d", metrics.DockerRunning, metrics.FailedServices), innerWidth)
+	serviceLine := ansi.Truncate(serviceCardText(metrics), innerWidth, "…")
 	titleText := name
 	if categoryLabel != "" {
-		titleText = categoryLabel + " " + name
+		titleText = favoriteMark + categoryLabel + " " + name
 	}
 	title := fit(titleText, innerWidth)
 
@@ -2675,6 +2856,28 @@ func emptyDash(value string) string {
 	return value
 }
 
+func yesNo(value bool) string {
+	if value {
+		return "是"
+	}
+	return "否"
+}
+
+func authText(h host.Host) string {
+	hasKey := strings.TrimSpace(h.IdentityFile) != ""
+	hasPassword := h.HasPassword || strings.TrimSpace(h.Password) != ""
+	switch {
+	case hasKey && hasPassword:
+		return "密钥：" + filepath.Base(h.IdentityFile) + "，密码"
+	case hasKey:
+		return "密钥：" + filepath.Base(h.IdentityFile)
+	case hasPassword:
+		return "密码"
+	default:
+		return "系统 SSH 默认"
+	}
+}
+
 func transferErrorText(err error, output string) string {
 	text := cleanTransferOutput(output)
 	if text != "" {
@@ -2841,6 +3044,116 @@ func failedServiceText(metrics monitor.Metrics, limit int) string {
 		names = append(names, fmt.Sprintf("等%d个", metrics.FailedServices))
 	}
 	return fmt.Sprintf("%d（%s）", metrics.FailedServices, strings.Join(names, "、"))
+}
+
+func dockerTotal(metrics monitor.Metrics) int {
+	if metrics.DockerTotal > 0 {
+		return metrics.DockerTotal
+	}
+	return metrics.DockerRunning
+}
+
+func dockerRunningText(metrics monitor.Metrics, limit int) string {
+	if metrics.DockerRunning <= 0 {
+		return "-"
+	}
+	if len(metrics.DockerRunningNames) == 0 {
+		return fmt.Sprintf("%d", metrics.DockerRunning)
+	}
+	if limit <= 0 || limit > len(metrics.DockerRunningNames) {
+		limit = len(metrics.DockerRunningNames)
+	}
+	names := append([]string{}, metrics.DockerRunningNames[:limit]...)
+	if len(metrics.DockerRunningNames) > limit {
+		names = append(names, fmt.Sprintf("等%d个", metrics.DockerRunning))
+	}
+	return strings.Join(names, "、")
+}
+
+func dockerStoppedText(metrics monitor.Metrics, limit int) string {
+	return limitedDockerNames(metrics.DockerStoppedNames, metrics.DockerStopped, limit)
+}
+
+func dockerFailedText(metrics monitor.Metrics, limit int) string {
+	return limitedDockerNames(metrics.DockerFailedNames, metrics.DockerFailed, limit)
+}
+
+func limitedDockerNames(names []string, count int, limit int) string {
+	if count <= 0 {
+		return "-"
+	}
+	if len(names) == 0 {
+		return fmt.Sprintf("%d", count)
+	}
+	if limit <= 0 || limit > len(names) {
+		limit = len(names)
+	}
+	out := append([]string{}, names[:limit]...)
+	if len(names) > limit {
+		out = append(out, fmt.Sprintf("等%d个", count))
+	}
+	return strings.Join(out, "、")
+}
+
+func dockerDetailRows(m Model, metrics monitor.Metrics) []string {
+	total := dockerTotal(metrics)
+	if total == 0 {
+		return []string{m.detailRow("状态", "未发现")}
+	}
+	return []string{
+		m.detailRow("总数", fmt.Sprintf("%d", total)),
+		m.detailRow("运行", fmt.Sprintf("%d", metrics.DockerRunning)),
+		m.detailRow("停止", fmt.Sprintf("%d", metrics.DockerStopped)),
+		m.detailRow("故障", fmt.Sprintf("%d", metrics.DockerFailed)),
+		m.detailRow("运行容器", dockerRunningText(metrics, 8)),
+		m.detailRow("停止容器", dockerStoppedText(metrics, 8)),
+		m.detailRow("故障容器", dockerFailedText(metrics, 8)),
+	}
+}
+
+func serviceCardText(metrics monitor.Metrics) string {
+	total := dockerTotal(metrics)
+	containerText := fmt.Sprintf("容器 %d/%d/%d", metrics.DockerFailed, metrics.DockerRunning, total)
+	if total == 0 {
+		containerText = "容器 0"
+	}
+	if metrics.DockerFailed > 0 {
+		containerText = "容器 " + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + fmt.Sprintf("/%d/%d", metrics.DockerRunning, total)
+	}
+	serviceNumber := fmt.Sprintf("%d", metrics.FailedServices)
+	if metrics.FailedServices > 0 {
+		serviceNumber = redStyle.Render(serviceNumber)
+	}
+	serviceText := "服务 " + serviceNumber
+	if metrics.HealthTotal() > 0 {
+		healthNumber := fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal())
+		switch {
+		case metrics.HealthOK() == metrics.HealthTotal():
+			healthNumber = greenStyle.Render(healthNumber)
+		case metrics.HealthOK() == 0:
+			healthNumber = redStyle.Render(healthNumber)
+		default:
+			healthNumber = yellowStyle.Render(healthNumber)
+		}
+		healthText := "健康 " + healthNumber
+		return fmt.Sprintf("%s  %s  %s", healthText, containerText, serviceText)
+	}
+	return fmt.Sprintf("%s  %s", containerText, serviceText)
+}
+
+func healthPortsText(metrics monitor.Metrics) string {
+	if metrics.HealthTotal() == 0 {
+		return "-"
+	}
+	parts := make([]string, 0, len(metrics.HealthPorts))
+	for _, port := range metrics.HealthPorts {
+		status := "失败"
+		if port.Healthy {
+			status = "正常"
+		}
+		parts = append(parts, fmt.Sprintf("%d%s", port.Port, status))
+	}
+	return strings.Join(parts, "  ")
 }
 
 func padToBottom(lines []string, height int, reservedBottomLines int) []string {

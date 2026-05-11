@@ -86,6 +86,19 @@ func main() {
 		fmt.Printf("磁盘: %.0f%% %s / %s\n", m.DiskPercent(), bytesHuman(m.DiskUsed), bytesHuman(m.DiskTotal))
 		fmt.Printf("磁盘挂载: %s %s\n", m.DiskMountpoint, m.DiskFilesystem)
 		fmt.Printf("inode: %.0f%% %s / %s\n", m.InodePercent(), countHuman(m.InodeUsed), countHuman(m.InodeTotal))
+		if m.HealthTotal() > 0 {
+			fmt.Printf("健康端口: %d/%d %s\n", m.HealthOK(), m.HealthTotal(), healthPortsText(m))
+		}
+		fmt.Printf("容器: %d/%d 运行，停止 %d，故障 %d\n", m.DockerRunning, dockerTotal(m), m.DockerStopped, m.DockerFailed)
+		if len(m.DockerRunningNames) > 0 {
+			fmt.Printf("运行容器: %s\n", strings.Join(m.DockerRunningNames, "、"))
+		}
+		if len(m.DockerStoppedNames) > 0 {
+			fmt.Printf("停止容器: %s\n", strings.Join(m.DockerStoppedNames, "、"))
+		}
+		if len(m.DockerFailedNames) > 0 {
+			fmt.Printf("故障容器: %s\n", strings.Join(m.DockerFailedNames, "、"))
+		}
 		fmt.Printf("负载: %s %s %s\n", m.Load1, m.Load5, m.Load15)
 		fmt.Printf("运行: %s\n", m.Uptime)
 		if m.Error != "" {
@@ -151,6 +164,13 @@ func cpuCoresText(metrics monitor.Metrics) string {
 	return fmt.Sprintf("%d核", metrics.CPUCores)
 }
 
+func dockerTotal(metrics monitor.Metrics) int {
+	if metrics.DockerTotal > 0 {
+		return metrics.DockerTotal
+	}
+	return metrics.DockerRunning
+}
+
 func bytesHuman(value uint64) string {
 	if value == 0 {
 		return "-"
@@ -183,4 +203,16 @@ func countHuman(value uint64) string {
 		return fmt.Sprintf("%.0f", f)
 	}
 	return fmt.Sprintf("%.1f%s", f, units[unit])
+}
+
+func healthPortsText(metrics monitor.Metrics) string {
+	parts := make([]string, 0, len(metrics.HealthPorts))
+	for _, port := range metrics.HealthPorts {
+		status := "失败"
+		if port.Healthy {
+			status = "正常"
+		}
+		parts = append(parts, fmt.Sprintf("%d%s", port.Port, status))
+	}
+	return strings.Join(parts, " ")
 }

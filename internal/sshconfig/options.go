@@ -2,7 +2,10 @@ package sshconfig
 
 import (
 	"os/exec"
+	"strings"
 	"sync"
+
+	"github.com/YaMaiDay/sshm/internal/host"
 )
 
 var (
@@ -19,4 +22,34 @@ func WarnWeakCryptoNoPQKexArgs() []string {
 		return nil
 	}
 	return []string{"-o", "WarnWeakCrypto=no-pq-kex"}
+}
+
+func StrictSSHArgs(h host.Host) []string {
+	args := []string{
+		"-o", "ControlMaster=no",
+		"-o", "ControlPath=none",
+	}
+	if strings.TrimSpace(h.IdentityFile) != "" {
+		args = append(args,
+			"-o", "IdentitiesOnly=yes",
+			"-o", "IdentityAgent=none",
+		)
+	}
+	return args
+}
+
+func PasswordAuthArgs(h host.Host) []string {
+	authMethods := "password,keyboard-interactive"
+	if strings.TrimSpace(h.IdentityFile) != "" {
+		authMethods = "publickey,password,keyboard-interactive"
+	}
+	args := []string{
+		"-o", "PreferredAuthentications=" + authMethods,
+		"-o", "PasswordAuthentication=yes",
+		"-o", "KbdInteractiveAuthentication=yes",
+	}
+	if strings.TrimSpace(h.IdentityFile) == "" {
+		args = append(args, "-o", "PubkeyAuthentication=no")
+	}
+	return args
 }

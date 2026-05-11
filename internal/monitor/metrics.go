@@ -2,40 +2,52 @@ package monitor
 
 import "time"
 
+type HealthPort struct {
+	Port    int
+	Healthy bool
+}
+
 type Metrics struct {
-	Online         bool
-	OS             string
-	RemoteHostname string
-	Kernel         string
-	Arch           string
-	CPUPercent     float64
-	CPUCores       int
-	CPUModel       string
-	MemUsed        uint64
-	MemTotal       uint64
-	MemAvailable   uint64
-	SwapUsed       uint64
-	SwapTotal      uint64
-	SwapFree       uint64
-	DiskUsed       uint64
-	DiskTotal      uint64
-	DiskAvailable  uint64
-	DiskAvailKnown bool
-	DiskFilesystem string
-	DiskMountpoint string
-	InodeUsed      uint64
-	InodeTotal     uint64
-	InodeAvailable uint64
-	Load1          string
-	Load5          string
-	Load15         string
-	Uptime         string
-	DockerRunning  int
-	FailedServices int
-	FailedUnits    []string
-	Ports          string
-	Error          string
-	UpdatedAt      time.Time
+	Online             bool
+	OS                 string
+	RemoteHostname     string
+	Kernel             string
+	Arch               string
+	CPUPercent         float64
+	CPUCores           int
+	CPUModel           string
+	MemUsed            uint64
+	MemTotal           uint64
+	MemAvailable       uint64
+	SwapUsed           uint64
+	SwapTotal          uint64
+	SwapFree           uint64
+	DiskUsed           uint64
+	DiskTotal          uint64
+	DiskAvailable      uint64
+	DiskAvailKnown     bool
+	DiskFilesystem     string
+	DiskMountpoint     string
+	InodeUsed          uint64
+	InodeTotal         uint64
+	InodeAvailable     uint64
+	Load1              string
+	Load5              string
+	Load15             string
+	Uptime             string
+	DockerRunning      int
+	DockerTotal        int
+	DockerStopped      int
+	DockerFailed       int
+	DockerRunningNames []string
+	DockerStoppedNames []string
+	DockerFailedNames  []string
+	FailedServices     int
+	FailedUnits        []string
+	Ports              string
+	HealthPorts        []HealthPort
+	Error              string
+	UpdatedAt          time.Time
 }
 
 func (m Metrics) MemPercent() float64 {
@@ -75,4 +87,29 @@ func (m Metrics) InodePercent() float64 {
 		return 0
 	}
 	return float64(m.InodeUsed) * 100 / float64(m.InodeTotal)
+}
+
+func (m Metrics) HealthTotal() int {
+	return len(m.HealthPorts)
+}
+
+func (m Metrics) HealthOK() int {
+	total := 0
+	for _, port := range m.HealthPorts {
+		if port.Healthy {
+			total++
+		}
+	}
+	return total
+}
+
+func (m Metrics) DockerNonRunningCount() int {
+	if m.DockerTotal <= 0 {
+		return 0
+	}
+	problems := m.DockerTotal - m.DockerRunning
+	if problems < 0 {
+		return 0
+	}
+	return problems
 }

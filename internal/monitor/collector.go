@@ -35,6 +35,7 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 		"-o", "StrictHostKeyChecking=accept-new",
 	}
 	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
+	args = append(args, sshconfig.StrictSSHArgs(h)...)
 	if h.Port != "" {
 		args = append(args, "-p", h.Port)
 	}
@@ -80,24 +81,13 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 		return Metrics{Online: false, Error: err.Error(), UpdatedAt: time.Now()}
 	}
 	metrics.Online = true
+	metrics.HealthPorts = healthPorts(h.HealthPorts, metrics.Ports)
 	metrics.UpdatedAt = time.Now()
 	return metrics
 }
 
 func passwordSSHOptions(h host.Host) []string {
-	authMethods := "password,keyboard-interactive"
-	if strings.TrimSpace(h.IdentityFile) != "" {
-		authMethods = "publickey,password,keyboard-interactive"
-	}
-	args := []string{
-		"-o", "PreferredAuthentications=" + authMethods,
-		"-o", "PasswordAuthentication=yes",
-		"-o", "KbdInteractiveAuthentication=yes",
-	}
-	if strings.TrimSpace(h.IdentityFile) == "" {
-		args = append(args, "-o", "PubkeyAuthentication=no")
-	}
-	return args
+	return sshconfig.PasswordAuthArgs(h)
 }
 
 func sshSeconds(d time.Duration) string {
@@ -182,6 +172,15 @@ func parseMetrics(output string) (Metrics, error) {
 	m.CPUModel = values["CPU_MODEL"]
 	m.Uptime = values["UPTIME"]
 	m.DockerRunning, _ = strconv.Atoi(strings.TrimSpace(values["DOCKER"]))
+	m.DockerTotal, _ = strconv.Atoi(strings.TrimSpace(values["DOCKER_TOTAL"]))
+	m.DockerStopped, _ = strconv.Atoi(strings.TrimSpace(values["DOCKER_STOPPED"]))
+	m.DockerFailed, _ = strconv.Atoi(strings.TrimSpace(values["DOCKER_FAILED"]))
+	m.DockerRunningNames = splitList(values["DOCKER_RUNNING_NAMES"])
+	m.DockerStoppedNames = splitList(values["DOCKER_STOPPED_NAMES"])
+	m.DockerFailedNames = splitList(values["DOCKER_FAILED_NAMES"])
+	if m.DockerTotal == 0 && m.DockerRunning > 0 {
+		m.DockerTotal = m.DockerRunning
+	}
 	m.FailedServices, _ = strconv.Atoi(strings.TrimSpace(values["FAILED"]))
 	m.FailedUnits = splitList(values["FAILED_UNITS"])
 	m.Ports = values["PORTS"]
@@ -200,6 +199,29 @@ func splitList(value string) []string {
 		if part != "" {
 			out = append(out, part)
 		}
+	}
+	return out
+}
+
+func healthPorts(ports []int, listening string) []HealthPort {
+	if len(ports) == 0 {
+		return nil
+	}
+	listeningPorts := map[int]bool{}
+	for _, part := range strings.Split(listening, ",") {
+		port, err := strconv.Atoi(strings.TrimSpace(part))
+		if err == nil {
+			listeningPorts[port] = true
+		}
+	}
+	out := make([]HealthPort, 0, len(ports))
+	seen := map[int]bool{}
+	for _, port := range ports {
+		if port < 1 || port > 65535 || seen[port] {
+			continue
+		}
+		out = append(out, HealthPort{Port: port, Healthy: listeningPorts[port]})
+		seen[port] = true
 	}
 	return out
 }
@@ -263,6 +285,16 @@ echo DISK_MOUNT="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $6}'"'"')"
 echo INODE="$(df -Pi / 2>/dev/null | awk '"'"'NR==2{print $2" "$3" "$4}'"'"')"
 echo UPTIME="$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
 echo DOCKER="$(docker ps -q 2>/dev/null | wc -l | tr -d '"'"' '"'"')"
+DOCKER_LINES="$(docker ps -a --format '"'"'{{.Names}}|{{.State}}'"'"' 2>/dev/null)"
+echo DOCKER_TOTAL="$(printf "%s\n" "$DOCKER_LINES" | awk '"'"'NF{c++} END{print c+0}'"'"')"
+echo DOCKER_STOPPED="$(printf "%s\n" "$DOCKER_LINES" | awk -F"|" '"'"'$2=="exited" || $2=="created" || $2=="paused"{c++} END{print c+0}'"'"')"
+echo DOCKER_FAILED="$(printf "%s\n" "$DOCKER_LINES" | awk -F"|" '"'"'$2=="restarting" || $2=="dead"{c++} END{print c+0}'"'"')"
+DOCKER_RUNNING_NAMES_VALUE="$(printf "%s\n" "$DOCKER_LINES" | awk -F"|" '"'"'$2=="running"{print $1}'"'"' | paste -sd, - 2>/dev/null)"
+echo DOCKER_RUNNING_NAMES="$DOCKER_RUNNING_NAMES_VALUE"
+DOCKER_STOPPED_NAMES_VALUE="$(printf "%s\n" "$DOCKER_LINES" | awk -F"|" '"'"'$2=="exited" || $2=="created" || $2=="paused"{print $1"("$2")"}'"'"' | paste -sd, - 2>/dev/null)"
+echo DOCKER_STOPPED_NAMES="$DOCKER_STOPPED_NAMES_VALUE"
+DOCKER_FAILED_NAMES_VALUE="$(printf "%s\n" "$DOCKER_LINES" | awk -F"|" '"'"'$2=="restarting" || $2=="dead"{print $1"("$2")"}'"'"' | paste -sd, - 2>/dev/null)"
+echo DOCKER_FAILED_NAMES="$DOCKER_FAILED_NAMES_VALUE"
 FAILED_UNITS_VALUE="$(systemctl --failed --no-legend --plain 2>/dev/null | awk '"'"'{print $1}'"'"' | paste -sd, - 2>/dev/null)"
 if [ -n "$FAILED_UNITS_VALUE" ]; then FAILED_COUNT="$(printf "%s" "$FAILED_UNITS_VALUE" | awk -F, '"'"'{print NF}'"'"')"; else FAILED_COUNT=0; fi
 echo FAILED="$FAILED_COUNT"

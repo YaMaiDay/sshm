@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/host"
@@ -16,6 +17,8 @@ type HostInput struct {
 	IdentityFile string
 	ProxyJump    string
 	Password     string
+	Favorite     bool
+	HealthPorts  []int
 }
 
 func AddHost(home string, input HostInput) error {
@@ -55,6 +58,8 @@ func InputFromHost(h host.Host, password string) HostInput {
 		IdentityFile: h.IdentityFile,
 		ProxyJump:    h.ProxyJump,
 		Password:     password,
+		Favorite:     h.Favorite,
+		HealthPorts:  normalizeHealthPorts(h.HealthPorts),
 	}
 }
 
@@ -145,6 +150,8 @@ func hostFromInput(home string, input HostInput) host.Host {
 		ProxyJump:    strings.TrimSpace(input.ProxyJump),
 		Password:     password,
 		Category:     strings.TrimSpace(input.Category),
+		Favorite:     input.Favorite,
+		HealthPorts:  normalizeHealthPorts(input.HealthPorts),
 		File:         ServersPath(home),
 		HasPassword:  password != "",
 	}
@@ -170,6 +177,61 @@ func validateHostInput(input HostInput) error {
 		return fmt.Errorf("分类不能为空")
 	}
 	return nil
+}
+
+func ParseHealthPorts(value string) ([]int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parts := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	})
+	ports := make([]int, 0, len(parts))
+	seen := map[int]bool{}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		port, err := strconv.Atoi(part)
+		if err != nil || port < 1 || port > 65535 {
+			return nil, fmt.Errorf("健康端口无效：%s", part)
+		}
+		if !seen[port] {
+			ports = append(ports, port)
+			seen[port] = true
+		}
+	}
+	return ports, nil
+}
+
+func FormatHealthPorts(ports []int) string {
+	ports = normalizeHealthPorts(ports)
+	if len(ports) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(ports))
+	for _, port := range ports {
+		parts = append(parts, strconv.Itoa(port))
+	}
+	return strings.Join(parts, ",")
+}
+
+func normalizeHealthPorts(ports []int) []int {
+	if len(ports) == 0 {
+		return nil
+	}
+	out := make([]int, 0, len(ports))
+	seen := map[int]bool{}
+	for _, port := range ports {
+		if port < 1 || port > 65535 || seen[port] {
+			continue
+		}
+		out = append(out, port)
+		seen[port] = true
+	}
+	return out
 }
 
 func sameHostNameInCategory(h host.Host, category, name string) bool {

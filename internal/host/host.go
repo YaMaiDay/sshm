@@ -9,6 +9,8 @@ type Host struct {
 	ProxyJump    string
 	Password     string
 	Category     string
+	Favorite     bool
+	HealthPorts  []int
 	File         string
 	HasPassword  bool
 }

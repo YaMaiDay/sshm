@@ -186,3 +186,65 @@ func TestDuplicateHostNameAllowedAcrossCategories(t *testing.T) {
 		t.Fatalf("wrong host remained: %+v", hosts[0])
 	}
 }
+
+func TestSaveAndLoadFavoriteHost(t *testing.T) {
+	home := t.TempDir()
+	hosts := []host.Host{
+		{
+			Category:    "prod",
+			Name:        "favorite-host",
+			HostName:    "127.0.0.1",
+			User:        "root",
+			Port:        "22",
+			Favorite:    true,
+			HealthPorts: []int{80, 5432},
+		},
+	}
+	if err := SaveServerHosts(home, hosts); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(ServersPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "favorite = true") {
+		t.Fatalf("favorite not written: %s", data)
+	}
+	if !strings.Contains(string(data), "health_ports = [80, 5432]") {
+		t.Fatalf("health ports not written: %s", data)
+	}
+
+	loaded, _, err := LoadServerHosts(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("loaded %d hosts, want 1", len(loaded))
+	}
+	if !loaded[0].Favorite {
+		t.Fatalf("Favorite = false, want true")
+	}
+	if len(loaded[0].HealthPorts) != 2 || loaded[0].HealthPorts[0] != 80 || loaded[0].HealthPorts[1] != 5432 {
+		t.Fatalf("HealthPorts = %#v, want [80 5432]", loaded[0].HealthPorts)
+	}
+}
+
+func TestParseHealthPorts(t *testing.T) {
+	ports, err := ParseHealthPorts("80, 5432 8080,80")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []int{80, 5432, 8080}
+	if len(ports) != len(want) {
+		t.Fatalf("ports = %#v, want %#v", ports, want)
+	}
+	for i := range want {
+		if ports[i] != want[i] {
+			t.Fatalf("ports = %#v, want %#v", ports, want)
+		}
+	}
+	if _, err := ParseHealthPorts("80,abc"); err == nil {
+		t.Fatal("expected invalid health port to fail")
+	}
+}

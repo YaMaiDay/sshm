@@ -88,3 +88,50 @@ func TestParseMetricsDetailInfo(t *testing.T) {
 		t.Fatalf("InodePercent = %v, want 25", got)
 	}
 }
+
+func TestHealthPortsFromListeningPorts(t *testing.T) {
+	ports := healthPorts([]int{80, 5432, 80, 70000}, "22,80,8080")
+	if len(ports) != 2 {
+		t.Fatalf("len(ports) = %d, want 2", len(ports))
+	}
+	if ports[0].Port != 80 || !ports[0].Healthy {
+		t.Fatalf("ports[0] = %+v, want healthy 80", ports[0])
+	}
+	if ports[1].Port != 5432 || ports[1].Healthy {
+		t.Fatalf("ports[1] = %+v, want unhealthy 5432", ports[1])
+	}
+}
+
+func TestParseMetricsDockerStates(t *testing.T) {
+	metrics, err := parseMetrics(strings.Join([]string{
+		"DOCKER=2",
+		"DOCKER_TOTAL=5",
+		"DOCKER_STOPPED=2",
+		"DOCKER_FAILED=1",
+		"DOCKER_RUNNING_NAMES=web,db",
+		"DOCKER_STOPPED_NAMES=api(exited),job(created)",
+		"DOCKER_FAILED_NAMES=worker(restarting)",
+	}, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if metrics.DockerRunning != 2 || metrics.DockerTotal != 5 {
+		t.Fatalf("docker running/total = %d/%d, want 2/5", metrics.DockerRunning, metrics.DockerTotal)
+	}
+	if metrics.DockerStopped != 2 || metrics.DockerFailed != 1 {
+		t.Fatalf("docker stopped/failed = %d/%d, want 2/1", metrics.DockerStopped, metrics.DockerFailed)
+	}
+	if got := metrics.DockerNonRunningCount(); got != 3 {
+		t.Fatalf("DockerNonRunningCount = %d, want 3", got)
+	}
+	if len(metrics.DockerRunningNames) != 2 || metrics.DockerRunningNames[0] != "web" {
+		t.Fatalf("DockerRunningNames = %#v, want parsed running containers", metrics.DockerRunningNames)
+	}
+	if len(metrics.DockerStoppedNames) != 2 || metrics.DockerStoppedNames[0] != "api(exited)" {
+		t.Fatalf("DockerStoppedNames = %#v, want parsed stopped containers", metrics.DockerStoppedNames)
+	}
+	if len(metrics.DockerFailedNames) != 1 || metrics.DockerFailedNames[0] != "worker(restarting)" {
+		t.Fatalf("DockerFailedNames = %#v, want parsed failed containers", metrics.DockerFailedNames)
+	}
+}
