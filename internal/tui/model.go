@@ -2166,7 +2166,7 @@ func withVerticalNav(content string, totalWidth, totalItems, cols, startRow, row
 	}
 	if totalRows <= rowsVisible {
 		for i := range track {
-			track[i] = navStyle.Render("▌")
+			track[i] = cardBorderStyle.Render("▌")
 		}
 	} else {
 		thumbHeight := height * rowsVisible / totalRows
@@ -2179,7 +2179,7 @@ func withVerticalNav(content string, totalWidth, totalItems, cols, startRow, row
 		maxStart := height - thumbHeight
 		thumbStart := startRow * maxStart / (totalRows - rowsVisible)
 		for i := thumbStart; i < thumbStart+thumbHeight && i < height; i++ {
-			track[i] = navStyle.Render("▌")
+			track[i] = cardBorderStyle.Render("▌")
 		}
 	}
 	for i := range lines {
