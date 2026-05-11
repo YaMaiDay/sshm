@@ -32,12 +32,18 @@ const (
 	modeDetail
 	modeAddForm
 	modeDeleteConfirm
+	modeConfirmAction
 	modePickLocalRoot
 	modePickLocalItem
 	modePickRemoteDir
 	modePickRemoteItem
 	modePickSaveDir
 	modeTransferPanel
+	modeCommandList
+	modeCommandEdit
+	modeCommandConfirm
+	modeCommandOutput
+	modeHelp
 )
 
 type transferMode int
@@ -46,6 +52,13 @@ const (
 	transferNone transferMode = iota
 	transferUpload
 	transferDownload
+)
+
+type commandScope int
+
+const (
+	commandScopeGlobal commandScope = iota
+	commandScopeServer
 )
 
 type filterMode int
@@ -104,6 +117,10 @@ type sshDoneMsg struct {
 	Err error
 }
 
+type commandDoneMsg struct {
+	Result actions.CommandResult
+}
+
 type activeTransfer struct {
 	Kind       string
 	Source     string
@@ -117,46 +134,59 @@ type activeTransfer struct {
 }
 
 type Model struct {
-	states         []hostState
-	selected       int
-	width          int
-	height         int
-	searching      bool
-	query          string
-	status         string
-	refreshStatus  string
-	collector      monitor.Collector
-	passwords      config.PasswordStore
-	appConfig      config.AppConfig
-	home           string
-	mode           viewMode
-	transfer       transferMode
-	pickIndex      int
-	pickTitle      string
-	choices        []choice
-	remoteTree     remoteTree
-	pending        pendingTransfer
-	panel          transferPanel
-	form           addForm
-	formIndex      int
-	formCursor     int
-	formPane       int
-	categories     []string
-	categoryIndex  int
-	addingCategory bool
-	categoryDraft  string
-	editing        bool
-	editIndex      int
-	deleteIndex    int
-	filter         filterMode
-	sortBy         sortMode
-	category       string
-	favoriteOnly   bool
-	detailScroll   int
-	activeTransfer activeTransfer
-	collectRound   int
-	manualRound    int
-	pendingByRound map[int]int
+	states              []hostState
+	selected            int
+	width               int
+	height              int
+	searching           bool
+	query               string
+	status              string
+	refreshStatus       string
+	collector           monitor.Collector
+	passwords           config.PasswordStore
+	appConfig           config.AppConfig
+	home                string
+	mode                viewMode
+	transfer            transferMode
+	pickIndex           int
+	pickTitle           string
+	choices             []choice
+	remoteTree          remoteTree
+	pending             pendingTransfer
+	panel               transferPanel
+	form                addForm
+	formIndex           int
+	formCursor          int
+	formPane            int
+	categories          []string
+	categoryIndex       int
+	addingCategory      bool
+	categoryDraft       string
+	editing             bool
+	editIndex           int
+	deleteIndex         int
+	confirm             confirmAction
+	filter              filterMode
+	sortBy              sortMode
+	category            string
+	favoriteOnly        bool
+	detailScroll        int
+	activeTransfer      activeTransfer
+	commandFile         config.CommandsFile
+	commandItems        []commandItem
+	commandIndex        int
+	commandForm         commandEditForm
+	commandField        int
+	commandCursor       int
+	commandEditing      bool
+	commandEditItem     commandItem
+	commandConfirm      commandItem
+	commandOutputScroll int
+	activeCommand       activeCommand
+	helpBackMode        viewMode
+	collectRound        int
+	manualRound         int
+	pendingByRound      map[int]int
 }
 
 type choice struct {
@@ -220,6 +250,49 @@ type addForm struct {
 	HealthPorts  string
 }
 
+type commandItem struct {
+	Scope     commandScope
+	Index     int
+	Name      string
+	Command   string
+	Server    string
+	Header    bool
+	Spacer    bool
+	Temporary bool
+}
+
+type commandEditForm struct {
+	Scope   commandScope
+	Name    string
+	Command string
+}
+
+type activeCommand struct {
+	HostIndex int
+	Name      string
+	Command   string
+	Output    string
+	ExitCode  int
+	Running   bool
+}
+
+type confirmKind int
+
+const (
+	confirmNone confirmKind = iota
+	confirmDeleteCategory
+	confirmDeleteCommand
+)
+
+type confirmAction struct {
+	Kind    confirmKind
+	Title   string
+	Lines   []string
+	Back    viewMode
+	Command commandItem
+	Value   string
+}
+
 func (f addForm) fields() []struct {
 	label string
 	value string
@@ -244,6 +317,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	home, _ := os.UserHomeDir()
 	appConfig := config.LoadAppConfig(home)
 	categories, _, _ := config.LoadCategories(home)
+	commandFile, _, _ := config.LoadCommands(home)
 	states := make([]hostState, len(hosts))
 	for i, h := range hosts {
 		states[i] = hostState{Host: h, Loading: true}
@@ -258,6 +332,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 		passwords:      passwords,
 		appConfig:      appConfig,
 		home:           home,
+		commandFile:    commandFile,
 		categories:     categories,
 		status:         "正在采集服务器状态...",
 		collectRound:   1,
@@ -328,12 +403,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = "已返回监控面板"
 		return m, tea.Batch(clearScreen(), clearStatusAfter(2*time.Second))
+	case commandDoneMsg:
+		m.activeCommand.Running = false
+		m.activeCommand.Output = msg.Result.Output
+		m.activeCommand.ExitCode = msg.Result.ExitCode
+		if msg.Result.Err != nil {
+			m.status = fmt.Sprintf("命令执行失败：退出码 %d", msg.Result.ExitCode)
+		} else {
+			m.status = "命令执行完成。"
+		}
+		return m, nil
 	case tea.KeyMsg:
+		switch m.mode {
+		case modeCommandList:
+			return m.updateCommandList(msg)
+		case modeCommandEdit:
+			return m.updateCommandEdit(msg)
+		case modeCommandConfirm:
+			return m.updateCommandConfirm(msg)
+		case modeCommandOutput:
+			return m.updateCommandOutput(msg)
+		case modeHelp:
+			return m.updateHelpPanel(msg)
+		}
 		if m.mode == modeAddForm {
 			return m.updateAddForm(msg)
 		}
 		if m.mode == modeDeleteConfirm {
 			return m.updateDeleteConfirm(msg)
+		}
+		if m.mode == modeConfirmAction {
+			return m.updateConfirmAction(msg)
 		}
 		if m.mode == modeTransferPanel {
 			return m.updateTransferPanel(msg)
@@ -364,6 +464,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			m.searching = true
 			m.query = ""
+		case "?":
+			m.helpBackMode = modeDashboard
+			m.mode = modeHelp
 		case "s", "S":
 			m.sortBy = (m.sortBy + 1) % 5
 			m.selected = 0
@@ -420,6 +523,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d", "D":
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.startDownload(idx), nil
+			}
+		case "m", "M":
+			if idx, ok := m.selectedRealIndex(); ok {
+				return m.startCommandList(idx), nil
 			}
 		case "r", "R":
 			m.status = "正在刷新全部服务器..."
@@ -580,13 +687,17 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		name := m.categories[m.categoryIndex]
-		if err := config.DeleteCategory(m.home, name); err != nil {
-			m.status = "删除分类失败：" + categoryErrorText(err)
-		} else {
-			m.reloadCategories("")
-			m.form.Category = m.categories[m.categoryIndex]
-			m.status = "分类已删除。"
+		m.confirm = confirmAction{
+			Kind:  confirmDeleteCategory,
+			Title: "确认删除分类",
+			Lines: []string{
+				"分类：" + name,
+				"将删除这个空分类。",
+			},
+			Back:  modeAddForm,
+			Value: name,
 		}
+		m.mode = modeConfirmAction
 	}
 	return m, nil
 }
@@ -663,6 +774,34 @@ func (m Model) updateDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.collectRound++
 		m.pendingByRound[m.collectRound] = len(m.states)
 		return m, m.collectAll(m.collectRound, false)
+	}
+	return m, nil
+}
+
+func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "n", "N", "q", "Q":
+		m.mode = m.confirm.Back
+		m.status = "已取消删除。"
+	case "y", "Y", "enter":
+		switch m.confirm.Kind {
+		case confirmDeleteCategory:
+			name := m.confirm.Value
+			if err := config.DeleteCategory(m.home, name); err != nil {
+				m.mode = m.confirm.Back
+				m.status = "删除分类失败：" + categoryErrorText(err)
+				return m, nil
+			}
+			m.reloadCategories("")
+			m.form.Category = m.categories[m.categoryIndex]
+			m.mode = modeAddForm
+			m.status = "分类已删除。"
+		case confirmDeleteCommand:
+			item := m.confirm.Command
+			m.mode = modeCommandList
+			return m.deleteCommandTemplate(item)
+		}
+		m.confirm = confirmAction{}
 	}
 	return m, nil
 }
@@ -748,6 +887,515 @@ func (m Model) toggleFavorite(index int) (tea.Model, tea.Cmd) {
 		m.selected = 0
 	}
 	return m, nil
+}
+
+func (m Model) startCommandList(index int) Model {
+	file, _, err := config.LoadCommands(m.home)
+	if err != nil {
+		m.status = "读取命令模板失败：" + err.Error()
+		return m
+	}
+	m.commandFile = file
+	m.commandItems = m.commandListItems(index)
+	m.commandIndex = firstCommandItem(m.commandItems)
+	m.activeCommand = activeCommand{HostIndex: index}
+	m.mode = modeCommandList
+	m.status = "命令模板"
+	return m
+}
+
+func (m Model) commandListItems(index int) []commandItem {
+	if index < 0 || index >= len(m.states) {
+		return nil
+	}
+	h := m.states[index].Host
+	serverKey := config.ServerCommandKey(h.Category, h.Name)
+	items := []commandItem{{Name: "当前服务器", Header: true}}
+	for i, command := range m.commandFile.Server {
+		if command.Server == serverKey {
+			items = append(items, commandItem{
+				Scope:   commandScopeServer,
+				Index:   i,
+				Server:  command.Server,
+				Name:    command.Name,
+				Command: command.Command,
+			})
+		}
+	}
+	items = append(items, commandItem{Name: "全局", Header: true})
+	for i, command := range m.commandFile.Global {
+		items = append(items, commandItem{
+			Scope:   commandScopeGlobal,
+			Index:   i,
+			Name:    command.Name,
+			Command: command.Command,
+		})
+	}
+	items = append(items, commandItem{Spacer: true}, commandItem{Name: "临时命令", Command: "", Temporary: true})
+	return items
+}
+
+func firstCommandItem(items []commandItem) int {
+	for i, item := range items {
+		if !item.Header {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m Model) updateCommandList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "Q", "ctrl+c":
+		m.mode = modeDashboard
+		m.status = "已取消。"
+	case "j", "J", "down":
+		m.moveCommandIndex(1)
+	case "k", "K", "up":
+		m.moveCommandIndex(-1)
+	case "a", "A":
+		return m.startCommandEdit(commandItem{}, false), nil
+	case "e", "E":
+		item, ok := m.selectedCommandItem()
+		if ok && !item.Temporary {
+			return m.startCommandEdit(item, true), nil
+		}
+	case "x", "X", "delete":
+		item, ok := m.selectedCommandItem()
+		if ok && !item.Temporary {
+			m.confirm = confirmAction{
+				Kind:  confirmDeleteCommand,
+				Title: "确认删除命令模板",
+				Lines: []string{
+					"模板：" + item.Name,
+					"将删除这个命令模板。",
+				},
+				Back:    modeCommandList,
+				Command: item,
+			}
+			m.mode = modeConfirmAction
+		}
+	case "enter":
+		item, ok := m.selectedCommandItem()
+		if !ok {
+			return m, nil
+		}
+		if item.Temporary {
+			return m.startCommandEdit(item, false), nil
+		}
+		m.commandConfirm = item
+		m.commandOutputScroll = 0
+		m.mode = modeCommandConfirm
+		m.status = "确认执行命令"
+	}
+	return m, nil
+}
+
+func (m *Model) moveCommandIndex(delta int) {
+	if len(m.commandItems) == 0 {
+		m.commandIndex = 0
+		return
+	}
+	for i := 0; i < len(m.commandItems); i++ {
+		m.commandIndex = moveIndex(m.commandIndex, len(m.commandItems), delta)
+		item := m.commandItems[m.commandIndex]
+		if !item.Header && !item.Spacer {
+			return
+		}
+	}
+}
+
+func (m Model) selectedCommandItem() (commandItem, bool) {
+	if m.commandIndex < 0 || m.commandIndex >= len(m.commandItems) {
+		return commandItem{}, false
+	}
+	item := m.commandItems[m.commandIndex]
+	if item.Header || item.Spacer {
+		return commandItem{}, false
+	}
+	return item, true
+}
+
+func (m Model) startCommandEdit(item commandItem, editing bool) Model {
+	scope := commandScopeServer
+	name := ""
+	body := ""
+	if editing {
+		scope = item.Scope
+	}
+	if item.Temporary {
+		scope = commandScopeServer
+	}
+	if editing {
+		name = item.Name
+		body = item.Command
+	}
+	m.commandForm = commandEditForm{Scope: scope, Name: name, Command: body}
+	m.commandField = 0
+	m.commandCursor = len([]rune(name))
+	m.commandEditing = editing
+	m.commandEditItem = item
+	m.mode = modeCommandEdit
+	if item.Temporary {
+		m.commandForm.Name = "临时命令"
+		m.commandField = 2
+		m.commandCursor = 0
+	}
+	m.status = "编辑命令模板"
+	if !editing {
+		m.status = "添加命令模板"
+	}
+	return m
+}
+
+func (m Model) updateCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "Q", "ctrl+c":
+		return m.backToCommandList("已取消。"), nil
+	case "tab":
+		m.commandField = (m.commandField + 1) % 3
+		m.commandCursor = m.commandValueLen()
+	case "shift+tab":
+		m.commandField--
+		if m.commandField < 0 {
+			m.commandField = 2
+		}
+		m.commandCursor = m.commandValueLen()
+	case "up":
+		if m.commandField == 2 {
+			m.moveCommandBodyLine(-1)
+		} else {
+			m.commandField--
+			if m.commandField < 0 {
+				m.commandField = 2
+			}
+			m.commandCursor = m.commandValueLen()
+		}
+	case "down":
+		if m.commandField == 2 {
+			m.moveCommandBodyLine(1)
+		} else {
+			m.commandField = (m.commandField + 1) % 3
+			m.commandCursor = m.commandValueLen()
+		}
+	case "left":
+		if m.commandField == 0 {
+			m.toggleCommandScope()
+		} else {
+			m.moveCommandCursor(-1)
+		}
+	case "right":
+		if m.commandField == 0 {
+			m.toggleCommandScope()
+		} else {
+			m.moveCommandCursor(1)
+		}
+	case "ctrl+j":
+		if m.commandField == 2 {
+			m.commandAppend("\n")
+		}
+	case "enter":
+		if strings.TrimSpace(m.commandForm.Command) == "" {
+			m.status = "保存失败：命令内容不能为空"
+			return m, nil
+		}
+		if m.commandEditItem.Temporary {
+			m.commandConfirm = commandItem{Name: "临时命令", Command: m.commandForm.Command, Temporary: true}
+			m.commandOutputScroll = 0
+			m.mode = modeCommandConfirm
+			m.status = "确认执行命令"
+			return m, nil
+		}
+		if err := config.ValidateCommandTemplate(m.commandForm.Name, m.commandForm.Command); err != nil {
+			m.status = "保存失败：" + err.Error()
+			return m, nil
+		}
+		if err := m.saveCommandTemplate(); err != nil {
+			m.status = "保存失败：" + err.Error()
+			return m, nil
+		}
+		return m.backToCommandList("命令模板已保存。"), nil
+	case "backspace":
+		m.commandBackspace()
+	default:
+		if len(msg.Runes) > 0 && m.commandField != 0 {
+			m.commandAppend(string(msg.Runes))
+		}
+	}
+	return m, nil
+}
+
+func (m Model) backToCommandList(status string) Model {
+	index := m.activeCommand.HostIndex
+	if index < 0 {
+		if selected, ok := m.selectedRealIndex(); ok {
+			index = selected
+		}
+	}
+	m = m.startCommandList(index)
+	m.status = status
+	return m
+}
+
+func (m *Model) toggleCommandScope() {
+	if m.commandForm.Scope == commandScopeGlobal {
+		m.commandForm.Scope = commandScopeServer
+	} else {
+		m.commandForm.Scope = commandScopeGlobal
+	}
+}
+
+func (m Model) commandValue() string {
+	switch m.commandField {
+	case 1:
+		return m.commandForm.Name
+	case 2:
+		return m.commandForm.Command
+	default:
+		return ""
+	}
+}
+
+func (m Model) commandValueLen() int {
+	return len([]rune(m.commandValue()))
+}
+
+func (m *Model) setCommandValue(value string) {
+	switch m.commandField {
+	case 1:
+		m.commandForm.Name = value
+	case 2:
+		m.commandForm.Command = value
+	}
+}
+
+func (m *Model) commandAppend(s string) {
+	value := []rune(m.commandValue())
+	if m.commandCursor < 0 {
+		m.commandCursor = 0
+	}
+	if m.commandCursor > len(value) {
+		m.commandCursor = len(value)
+	}
+	insert := []rune(s)
+	next := append([]rune{}, value[:m.commandCursor]...)
+	next = append(next, insert...)
+	next = append(next, value[m.commandCursor:]...)
+	m.setCommandValue(string(next))
+	m.commandCursor += len(insert)
+}
+
+func (m *Model) commandBackspace() {
+	if m.commandField == 0 {
+		return
+	}
+	value := []rune(m.commandValue())
+	if m.commandCursor <= 0 || len(value) == 0 {
+		return
+	}
+	if m.commandCursor > len(value) {
+		m.commandCursor = len(value)
+	}
+	next := append([]rune{}, value[:m.commandCursor-1]...)
+	next = append(next, value[m.commandCursor:]...)
+	m.setCommandValue(string(next))
+	m.commandCursor--
+}
+
+func (m *Model) moveCommandCursor(delta int) {
+	m.commandCursor += delta
+	if m.commandCursor < 0 {
+		m.commandCursor = 0
+	}
+	if maxCursor := m.commandValueLen(); m.commandCursor > maxCursor {
+		m.commandCursor = maxCursor
+	}
+}
+
+func (m *Model) moveCommandBodyLine(delta int) {
+	if m.commandField != 2 {
+		return
+	}
+	runes := []rune(m.commandForm.Command)
+	if len(runes) == 0 {
+		return
+	}
+	lineStart := 0
+	for i := m.commandCursor - 1; i >= 0 && i < len(runes); i-- {
+		if runes[i] == '\n' {
+			lineStart = i + 1
+			break
+		}
+	}
+	col := m.commandCursor - lineStart
+	if delta < 0 {
+		if lineStart == 0 {
+			return
+		}
+		prevEnd := lineStart - 1
+		prevStart := 0
+		for i := prevEnd - 1; i >= 0; i-- {
+			if runes[i] == '\n' {
+				prevStart = i + 1
+				break
+			}
+		}
+		m.commandCursor = prevStart + minInt(col, prevEnd-prevStart)
+		return
+	}
+	lineEnd := len(runes)
+	for i := m.commandCursor; i < len(runes); i++ {
+		if runes[i] == '\n' {
+			lineEnd = i
+			break
+		}
+	}
+	if lineEnd >= len(runes) {
+		return
+	}
+	nextStart := lineEnd + 1
+	nextEnd := len(runes)
+	for i := nextStart; i < len(runes); i++ {
+		if runes[i] == '\n' {
+			nextEnd = i
+			break
+		}
+	}
+	m.commandCursor = nextStart + minInt(col, nextEnd-nextStart)
+}
+
+func (m Model) saveCommandTemplate() error {
+	file := m.commandFile
+	name := strings.TrimSpace(m.commandForm.Name)
+	body := strings.TrimSpace(m.commandForm.Command)
+	serverKey := ""
+	if m.activeCommand.HostIndex >= 0 && m.activeCommand.HostIndex < len(m.states) {
+		h := m.states[m.activeCommand.HostIndex].Host
+		serverKey = config.ServerCommandKey(h.Category, h.Name)
+	}
+	if m.commandEditing {
+		item := m.commandEditItem
+		if item.Scope == commandScopeGlobal && item.Index >= 0 && item.Index < len(file.Global) {
+			file.Global = append(file.Global[:item.Index], file.Global[item.Index+1:]...)
+		}
+		if item.Scope == commandScopeServer && item.Index >= 0 && item.Index < len(file.Server) {
+			file.Server = append(file.Server[:item.Index], file.Server[item.Index+1:]...)
+		}
+	}
+	if m.commandForm.Scope == commandScopeGlobal {
+		file.Global = append(file.Global, config.CommandTemplate{Name: name, Command: body})
+	} else {
+		file.Server = append(file.Server, config.ServerCommandTemplate{Server: serverKey, Name: name, Command: body})
+	}
+	if err := config.SaveCommands(m.home, file); err != nil {
+		return err
+	}
+	m.commandFile = file
+	return nil
+}
+
+func (m Model) deleteCommandTemplate(item commandItem) (tea.Model, tea.Cmd) {
+	file := m.commandFile
+	if item.Scope == commandScopeGlobal && item.Index >= 0 && item.Index < len(file.Global) {
+		file.Global = append(file.Global[:item.Index], file.Global[item.Index+1:]...)
+	}
+	if item.Scope == commandScopeServer && item.Index >= 0 && item.Index < len(file.Server) {
+		file.Server = append(file.Server[:item.Index], file.Server[item.Index+1:]...)
+	}
+	if err := config.SaveCommands(m.home, file); err != nil {
+		m.status = "删除失败：" + err.Error()
+		return m, nil
+	}
+	m.commandFile = file
+	m.commandItems = m.commandListItems(m.activeCommand.HostIndex)
+	m.commandIndex = firstCommandItem(m.commandItems)
+	m.status = "命令模板已删除。"
+	return m, nil
+}
+
+func (m Model) updateCommandConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "Q", "ctrl+c":
+		m.mode = modeCommandList
+		m.status = "已取消。"
+	case "j", "J", "down":
+		m.commandOutputScroll = clampInt(m.commandOutputScroll+1, 0, m.commandConfirmMaxScroll())
+	case "k", "K", "up":
+		m.commandOutputScroll = clampInt(m.commandOutputScroll-1, 0, m.commandConfirmMaxScroll())
+	case "enter":
+		if m.activeCommand.HostIndex < 0 || m.activeCommand.HostIndex >= len(m.states) {
+			m.status = "没有选中的服务器。"
+			return m, nil
+		}
+		m.activeCommand.Name = m.commandConfirm.Name
+		m.activeCommand.Command = m.commandConfirm.Command
+		m.activeCommand.Output = ""
+		m.activeCommand.ExitCode = 0
+		m.activeCommand.Running = true
+		m.commandOutputScroll = 0
+		m.mode = modeCommandOutput
+		m.status = "正在执行命令..."
+		return m, m.runCommand(m.activeCommand.HostIndex, m.commandConfirm.Command)
+	}
+	return m, nil
+}
+
+func (m Model) updateCommandOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "Q", "ctrl+c":
+		m.mode = modeDashboard
+		m.status = ""
+	case "j", "J", "down":
+		m.commandOutputScroll = clampInt(m.commandOutputScroll+1, 0, m.commandOutputMaxScroll())
+	case "k", "K", "up":
+		m.commandOutputScroll = clampInt(m.commandOutputScroll-1, 0, m.commandOutputMaxScroll())
+	}
+	return m, nil
+}
+
+func (m Model) updateHelpPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q", "Q", "?":
+		if m.helpBackMode == 0 {
+			m.helpBackMode = modeDashboard
+		}
+		m.mode = m.helpBackMode
+	}
+	return m, nil
+}
+
+func (m Model) commandOutputMaxScroll() int {
+	height := m.height - 4
+	if height < 6 {
+		height = 6
+	}
+	lines := 2
+	if m.activeCommand.Running {
+		lines++
+	} else {
+		output := strings.TrimRight(m.activeCommand.Output, "\n")
+		if output == "" {
+			lines++
+		} else {
+			lines += len(strings.Split(output, "\n"))
+		}
+		lines += 2
+	}
+	maxScroll := lines - height
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
+}
+
+func (m Model) runCommand(index int, script string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		result, cleanup := actions.RemoteCommandContext(ctx, m.states[index].Host, script)
+		cleanup()
+		return commandDoneMsg{Result: result}
+	}
 }
 
 func (m *Model) formAppend(s string) {
@@ -901,6 +1549,10 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "f", "F":
 		if idx, ok := m.selectedRealIndex(); ok {
 			return m.toggleFavorite(idx)
+		}
+	case "m", "M":
+		if idx, ok := m.selectedRealIndex(); ok {
+			return m.startCommandList(idx), nil
 		}
 	case "enter":
 		if idx, ok := m.selectedRealIndex(); ok {
@@ -1089,10 +1741,10 @@ func (m Model) prepareTransferConfirm() (tea.Model, tea.Cmd) {
 	h := m.states[m.panel.HostIndex].Host
 	m.panel.Confirming = true
 	if m.panel.Mode == transferUpload {
-		m.status = fmt.Sprintf("按回车上传：%s -> %s:%s/，Esc 取消", filepath.Base(left.Value), hostDisplayName(h), right.Value)
+		m.status = fmt.Sprintf("上传 Enter：%s -> %s:%s/  取消 Esc", filepath.Base(left.Value), hostDisplayName(h), right.Value)
 		return m, nil
 	}
-	m.status = fmt.Sprintf("按回车下载：%s:%s -> %s/，Esc 取消", hostDisplayName(h), left.Value, right.Value)
+	m.status = fmt.Sprintf("下载 Enter：%s:%s -> %s/  取消 Esc", hostDisplayName(h), left.Value, right.Value)
 	return m, nil
 }
 
@@ -1658,6 +2310,46 @@ func clampInt(value int, min int, max int) int {
 	return value
 }
 
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func fitLines(lines []string, width int) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, ansi.Truncate(line, width, "…"))
+	}
+	return out
+}
+
+func visibleRange(total int, selected int, height int) (int, int) {
+	if total <= 0 {
+		return 0, 0
+	}
+	if height <= 0 || height >= total {
+		return 0, total
+	}
+	selected = clampInt(selected, 0, total-1)
+	start := selected - height + 1
+	if start < 0 {
+		start = 0
+	}
+	if start+height > total {
+		start = total - height
+	}
+	return start, start + height
+}
+
 func (m Model) selectedRealIndex() (int, bool) {
 	indexes := m.filteredIndexes()
 	if len(indexes) == 0 || m.selected < 0 || m.selected >= len(indexes) {
@@ -1831,17 +2523,36 @@ func (m Model) View() string {
 	if m.mode == modeDeleteConfirm {
 		return m.renderDeleteConfirm()
 	}
+	if m.mode == modeConfirmAction {
+		return m.renderConfirmAction()
+	}
 	if m.mode == modeDetail {
 		return m.renderDetail()
 	}
 	if m.mode == modeTransferPanel {
 		return m.renderTransferPanel()
 	}
+	if m.mode == modeCommandList {
+		return m.renderCommandList()
+	}
+	if m.mode == modeCommandEdit {
+		return m.renderCommandEdit()
+	}
+	if m.mode == modeCommandConfirm {
+		return m.renderCommandConfirm()
+	}
+	if m.mode == modeCommandOutput {
+		return m.renderCommandOutput()
+	}
+	if m.mode == modeHelp {
+		return m.renderHelpPanel()
+	}
 	if m.mode != modeDashboard {
 		return m.renderPicker()
 	}
 
-	headerParts := []string{"sshm 服务器监控"}
+	indexes := m.filteredIndexes()
+	headerParts := []string{"sshm", fmt.Sprintf("服务器 %d", len(indexes))}
 	if m.searching {
 		headerParts = append(headerParts, "搜索："+m.query+"█")
 	} else if m.query != "" {
@@ -1866,12 +2577,16 @@ func (m Model) View() string {
 		headerParts = append(headerParts, m.status)
 	}
 	headerText := strings.Join(headerParts, "  ")
-	header := titleStyle.Render(fit(headerText, contentWidth(m.width)))
+	headerWidth := m.width
+	if headerWidth < 1 {
+		headerWidth = contentWidth(m.width)
+	}
+	header := titleStyle.Render(fit(headerText, headerWidth))
 
 	var lines []string
 	lines = append(lines, header)
+	lines = append(lines, "")
 
-	indexes := m.filteredIndexes()
 	if len(m.states) == 0 {
 		lines = append(lines, mutedStyle.Render("没有服务器。按 a 添加服务器。"))
 	} else if len(indexes) == 0 {
@@ -1880,11 +2595,50 @@ func (m Model) View() string {
 		lines = append(lines, m.renderDashboardGrid(indexes))
 	}
 
-	help := "↑↓←→/hjkl 移动  回车登录  空格详情  f收藏  v只看收藏  a添加  e编辑  x删除  u上传  d下载  r刷新  /搜索  t分类  o在线  p异常  s排序  q退出"
-	helpBlock := renderHelp(contentWidth(m.width), help)
-	lines = padToBottom(lines, m.height, strings.Count(helpBlock, "\n")+1)
+	helpWidth := m.width
+	if helpWidth < 1 {
+		helpWidth = contentWidth(m.width)
+	}
+	helpBlock := renderDashboardHelp(helpWidth)
+	pageDots := m.dashboardPageDots(len(indexes))
+	reservedBottomLines := strings.Count(helpBlock, "\n") + 1
+	if pageDots != "" {
+		reservedBottomLines += strings.Count(pageDots, "\n") + 1
+	}
+	lines = padToBottom(lines, m.height, reservedBottomLines)
+	if pageDots != "" {
+		lines = append(lines, pageDots)
+	}
 	lines = append(lines, helpBlock)
 	return strings.Join(lines, "\n")
+}
+
+func renderDashboardHelp(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	help := strings.Join([]string{
+		"更多 ?",
+		"移动 ↑↓←→/hjkl",
+		"登录 Enter",
+		"详情 Space",
+		"命令 m",
+		"收藏 f",
+		"收藏 v",
+		"添加 a",
+		"编辑 e",
+		"删除 x",
+		"上传 u",
+		"下载 d",
+		"刷新 r",
+		"搜索 /",
+		"分类 t",
+		"在线 o",
+		"异常 p",
+		"排序 s",
+		"退出 q",
+	}, "  ")
+	return helpStyle.Render(fit(help, width))
 }
 
 func (m Model) renderAddForm() string {
@@ -1892,12 +2646,15 @@ func (m Model) renderAddForm() string {
 	if m.editing {
 		title = "编辑服务器"
 	}
-	width := contentWidth(m.width)
-	help := "Tab 切换区域  ↑↓选择  ←→切换分类  回车保存服务器  退出键取消"
+	width := formContentWidth(m.width)
+	if m.useSingleFormPane(width) {
+		width = detailFrameWidth(m.width)
+	}
+	help := "切换 Tab  选择 ↑↓  分类 ←→  保存 Enter  返回 Esc"
 	if m.formPane == 1 {
-		help = "Tab 切回服务器  ↑↓选择分类  n添加分类  x删除分类  退出键取消"
+		help = "切回 Tab  选择 ↑↓  新增 n  删除 x  返回 Esc"
 		if m.addingCategory {
-			help = "输入分类名称  回车添加  退出键取消输入"
+			help = "添加 Enter  返回 Esc"
 		}
 	}
 	header := titleStyle.Render(title)
@@ -1908,23 +2665,27 @@ func (m Model) renderAddForm() string {
 		}
 		header += "  " + statusStyle.Render(fit(m.status, width-ansi.StringWidth(title)-2))
 	}
+	bodyHeight := m.height - 2
+	if bodyHeight < 8 {
+		bodyHeight = 8
+	}
 	body := ""
 	if m.useSingleFormPane(width) {
 		if m.formPane == 1 {
-			body = m.renderCategoryPane(width)
+			body = m.renderCategoryPane(width, bodyHeight)
 		} else {
-			body = m.renderServerFormPane(title, width)
+			body = m.renderServerFormPane(title, width, bodyHeight)
 		}
 	} else {
-		gap := 2
+		gap := 1
 		leftWidth := (width - gap) * 2 / 3
 		rightWidth := width - gap - leftWidth
 		if rightWidth < 28 {
 			rightWidth = 28
 			leftWidth = width - gap - rightWidth
 		}
-		left := m.renderServerFormPane(title, leftWidth)
-		right := m.renderCategoryPane(rightWidth)
+		left := m.renderServerFormPane(title, leftWidth, bodyHeight)
+		right := m.renderCategoryPane(rightWidth, bodyHeight)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 	}
 	lines := []string{
@@ -1935,11 +2696,371 @@ func (m Model) renderAddForm() string {
 	return strings.Join(lines, "\n")
 }
 
+func (m Model) renderCommandList() string {
+	width := detailFrameWidth(m.width)
+	hostName := "-"
+	if m.activeCommand.HostIndex >= 0 && m.activeCommand.HostIndex < len(m.states) {
+		hostName = hostDisplayName(m.states[m.activeCommand.HostIndex].Host)
+	}
+	title := "命令模板  " + hostName
+	bodyWidth := width - 4
+	if bodyWidth < 30 {
+		bodyWidth = 30
+	}
+	help := "选择 ↑↓/jk  执行 Enter  新增 a  编辑 e  删除 x  返回 Esc"
+	bodyHeight := m.height - 2
+	if bodyHeight < 8 {
+		bodyHeight = 8
+	}
+	contentHeight := bodyHeight - 2
+	if contentHeight < 4 {
+		contentHeight = 4
+	}
+	lines := []string{}
+	listHeight := contentHeight
+	if listHeight < 1 {
+		listHeight = 1
+	}
+	if len(m.commandItems) == 0 {
+		lines = append(lines, mutedStyle.Render("没有命令模板"))
+	} else {
+		start, end := visibleRange(len(m.commandItems), m.commandIndex, listHeight)
+		for i := start; i < end; i++ {
+			item := m.commandItems[i]
+			if item.Header {
+				if len(lines) > 0 {
+					lines = append(lines, "")
+				}
+				lines = append(lines, detailSubTitle(item.Name))
+				continue
+			}
+			if item.Spacer {
+				lines = append(lines, "")
+				continue
+			}
+			prefix := " "
+			style := lipgloss.NewStyle()
+			if i == m.commandIndex {
+				prefix = "▶"
+				style = blueStyle.Bold(true)
+			}
+			label := item.Name
+			if item.Temporary {
+				label = "+ " + label
+			}
+			lines = append(lines, style.Render(fit(prefix+" "+label, bodyWidth)))
+		}
+	}
+	for len(lines) < contentHeight {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{
+		titleStyle.Render(fit(title, width)),
+		box,
+		renderHelp(width, help),
+	}, "\n")
+}
+
+func (m Model) renderCommandEdit() string {
+	width := detailFrameWidth(m.width)
+	innerWidth := width - 4
+	if innerWidth < 36 {
+		innerWidth = 36
+	}
+	title := "添加命令模板"
+	if m.commandEditing {
+		title = "编辑命令模板"
+	}
+	scope := "全局  ←/→"
+	server := "-"
+	if m.activeCommand.HostIndex >= 0 && m.activeCommand.HostIndex < len(m.states) {
+		h := m.states[m.activeCommand.HostIndex].Host
+		server = config.ServerCommandKey(h.Category, h.Name)
+	}
+	if m.commandForm.Scope == commandScopeServer {
+		scope = server + "  ←/→"
+	}
+	header := title
+	if m.commandForm.Scope == commandScopeServer && server != "-" {
+		header += "  " + server
+	}
+	lines := []string{}
+	lines = append(lines, commandFieldLine(m, 0, "范围", scope, innerWidth))
+	lines = append(lines, commandFieldLine(m, 1, "模板名称", commandInputText(m.commandForm.Name, m.commandCursor, m.commandField == 1, 28), innerWidth))
+	lines = append(lines, "")
+	help := "切换 Tab  保存 Enter  换行 Ctrl+J  返回 Esc"
+	lines = append(lines, detailSubTitle("命令内容"))
+	lines = append(lines, commandTextArea(m.commandForm.Command, m.commandCursor, m.commandField == 2, innerWidth, m.commandTextAreaHeight(help)))
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(blue).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{
+		titleStyle.Render(fit(header, width)),
+		box,
+		renderHelp(width, help),
+	}, "\n")
+}
+
+func commandFieldLine(m Model, index int, label string, value string, width int) string {
+	prefix := " "
+	style := lipgloss.NewStyle()
+	if m.commandField == index {
+		prefix = "▶"
+		style = blueStyle.Bold(true)
+	}
+	labelWidth := runewidth.StringWidth("模板名称")
+	padding := labelWidth - runewidth.StringWidth(label) + 1
+	if padding < 1 {
+		padding = 1
+	}
+	return style.Render(fit(prefix+" "+label+strings.Repeat(" ", padding)+value, width))
+}
+
+func commandInputText(value string, cursor int, active bool, width int) string {
+	if width < 8 {
+		width = 8
+	}
+	runes := []rune(value)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+	display := value
+	if active {
+		display = string(runes[:cursor]) + "│" + string(runes[cursor:])
+	}
+	fitted := fit(display, width)
+	return "[" + fitted + strings.Repeat(" ", maxInt(0, width-runewidth.StringWidth(fitted))) + "]"
+}
+
+func (m Model) commandTextAreaHeight(help string) int {
+	contentLinesBeforeTextArea := 4
+	textareaBorderLines := 2
+	formBorderLines := 2
+	externalHeaderLines := 1
+	height := m.height - externalHeaderLines - contentLinesBeforeTextArea - textareaBorderLines - formBorderLines - 1
+	if height < 6 {
+		height = 6
+	}
+	return height
+}
+
+func commandTextArea(value string, cursor int, active bool, width int, height int) string {
+	bodyWidth := width - 4
+	if bodyWidth < 20 {
+		bodyWidth = 20
+	}
+	if height < 4 {
+		height = 4
+	}
+	runes := []rune(value)
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+	text := value
+	if active {
+		text = string(runes[:cursor]) + "│" + string(runes[cursor:])
+	}
+	lines := strings.Split(text, "\n")
+	cursorLine := 0
+	if active {
+		cursorLine = strings.Count(string(runes[:cursor]), "\n")
+	}
+	if len(lines) < height {
+		for len(lines) < height {
+			lines = append(lines, "")
+		}
+	}
+	if len(lines) > height {
+		start := cursorLine - height + 1
+		if start < 0 {
+			start = 0
+		}
+		if start+height > len(lines) {
+			start = len(lines) - height
+		}
+		lines = lines[start : start+height]
+	}
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(fitLines(lines, width-4), "\n"))
+}
+
+func (m Model) renderCommandConfirm() string {
+	width := detailFrameWidth(m.width)
+	help := "滚动 ↑↓/jk  执行 Enter  返回 Esc"
+	height := m.height - 4
+	if height < 6 {
+		height = 6
+	}
+	h := m.states[m.activeCommand.HostIndex].Host
+	lines := []string{
+		modalLine("服务器", hostDisplayName(h), width-4),
+		modalLine("模板", m.commandConfirm.Name, width-4),
+		"",
+		detailSubTitle("命令"),
+	}
+	lines = append(lines, strings.Split(wrapPlainLine(m.commandConfirm.Command, width-4), "\n")...)
+	maxScroll := m.commandConfirmMaxScroll()
+	scroll := clampInt(m.commandOutputScroll, 0, maxScroll)
+	viewLines := lines
+	if len(lines) > height {
+		viewLines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	for len(viewLines) < height {
+		viewLines = append(viewLines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(yellow).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(fitLines(viewLines, width-4), "\n"))
+	return strings.Join([]string{
+		titleStyle.Render(fit("即将执行", width)),
+		box,
+		renderHelp(width, help),
+	}, "\n")
+}
+
+func (m Model) commandConfirmMaxScroll() int {
+	height := m.height - 4
+	if height < 6 {
+		height = 6
+	}
+	lines := []string{
+		"",
+		"",
+		"",
+		"命令",
+	}
+	lines = append(lines, strings.Split(wrapPlainLine(m.commandConfirm.Command, detailFrameWidth(m.width)-4), "\n")...)
+	maxScroll := len(lines) - height
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
+}
+
+func modalLine(label string, value string, width int) string {
+	labelWidth := 8
+	padding := labelWidth - runewidth.StringWidth(label)
+	if padding < 1 {
+		padding = 1
+	}
+	return fit(label+strings.Repeat(" ", padding)+value, width)
+}
+
+func (m Model) renderCommandOutput() string {
+	width := detailFrameWidth(m.width)
+	help := "滚动 ↑↓/jk  返回 q/Esc"
+	height := m.height - 4
+	if height < 6 {
+		height = 6
+	}
+	title := "命令输出  " + m.activeCommand.Name
+	lines := []string{"$ " + m.activeCommand.Command, ""}
+	if m.activeCommand.Running {
+		lines = append(lines, "正在执行...")
+	} else {
+		output := strings.TrimRight(m.activeCommand.Output, "\n")
+		if output == "" {
+			output = "(无输出)"
+		}
+		lines = append(lines, strings.Split(output, "\n")...)
+		lines = append(lines, "", fmt.Sprintf("退出码 %d", m.activeCommand.ExitCode))
+	}
+	viewLines := lines
+	maxScroll := m.commandOutputMaxScroll()
+	scroll := clampInt(m.commandOutputScroll, 0, maxScroll)
+	if len(lines) > height {
+		viewLines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	for len(viewLines) < height {
+		viewLines = append(viewLines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(fitLines(viewLines, width-4), "\n"))
+	return strings.Join([]string{
+		titleStyle.Render(fit(title, width)),
+		box,
+		renderHelp(width, help),
+	}, "\n")
+}
+
+func (m Model) renderHelpPanel() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	rows := []struct {
+		key  string
+		desc string
+	}{
+		{"↑↓←→ / hjkl", "移动选择"},
+		{"Enter", "登录服务器"},
+		{"Space", "查看详情"},
+		{"m", "命令模板"},
+		{"f", "收藏 / 取消收藏"},
+		{"v", "只看收藏 / 取消筛选"},
+		{"a", "添加服务器"},
+		{"e", "编辑服务器"},
+		{"x", "删除服务器"},
+		{"u", "上传文件或目录"},
+		{"d", "下载文件或目录"},
+		{"r", "刷新监控"},
+		{"/", "搜索"},
+		{"t", "切换分类"},
+		{"o", "只看在线 / 取消筛选"},
+		{"p", "只看异常 / 取消筛选"},
+		{"s", "切换排序"},
+		{"q / Esc", "退出或返回"},
+		{"?", "关闭帮助"},
+	}
+	lines := []string{}
+	for _, row := range rows {
+		lines = append(lines, modalLine(row.key, row.desc, bodyWidth))
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{
+		titleStyle.Render(fit("快捷键", width)),
+		box,
+		renderHelp(width, "返回 q/Esc/?"),
+	}, "\n")
+}
+
 func (m Model) useSingleFormPane(width int) bool {
 	return width < 96
 }
 
-func (m Model) renderServerFormPane(title string, width int) string {
+func (m Model) renderServerFormPane(title string, width int, height int) string {
 	fields := m.form.fields()
 	lines := make([]string, 0, len(fields)+2)
 	lines = append(lines, titleStyle.Render("服务器"))
@@ -1947,7 +3068,17 @@ func (m Model) renderServerFormPane(title string, width int) string {
 	if innerWidth < 24 {
 		innerWidth = 24
 	}
-	for i, field := range fields {
+	contentHeight := height - 2
+	if contentHeight < 4 {
+		contentHeight = 4
+	}
+	fieldHeight := contentHeight - 1
+	if fieldHeight < 1 {
+		fieldHeight = 1
+	}
+	start, end := visibleRange(len(fields), m.formIndex, fieldHeight)
+	for i := start; i < end; i++ {
+		field := fields[i]
 		prefix := " "
 		style := lipgloss.NewStyle()
 		value := field.value
@@ -1964,6 +3095,9 @@ func (m Model) renderServerFormPane(title string, width int) string {
 		}
 		lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, i != 0, m.formPane == 0 && i == m.formIndex, m.formCursor)))
 	}
+	for len(lines) < contentHeight {
+		lines = append(lines, "")
+	}
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(softGray).
@@ -1975,16 +3109,27 @@ func (m Model) renderServerFormPane(title string, width int) string {
 	return style.Render(strings.Join(lines, "\n"))
 }
 
-func (m Model) renderCategoryPane(width int) string {
+func (m Model) renderCategoryPane(width int, height int) string {
 	lines := []string{titleStyle.Render("分类")}
 	innerWidth := width - 4
 	if innerWidth < 20 {
 		innerWidth = 20
 	}
+	contentHeight := height - 2
+	if contentHeight < 5 {
+		contentHeight = 5
+	}
+	bottomLineCount := 0
+	listHeight := contentHeight - 1 - bottomLineCount
+	if listHeight < 1 {
+		listHeight = 1
+	}
 	if len(m.categories) == 0 {
 		lines = append(lines, mutedStyle.Render("没有分类"))
 	} else {
-		for i, category := range m.categories {
+		start, end := visibleRange(len(m.categories), m.categoryIndex, listHeight)
+		for i := start; i < end; i++ {
+			category := m.categories[i]
 			prefix := " "
 			style := lipgloss.NewStyle()
 			if i == m.categoryIndex {
@@ -1997,11 +3142,14 @@ func (m Model) renderCategoryPane(width int) string {
 			lines = append(lines, style.Render(categoryLine(prefix, category, count, innerWidth)))
 		}
 	}
-	lines = append(lines, "")
+	for len(lines) < 1+listHeight {
+		lines = append(lines, "")
+	}
 	if m.addingCategory {
 		lines = append(lines, blueStyle.Bold(true).Render(fit("新分类 "+m.categoryDraft+"█", innerWidth)))
-	} else {
-		lines = append(lines, renderHelp(innerWidth, "n 添加  x 删除"))
+	}
+	for len(lines) < contentHeight {
+		lines = append(lines, "")
 	}
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -2118,22 +3266,51 @@ func (m Model) renderDeleteConfirm() string {
 		return "没有选中的服务器"
 	}
 	h := m.states[m.deleteIndex].Host
-	width := contentWidth(m.width)
-	bodyWidth := width - 6
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
 	if bodyWidth < 32 {
 		bodyWidth = 32
 	}
 	lines := []string{
-		titleStyle.Render("确认删除服务器"),
-		"",
 		wrapPlainLine("服务器："+h.Name, bodyWidth),
 		wrapPlainLine("文件："+h.File, bodyWidth),
 		"",
 		"将删除该服务器配置。",
-		"",
-		renderHelp(bodyWidth, "回车/是 确认删除  退出键/否 取消"),
 	}
-	return detailStyle.BorderForeground(red).Width(width).Render(strings.Join(lines, "\n"))
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(red).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{
+		titleStyle.Render(fit("确认删除服务器", width)),
+		box,
+		renderHelp(width, "确认 Enter/y  取消 Esc/n"),
+	}, "\n")
+}
+
+func (m Model) renderConfirmAction() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	lines := []string{}
+	for _, line := range m.confirm.Lines {
+		lines = append(lines, wrapPlainLine(line, bodyWidth))
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(red).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{
+		titleStyle.Render(fit(m.confirm.Title, width)),
+		box,
+		renderHelp(width, "确认 Enter/y  取消 Esc/n"),
+	}, "\n")
 }
 
 func (m Model) renderDetail() string {
@@ -2141,13 +3318,27 @@ func (m Model) renderDetail() string {
 	if !ok {
 		return "没有选中的服务器"
 	}
+	idx, _ := m.selectedRealIndex()
+	width := detailFrameWidth(m.width)
+	header := titleStyle.Render(fit("服务器详情  "+m.states[idx].Host.Name, width))
+	help := renderHelp(width, "滚动 ↑↓/jk  登录 Enter  命令 m  上传 u  下载 d  刷新 r  返回 q/Esc")
 	viewportHeight := m.detailViewportHeight()
 	if viewportHeight < len(lines) {
 		maxScroll := len(lines) - viewportHeight
 		scroll := clampInt(m.detailScroll, 0, maxScroll)
 		lines = lines[scroll : scroll+viewportHeight]
 	}
-	return detailStyle.Render(strings.Join(lines, "\n"))
+	body := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{
+		header,
+		body,
+		help,
+	}, "\n")
 }
 
 func (m Model) detailLines() ([]string, bool) {
@@ -2167,8 +3358,6 @@ func (m Model) detailLines() ([]string, bool) {
 	}
 
 	lines := []string{
-		titleStyle.Render("服务器详情  " + h.Name),
-		"",
 		sectionTitle("基础信息"),
 		m.detailRow("状态", colorStatus(status, state.Loading, metrics.Online)),
 		m.detailRow("地址", h.Address()),
@@ -2223,7 +3412,6 @@ func (m Model) detailLines() ([]string, bool) {
 	if metrics.Error != "" {
 		lines = append(lines, "", sectionTitle("最近错误"), m.detailRow("错误", metrics.Error))
 	}
-	lines = append(lines, "", renderHelp(m.detailContentWidth(), "↑↓/jk 上下滚动  回车 登录  u上传  d下载  r刷新  q/退出键 返回"))
 	return lines, true
 }
 
@@ -2252,7 +3440,7 @@ func (m Model) renderPicker() string {
 	if m.status != "" && m.status != m.pickTitle {
 		header += "  " + m.status
 	}
-	width := contentWidth(m.width)
+	width := detailFrameWidth(m.width)
 	lines := []string{titleStyle.Render(fit(header, width)), ""}
 	if len(m.choices) == 0 {
 		lines = append(lines, mutedStyle.Render("没有可选择的项目"))
@@ -2283,9 +3471,9 @@ func (m Model) renderPicker() string {
 			lines = append(lines, style.Render(fit(fmt.Sprintf("%s %s", prefix, label), width)))
 		}
 	}
-	help := "↑↓/jk 移动  回车 选择  退出键 取消"
+	help := "移动 ↑↓/jk  选择 Enter  返回 Esc"
 	if m.treePickerActive() {
-		help = "↑↓/jk 移动  回车 展开/收起  空格 选择  退出键 取消"
+		help = "移动 ↑↓/jk  展开 Enter  选择 Space  返回 Esc"
 	}
 	lines = append(lines, "", renderHelp(width, help))
 	return strings.Join(lines, "\n")
@@ -2300,8 +3488,9 @@ func (m Model) renderTransferPanel() string {
 	if m.status != "" {
 		header += "  " + m.status
 	}
-	width := contentWidth(m.width)
-	height := m.height - 5
+	width := formContentWidth(m.width)
+	help := "切换 Tab  移动 ↑↓/jk  展开 Enter  确认 Space  返回 Esc"
+	height := m.height - 4
 	if height < 8 {
 		height = 8
 	}
@@ -2313,16 +3502,15 @@ func (m Model) renderTransferPanel() string {
 			body = renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, width, height, true)
 		}
 	} else {
-		gap := 2
-		paneWidth := (width - gap) / 2
-		left := renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, paneWidth, height, m.panel.ActivePane == 0)
-		right := renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, paneWidth, height, m.panel.ActivePane == 1)
+		gap := 1
+		leftWidth := (width - gap) / 2
+		rightWidth := width - gap - leftWidth
+		left := renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, leftWidth, height, m.panel.ActivePane == 0)
+		right := renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, rightWidth, height, m.panel.ActivePane == 1)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 	}
-	help := "Tab 切换  ↑↓/jk 移动  回车 展开/收起  空格 确认  退出键 取消"
 	return strings.Join([]string{
 		titleStyle.Render(fit(header, width)),
-		"",
 		body,
 		renderHelp(width, help),
 	}, "\n")
@@ -2336,7 +3524,7 @@ func renderTransferPane(title string, choices []choice, index int, width int, he
 	if width < 34 {
 		width = 34
 	}
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width - 4)
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width)
 	if active {
 		style = style.BorderForeground(blue)
 	}
@@ -2381,7 +3569,7 @@ func (m Model) renderDashboardGrid(indexes []int) string {
 	if totalWidth <= 0 {
 		totalWidth = contentWidth(m.width)
 	}
-	width := totalWidth - 1
+	width := totalWidth
 	if width < 34 {
 		width = 34
 	}
@@ -2418,7 +3606,66 @@ func (m Model) renderDashboardGrid(indexes []int) string {
 		}
 		out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, row...))
 	}
-	return withVerticalNav(strings.Join(out, "\n"), totalWidth, len(indexes), cols, startRow, rowsVisible)
+	return strings.Join(out, "\n")
+}
+
+func (m Model) dashboardPageDots(totalItems int) string {
+	if totalItems <= 0 {
+		return ""
+	}
+	cols := m.dashboardColumns()
+	rowsVisible := (m.height - 4) / dashboardCardTotalHeight
+	if rowsVisible < 1 {
+		rowsVisible = 1
+	}
+	perPage := cols * rowsVisible
+	if perPage <= 0 {
+		return ""
+	}
+	totalPages := (totalItems + perPage - 1) / perPage
+	if totalPages <= 1 {
+		return ""
+	}
+	currentPage := m.selected / perPage
+	if currentPage >= totalPages {
+		currentPage = totalPages - 1
+	}
+	start := 0
+	dotCount := totalPages
+	showNumber := false
+	if totalPages > 9 {
+		dotCount = 7
+		showNumber = true
+		start = currentPage - dotCount/2
+		if start < 0 {
+			start = 0
+		}
+		if start+dotCount > totalPages {
+			start = totalPages - dotCount
+		}
+	}
+	parts := make([]string, 0, dotCount+1)
+	for i := 0; i < dotCount; i++ {
+		page := start + i
+		dot := cardBorderStyle.Render("●")
+		if page == currentPage {
+			dot = titleStyle.Render("●")
+		}
+		parts = append(parts, dot)
+	}
+	if showNumber {
+		parts = append(parts, mutedStyle.Render(fmt.Sprintf("%d/%d", currentPage+1, totalPages)))
+	}
+	line := strings.Join(parts, " ")
+	width := m.width
+	if width <= 0 {
+		width = contentWidth(m.width)
+	}
+	padding := (width - ansi.StringWidth(line)) / 2
+	if padding < 0 {
+		padding = 0
+	}
+	return strings.Repeat(" ", padding) + line
 }
 
 func padBlock(block string, width int) string {
@@ -2456,9 +3703,9 @@ func distributeWidths(totalWidth, cols int) []int {
 }
 
 func (m Model) dashboardColumns() int {
-	width := m.width - 1
+	width := m.width
 	if width <= 0 {
-		width = contentWidth(m.width) - 1
+		width = contentWidth(m.width)
 	}
 	switch {
 	case width >= 190:
@@ -2560,7 +3807,7 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 	cpuLine := cardMetricLine("CPU", cpu, cpuCoresText(metrics), innerWidth)
 	memLine := cardMetricLine("内存", mem, bytesPair(metrics.MemUsed, metrics.MemTotal), innerWidth)
 	diskLine := cardMetricLine("磁盘", disk, bytesPair(metrics.DiskUsed, metrics.DiskTotal), innerWidth)
-	runLine := fit("运行 "+uptimeCN(metrics.Uptime), innerWidth)
+	uptimeLabel := mutedStyle.Render(cardUptimeShort(metrics.Uptime))
 	loadLine := fit(fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15)), innerWidth)
 	serviceLine := ansi.Truncate(serviceCardText(metrics), innerWidth, "…")
 	titleText := name
@@ -2589,14 +3836,14 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 	addressLine := fit(fmt.Sprintf("%s %s", h.Address(), userPort), innerWidth)
 	stateMark := colorStatus("●", state.Loading, metrics.Online)
 	lines := []string{
-		cardTopLine(cardWidth, title, stateMark, borderStyle),
-		cardContentLine(cardWidth, addressLine, borderStyle),
+		cardTopLine(cardWidth, title, uptimeLabel, stateMark, borderStyle),
+		cardMutedContentLine(cardWidth, addressLine, borderStyle),
 		cardContentLine(cardWidth, cpuLine, borderStyle),
 		cardContentLine(cardWidth, memLine, borderStyle),
 		cardContentLine(cardWidth, diskLine, borderStyle),
-		cardContentLine(cardWidth, loadLine, borderStyle),
+		cardInnerSeparatorLine(cardWidth, borderStyle),
+		cardMutedContentLine(cardWidth, loadLine, borderStyle),
 		cardContentLine(cardWidth, serviceLine, borderStyle),
-		cardContentLine(cardWidth, runLine, borderStyle),
 		cardBottomLine(cardWidth, borderStyle),
 	}
 	return strings.Join(lines, "\n")
@@ -2624,12 +3871,12 @@ func percentBarWithThreshold(value float64, warn float64, crit float64) string {
 }
 
 func metricLine(label, value string) string {
-	const labelWidth = 4
+	const labelWidth = 5
 	padding := labelWidth - runewidth.StringWidth(label) + 1
 	if padding < 1 {
 		padding = 1
 	}
-	return label + strings.Repeat(" ", padding) + value
+	return mutedStyle.Render(label) + strings.Repeat(" ", padding) + value
 }
 
 func cardMetricLine(label string, base string, extra string, width int) string {
@@ -2642,7 +3889,7 @@ func compactCardMetric(label string, base string, extra string, width int) strin
 	if extra == "" || extra == "-" {
 		return base
 	}
-	full := base + "  " + extra
+	full := base + "  " + mutedStyle.Render(extra)
 	if ansi.StringWidth(metricLine(label, full)) <= width {
 		return full
 	}
@@ -2716,13 +3963,17 @@ func padVisible(s string, width int) string {
 	return s
 }
 
-func cardTopLine(width int, title string, dot string, borderStyle lipgloss.Style) string {
+func cardTopLine(width int, title string, meta string, dot string, borderStyle lipgloss.Style) string {
 	innerWidth := width - 2
 	left := borderStyle.Render("╭")
 	right := borderStyle.Render("╮")
 	prefix := borderStyle.Render("─ ")
 	titleGap := " "
-	suffix := " " + dot + " "
+	suffixText := dot
+	if strings.TrimSpace(meta) != "" && strings.TrimSpace(meta) != "-" {
+		suffixText = meta + " " + dot
+	}
+	suffix := " " + suffixText + " "
 	fillWidth := innerWidth - ansi.StringWidth(prefix) - ansi.StringWidth(title) - ansi.StringWidth(titleGap) - ansi.StringWidth(suffix)
 	if fillWidth < 1 {
 		title = ansi.Truncate(title, innerWidth-ansi.StringWidth(prefix)-ansi.StringWidth(titleGap)-ansi.StringWidth(suffix)-1, "…")
@@ -2739,6 +3990,32 @@ func cardContentLine(width int, content string, borderStyle lipgloss.Style) stri
 	contentWidth := innerWidth - 2
 	line := padVisible(content, contentWidth)
 	return borderStyle.Render("│") + " " + line + " " + borderStyle.Render("│")
+}
+
+func cardMutedContentLine(width int, content string, borderStyle lipgloss.Style) string {
+	innerWidth := width - 2
+	contentWidth := innerWidth - 2
+	line := mutedStyle.Render(padVisible(content, contentWidth))
+	return borderStyle.Render("│") + " " + line + " " + borderStyle.Render("│")
+}
+
+func cardInnerSeparatorLine(width int, borderStyle lipgloss.Style) string {
+	innerWidth := width - 2
+	contentWidth := innerWidth - 2
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	line := subtleLineStyle.Render(dashedLine(contentWidth))
+	return borderStyle.Render("│") + " " + line + " " + borderStyle.Render("│")
+}
+
+func dashedLine(width int) string {
+	if width <= 0 {
+		return ""
+	}
+	pattern := "- "
+	line := strings.Repeat(pattern, (width+len(pattern)-1)/len(pattern))
+	return ansi.Truncate(line, width, "")
 }
 
 func cardSeparatorLine(width int, borderStyle lipgloss.Style) string {
@@ -2805,6 +4082,23 @@ func colorStatus(value string, loading bool, online bool) string {
 }
 
 func contentWidth(width int) int {
+	if width <= 0 {
+		return 100
+	}
+	return width
+}
+
+func detailFrameWidth(width int) int {
+	if width <= 0 {
+		return 100
+	}
+	if width < 44 {
+		return 42
+	}
+	return width - 2
+}
+
+func formContentWidth(width int) int {
 	if width <= 0 {
 		return 100
 	}
@@ -2947,9 +4241,9 @@ func (m Model) detailRow(label, value string) string {
 }
 
 func (m Model) detailContentWidth() int {
-	width := contentWidth(m.width) - 6
-	if width < 42 {
-		width = 42
+	width := detailFrameWidth(m.width) - 6
+	if width < 24 {
+		width = 24
 	}
 	return width
 }
@@ -2990,7 +4284,7 @@ func wrapPlainLine(value string, width int) string {
 }
 
 func renderHelp(width int, value string) string {
-	return helpStyle.Render(wrapPlainLine(value, width))
+	return helpStyle.Render(fit(value, width))
 }
 
 func splitWrapTokens(value string) []string {
@@ -3113,29 +4407,29 @@ func dockerDetailRows(m Model, metrics monitor.Metrics) []string {
 
 func serviceCardText(metrics monitor.Metrics) string {
 	total := dockerTotal(metrics)
-	containerText := fmt.Sprintf("容器 %d/%d/%d", metrics.DockerFailed, metrics.DockerRunning, total)
+	containerText := mutedStyle.Render(fmt.Sprintf("容器 %d/%d/%d", metrics.DockerFailed, metrics.DockerRunning, total))
 	if total == 0 {
-		containerText = "容器 0"
+		containerText = mutedStyle.Render("容器 0")
 	}
 	if metrics.DockerFailed > 0 {
-		containerText = "容器 " + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + fmt.Sprintf("/%d/%d", metrics.DockerRunning, total)
+		containerText = mutedStyle.Render("容器 ") + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + mutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
 	}
-	serviceNumber := fmt.Sprintf("%d", metrics.FailedServices)
+	serviceNumber := mutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	if metrics.FailedServices > 0 {
-		serviceNumber = redStyle.Render(serviceNumber)
+		serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	}
-	serviceText := "服务 " + serviceNumber
+	serviceText := mutedStyle.Render("服务 ") + serviceNumber
 	if metrics.HealthTotal() > 0 {
-		healthNumber := fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal())
+		healthNumber := mutedStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
 		switch {
 		case metrics.HealthOK() == metrics.HealthTotal():
-			healthNumber = greenStyle.Render(healthNumber)
+			healthNumber = greenStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
 		case metrics.HealthOK() == 0:
-			healthNumber = redStyle.Render(healthNumber)
+			healthNumber = redStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
 		default:
-			healthNumber = yellowStyle.Render(healthNumber)
+			healthNumber = yellowStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
 		}
-		healthText := "健康 " + healthNumber
+		healthText := mutedStyle.Render("健康 ") + healthNumber
 		return fmt.Sprintf("%s  %s  %s", healthText, containerText, serviceText)
 	}
 	return fmt.Sprintf("%s  %s", containerText, serviceText)
@@ -3192,6 +4486,38 @@ func uptimeCN(value string) string {
 	)
 	value = replacer.Replace(value)
 	return value
+}
+
+func cardUptimeShort(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	value = strings.TrimPrefix(value, "up ")
+	value = strings.TrimSpace(normalizeWeeksToDays(value))
+	days := firstUptimeNumber(value, `(\d+)\s+days?`)
+	if days > 0 {
+		return fmt.Sprintf("%d天", days)
+	}
+	hours := firstUptimeNumber(value, `(\d+)\s+hours?`)
+	if hours > 0 {
+		return fmt.Sprintf("%d时", hours)
+	}
+	minutes := firstUptimeNumber(value, `(\d+)\s+minutes?`)
+	if minutes < 1 {
+		minutes = 1
+	}
+	return fmt.Sprintf("%d分", minutes)
+}
+
+func firstUptimeNumber(value string, pattern string) int {
+	re := regexp.MustCompile(pattern)
+	parts := re.FindStringSubmatch(value)
+	if len(parts) < 2 {
+		return 0
+	}
+	n, _ := strconv.Atoi(parts[1])
+	return n
 }
 
 func normalizeWeeksToDays(value string) string {
@@ -3297,12 +4623,14 @@ var (
 	blue     = lipgloss.Color("39")
 	textGray = lipgloss.Color("245")
 	softGray = lipgloss.Color("235")
+	lineGray = lipgloss.Color("234")
 
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(blue)
-	mutedStyle    = lipgloss.NewStyle().Foreground(textGray)
-	helpStyle     = lipgloss.NewStyle().Foreground(textGray)
-	navStyle      = lipgloss.NewStyle().Foreground(textGray)
-	barEmptyStyle = lipgloss.NewStyle().Foreground(softGray)
+	titleStyle      = lipgloss.NewStyle().Bold(true).Foreground(blue)
+	mutedStyle      = lipgloss.NewStyle().Foreground(textGray)
+	helpStyle       = lipgloss.NewStyle().Foreground(textGray)
+	navStyle        = lipgloss.NewStyle().Foreground(textGray)
+	barEmptyStyle   = lipgloss.NewStyle().Foreground(softGray)
+	subtleLineStyle = lipgloss.NewStyle().Foreground(lineGray)
 
 	cardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

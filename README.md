@@ -125,15 +125,18 @@ sshm
 第一次打开后，按 `a` 添加服务器。添加服务器时左边填写服务器信息，右边管理分类，`Tab` 切换左右区域，`Enter` 保存。
 
 ```text
-导航    ↑↓←→
+更多    ?
+导航    ↑↓←→ / hjkl
 登录    Enter        详情    Space
-详情    ↑↓/jk 滚动   q/Esc 返回
+命令    m
+收藏    f 收藏       v 只看收藏
 管理    a 添加       e 编辑       x 删除
 传输    u 上传       d 下载
 视图    / 搜索       t 分类       o 在线       p 异常       s 排序
-刷新    r
-返回    q / Esc
+刷新    r            返回    q / Esc
 ```
+
+主面板底部会优先显示 `更多 ?` 和常用快捷键，按 `?` 可以查看完整快捷键。
 
 ## 🚀 核心功能
 
@@ -153,6 +156,7 @@ sshm
 | 🔕 | 自动隐藏 OpenSSH post-quantum 警告 | ✅ 已支持 |
 | 📁 | 双栏文件选择器 | ✅ 已支持 |
 | ⬆️⬇️ | 文件和目录上传/下载 | ✅ 已支持 |
+| 🧰 | 全局/单服务器命令模板和远程执行 | ✅ 已支持 |
 | 🔑 | 密码、密钥、跳板机 | ✅ 已支持 |
 | 🔄 | 从 OpenSSH 配置迁移 | ✅ 已支持 |
 | 🧪 | Windows 完整体验 | 🧪 实验性 |
@@ -187,6 +191,7 @@ sudo apt install openssh-client sshpass
 | --- | --- | --- |
 | 程序本体 | macOS Homebrew 环境默认 `/opt/homebrew/bin/sshm`，其他环境默认 `/usr/local/bin/sshm`，也可自定义安装目录 | `%LOCALAPPDATA%\Programs\sshm\sshm.exe` 或自定义安装目录 |
 | 服务器配置 | `~/.config/sshm/servers.toml` | `%USERPROFILE%\.config\sshm\servers.toml` |
+| 命令模板 | `~/.config/sshm/commands.toml` | `%USERPROFILE%\.config\sshm\commands.toml` |
 | 应用配置 | `~/.config/sshm/config.toml` | `%APPDATA%\sshm\config.toml` |
 
 打开配置目录：
@@ -276,6 +281,53 @@ remote_dirs = ["$HOME", "/home", "/opt", "/var/www", "/data", "/tmp"]
 
 </details>
 
+命令模板单独保存在：
+
+```text
+~/.config/sshm/commands.toml
+```
+
+可以在 TUI 里按 `m` 添加、编辑、删除模板，也可以手动编辑这个文件。
+
+<details>
+<summary>查看 commands.toml 示例</summary>
+
+```toml
+[[global]]
+name = "查看磁盘"
+command = """
+df -h
+"""
+
+[[global]]
+name = "查看容器"
+command = """
+docker ps -a
+"""
+
+[[server]]
+server = "production/demo-web"
+name = "更新项目"
+command = """
+cd /home/app
+git pull
+docker compose up -d
+"""
+```
+
+</details>
+
+命令模板分两种：
+
+- `global`：全局模板，所有服务器都能使用。
+- `server`：单服务器模板，只在对应 `分类/服务器名` 下显示。
+
+在主面板或详情页选中服务器后，按 `m` 打开命令模板。模板列表里可以执行、新增、编辑、删除模板。
+- 模板编辑里 `Enter` 保存，`Ctrl+J` 在命令内容中换行。
+- 执行前会显示完整命令，确认后才会通过 SSH 在远端执行。
+- 模板可以保存为全局模板，也可以保存为当前服务器专用模板；新增模板时默认使用当前服务器。
+- 模板列表里提供 `+ 临时命令`，适合临时执行一次性的多行命令。
+
 ## 🔄 数据迁移
 
 如果 `servers.toml` 不存在，首次启动会尝试从这些旧配置迁移：
@@ -319,7 +371,7 @@ WARNING: connection is not using a post-quantum key exchange algorithm
 | 单台采集超时 | 6 秒 |
 | 离线判断 | 在线服务器连续失败 2 次后显示离线 |
 
-主面板显示短进度条，方便快速扫 CPU、内存、磁盘使用率和容量。详情页会展示更完整的资源信息，包括 CPU 核心数和型号、内核、架构、内存可用量、Swap、根分区文件系统、磁盘可用量和 inode 使用情况。详情内容超出窗口高度时，可以用 `↑↓` 或 `j/k` 上下滚动。
+主面板显示短进度条，方便快速扫 CPU、内存、磁盘使用率和容量。服务器卡片会弱化地址、负载、容器和运行时间等辅助信息，并用分隔线区分资源指标和状态摘要。详情页会展示更完整的资源信息，包括 CPU 核心数和型号、内核、架构、内存可用量、Swap、根分区文件系统、磁盘可用量和 inode 使用情况。详情内容超出窗口高度时，可以用 `↑↓` 或 `j/k` 上下滚动。
 
 服务状态会按健康、容器、系统服务分组显示：
 

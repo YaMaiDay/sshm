@@ -1,6 +1,7 @@
 bin/
 dist/
 /sshm
+/sshm-test
 *.log
 .DS_Store
 *.bak.*

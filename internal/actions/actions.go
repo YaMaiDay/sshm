@@ -12,6 +12,12 @@ import (
 
 type Cleanup func()
 
+type CommandResult struct {
+	Output   string
+	ExitCode int
+	Err      error
+}
+
 func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 	cleanup := func() {}
 	args := sshArgs(h)
@@ -79,6 +85,41 @@ fi`
 		}
 	}
 	cmd := exec.Command("ssh", args...)
+	cmd.Stdin = strings.NewReader(script)
+	return cmd, cleanup
+}
+
+func RemoteCommandContext(ctx context.Context, h host.Host, script string) (CommandResult, Cleanup) {
+	cmd, cleanup := remoteShellCommand(ctx, h, script)
+	output, err := cmd.CombinedOutput()
+	result := CommandResult{Output: string(output), Err: err}
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+		} else {
+			result.ExitCode = -1
+		}
+	}
+	return result, cleanup
+}
+
+func remoteShellCommand(ctx context.Context, h host.Host, script string) (*exec.Cmd, Cleanup) {
+	cleanup := func() {}
+	args := append(sshArgs(h), "-o", "LogLevel=ERROR", h.Target(), "sh", "-s")
+	if strings.TrimSpace(h.Password) != "" {
+		if _, err := exec.LookPath("sshpass"); err == nil {
+			file, err := tempPasswordFile(h.Password)
+			if err == nil {
+				cleanup = func() { _ = os.Remove(file) }
+				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
+				fullArgs = append(fullArgs, args...)
+				cmd := exec.CommandContext(ctx, "sshpass", fullArgs...)
+				cmd.Stdin = strings.NewReader(script)
+				return cmd, cleanup
+			}
+		}
+	}
+	cmd := exec.CommandContext(ctx, "ssh", args...)
 	cmd.Stdin = strings.NewReader(script)
 	return cmd, cleanup
 }
