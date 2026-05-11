@@ -100,6 +100,10 @@ type transferProgressMsg time.Time
 
 type clearStatusMsg struct{}
 
+type sshDoneMsg struct {
+	Err error
+}
+
 type activeTransfer struct {
 	Kind       string
 	Source     string
@@ -109,6 +113,7 @@ type activeTransfer struct {
 	HostIndex  int
 	Total      int64
 	Active     bool
+	Cancel     context.CancelFunc
 }
 
 type Model struct {
@@ -291,6 +296,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case transferDoneMsg:
 		m.activeTransfer.Active = false
+		m.activeTransfer.Cancel = nil
 		if msg.Err != nil {
 			m.status = msg.Kind + "失败：" + transferErrorText(msg.Err, msg.Output)
 			return m, clearStatusAfter(3 * time.Second)
@@ -309,6 +315,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = ""
 		}
 		return m, nil
+	case sshDoneMsg:
+		if msg.Err != nil {
+			m.status = fmt.Sprintf("登录退出：%v", msg.Err)
+			return m, tea.Batch(clearScreen(), clearStatusAfter(3*time.Second))
+		}
+		m.status = "已返回监控面板"
+		return m, tea.Batch(clearScreen(), clearStatusAfter(2*time.Second))
 	case tea.KeyMsg:
 		if m.mode == modeAddForm {
 			return m.updateAddForm(msg)
@@ -330,6 +343,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "q", "Q", "esc", "ctrl+c":
+			if m.activeTransfer.Active && m.activeTransfer.Cancel != nil {
+				m.activeTransfer.Cancel()
+			}
 			return m, tea.Quit
 		case "j", "J", "down":
 			m.move(m.dashboardColumns())
@@ -397,10 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cmd, cleanup := actions.SSHCommand(m.states[idx].Host)
 				return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 					cleanup()
-					if err != nil {
-						return tea.Printf("登录退出：%v", err)
-					}
-					return tea.Printf("已返回监控面板")
+					return sshDoneMsg{Err: err}
 				})
 			}
 		}
@@ -767,10 +780,7 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd, cleanup := actions.SSHCommand(m.states[idx].Host)
 			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 				cleanup()
-				if err != nil {
-					return tea.Printf("登录退出：%v", err)
-				}
-				return tea.Printf("已返回监控面板")
+				return sshDoneMsg{Err: err}
 			})
 		}
 	}
@@ -989,6 +999,7 @@ func (m Model) startUploadTransfer() (tea.Model, tea.Cmd) {
 	remoteDir := m.pending.RemoteDir
 	remotePath := remoteJoin(remoteDir, filepath.Base(localPath))
 	total := localPathSize(localPath)
+	ctx, cancel := context.WithCancel(context.Background())
 	m.mode = modeDashboard
 	m.transfer = transferNone
 	m.choices = nil
@@ -1003,9 +1014,10 @@ func (m Model) startUploadTransfer() (tea.Model, tea.Cmd) {
 		HostIndex:  m.pending.HostIndex,
 		Total:      total,
 		Active:     true,
+		Cancel:     cancel,
 	}
 	m.status = transferProgressText(m.activeTransfer, m.states)
-	return m, tea.Batch(m.runUpload(), transferProgressAfter(500*time.Millisecond))
+	return m, tea.Batch(m.runUpload(ctx), transferProgressAfter(500*time.Millisecond))
 }
 
 func (m Model) startDownloadTransfer() (tea.Model, tea.Cmd) {
@@ -1017,6 +1029,7 @@ func (m Model) startDownloadTransfer() (tea.Model, tea.Cmd) {
 	if total < 0 {
 		total = 0
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	m.mode = modeDashboard
 	m.transfer = transferNone
 	m.choices = nil
@@ -1030,9 +1043,10 @@ func (m Model) startDownloadTransfer() (tea.Model, tea.Cmd) {
 		HostIndex: m.pending.HostIndex,
 		Total:     total,
 		Active:    true,
+		Cancel:    cancel,
 	}
 	m.status = transferProgressText(m.activeTransfer, m.states)
-	return m, tea.Batch(m.runDownload(), transferProgressAfter(500*time.Millisecond))
+	return m, tea.Batch(m.runDownload(ctx), transferProgressAfter(500*time.Millisecond))
 }
 
 func (m *Model) startLocalTree(title string, mode viewMode, dirsOnly bool) {
@@ -1329,12 +1343,12 @@ func (m Model) startDownload(idx int) Model {
 	return m.startTransferPanel(idx, transferDownload)
 }
 
-func (m Model) runUpload() tea.Cmd {
+func (m Model) runUpload(ctx context.Context) tea.Cmd {
 	h := m.states[m.pending.HostIndex].Host
 	localPath := m.pending.LocalPath
 	remoteDir := m.pending.RemoteDir
 	recursive := m.pending.LocalIsDir
-	cmd, cleanup := actions.SCPUploadCommand(h, localPath, remoteDir, recursive)
+	cmd, cleanup := actions.SCPUploadCommandContext(ctx, h, localPath, remoteDir, recursive)
 	return func() tea.Msg {
 		output, err := cmd.CombinedOutput()
 		cleanup()
@@ -1342,12 +1356,12 @@ func (m Model) runUpload() tea.Cmd {
 	}
 }
 
-func (m Model) runDownload() tea.Cmd {
+func (m Model) runDownload(ctx context.Context) tea.Cmd {
 	h := m.states[m.pending.HostIndex].Host
 	remotePath := m.pending.RemotePath
 	saveDir := m.pending.SaveDir
 	recursive := m.pending.RemoteIsDir
-	cmd, cleanup := actions.SCPDownloadCommand(h, remotePath, saveDir, recursive)
+	cmd, cleanup := actions.SCPDownloadCommandContext(ctx, h, remotePath, saveDir, recursive)
 	return func() tea.Msg {
 		output, err := cmd.CombinedOutput()
 		cleanup()
@@ -1379,6 +1393,12 @@ func clearStatusAfter(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(t time.Time) tea.Msg {
 		return clearStatusMsg{}
 	})
+}
+
+func clearScreen() tea.Cmd {
+	return func() tea.Msg {
+		return tea.ClearScreen()
+	}
 }
 
 func transferProgressText(t activeTransfer, states []hostState) string {

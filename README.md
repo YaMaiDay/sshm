@@ -40,11 +40,15 @@
 
 ## ⚡ 安装
 
+当前准备发布版本：`v0.1.12`。安装脚本默认安装 GitHub Releases 的 latest 版本，也可以用 `SSHM_VERSION` 指定版本。
+
 ### macOS / Linux
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | sh
 ```
+
+macOS 上如果存在 Homebrew 目录，默认会安装到 `/opt/homebrew/bin/sshm`；其他 macOS / Linux 环境默认安装到 `/usr/local/bin/sshm`。可以用 `SSHM_INSTALL_DIR` 覆盖。
 
 ### Windows PowerShell（测试阶段）
 
@@ -80,10 +84,22 @@ hash -r
 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | SSHM_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
+安装指定版本：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | SSHM_VERSION=v0.1.12 sh
+```
+
 Windows 指定安装目录：
 
 ```powershell
 $env:SSHM_INSTALL_DIR="$HOME\bin"; irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
+```
+
+Windows 安装指定版本：
+
+```powershell
+$env:SSHM_VERSION="v0.1.12"; irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 ```
 
 使用 Go 安装：
@@ -167,7 +183,7 @@ sudo apt install openssh-client sshpass
 
 | 类型 | macOS / Linux | Windows |
 | --- | --- | --- |
-| 程序本体 | `/usr/local/bin/sshm` 或自定义安装目录 | `%LOCALAPPDATA%\Programs\sshm\sshm.exe` 或自定义安装目录 |
+| 程序本体 | macOS Homebrew 环境默认 `/opt/homebrew/bin/sshm`，其他环境默认 `/usr/local/bin/sshm`，也可自定义安装目录 | `%LOCALAPPDATA%\Programs\sshm\sshm.exe` 或自定义安装目录 |
 | 服务器配置 | `~/.config/sshm/servers.toml` | `%USERPROFILE%\.config\sshm\servers.toml` |
 | 应用配置 | `~/.config/sshm/config.toml` | `%APPDATA%\sshm\config.toml` |
 
@@ -223,7 +239,8 @@ password = "example-password"
 认证方式自动判断：
 
 - `key_path` 不为空时使用密钥
-- `password` 不为空时优先使用密码认证
+- `password` 不为空时允许 `password` 和 `keyboard-interactive` / PAM
+- `key_path` 和 `password` 同时存在时，允许 `publickey,password,keyboard-interactive`
 - 两者都为空时交给系统 OpenSSH、ssh-agent 或默认配置处理
 
 应用配置保存在：
@@ -298,7 +315,7 @@ WARNING: connection is not using a post-quantum key exchange algorithm
 | 上传 | 选择服务器 -> 按 `u` -> 左侧选择本地文件/目录 -> 右侧选择远程目录 -> `Space` 开始 |
 | 下载 | 选择服务器 -> 按 `d` -> 左侧选择远程文件/目录 -> 右侧选择本地目录 -> `Space` 开始 |
 
-底层调用系统 `scp`，支持文件和目录。
+底层调用系统 `scp`，支持文件和目录。传输过程中按 `q` / `Esc` / `Ctrl+C` 退出 `sshm` 时，会主动中断正在运行的上传或下载子进程。
 
 ## 💻 平台支持
 

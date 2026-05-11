@@ -160,7 +160,8 @@ func runSSH(h host.Host, script string) (string, error) {
 				_, _ = file.WriteString(h.Password + "\n")
 				_ = file.Close()
 				defer os.Remove(file.Name())
-				fullArgs := append([]string{"-f", file.Name(), "ssh", "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"}, args...)
+				fullArgs := append([]string{"-f", file.Name(), "ssh"}, passwordSSHOptions(h)...)
+				fullArgs = append(fullArgs, args...)
 				cmd := exec.Command("sshpass", fullArgs...)
 				cmd.Stdin = strings.NewReader(script)
 				out, err := cmd.CombinedOutput()
@@ -172,6 +173,22 @@ func runSSH(h host.Host, script string) (string, error) {
 	cmd.Stdin = strings.NewReader(script)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+func passwordSSHOptions(h host.Host) []string {
+	authMethods := "password,keyboard-interactive"
+	if strings.TrimSpace(h.IdentityFile) != "" {
+		authMethods = "publickey,password,keyboard-interactive"
+	}
+	args := []string{
+		"-o", "PreferredAuthentications=" + authMethods,
+		"-o", "PasswordAuthentication=yes",
+		"-o", "KbdInteractiveAuthentication=yes",
+	}
+	if strings.TrimSpace(h.IdentityFile) == "" {
+		args = append(args, "-o", "PubkeyAuthentication=no")
+	}
+	return args
 }
 
 func sortItems(items []Item) {

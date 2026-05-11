@@ -1,9 +1,9 @@
 package actions
 
 import (
+	"context"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/host"
@@ -21,30 +21,39 @@ func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 			file, err := tempPasswordFile(h.Password)
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
-				fullArgs := append([]string{"-f", file, "ssh", "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"}, args...)
-				return attachInteractiveTerminal(interactiveCommand("sshpass", fullArgs...), cleanup)
+				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
+				fullArgs = append(fullArgs, args...)
+				return interactiveCommand("sshpass", fullArgs...), cleanup
 			}
 		}
 	}
-	return attachInteractiveTerminal(interactiveCommand("ssh", args...), cleanup)
+	return interactiveCommand("ssh", args...), cleanup
 }
 
 func SCPUploadCommand(h host.Host, localPath, remoteDir string, recursive bool) (*exec.Cmd, Cleanup) {
+	return SCPUploadCommandContext(context.Background(), h, localPath, remoteDir, recursive)
+}
+
+func SCPUploadCommandContext(ctx context.Context, h host.Host, localPath, remoteDir string, recursive bool) (*exec.Cmd, Cleanup) {
 	args := scpArgs(h)
 	if recursive {
 		args = append(args, "-r")
 	}
 	args = append(args, localPath, h.Target()+":"+remoteDir+"/")
-	return scpCommand(h, args)
+	return scpCommand(ctx, h, args)
 }
 
 func SCPDownloadCommand(h host.Host, remotePath, localDir string, recursive bool) (*exec.Cmd, Cleanup) {
+	return SCPDownloadCommandContext(context.Background(), h, remotePath, localDir, recursive)
+}
+
+func SCPDownloadCommandContext(ctx context.Context, h host.Host, remotePath, localDir string, recursive bool) (*exec.Cmd, Cleanup) {
 	args := scpArgs(h)
 	if recursive {
 		args = append(args, "-r")
 	}
 	args = append(args, h.Target()+":"+remotePath, localDir+"/")
-	return scpCommand(h, args)
+	return scpCommand(ctx, h, args)
 }
 
 func RemoteSizeCommand(h host.Host, remotePath string) (*exec.Cmd, Cleanup) {
@@ -61,7 +70,8 @@ fi`
 			file, err := tempPasswordFile(h.Password)
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
-				fullArgs := append([]string{"-f", file, "ssh", "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"}, args...)
+				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
+				fullArgs = append(fullArgs, args...)
 				cmd := exec.Command("sshpass", fullArgs...)
 				cmd.Stdin = strings.NewReader(script)
 				return cmd, cleanup
@@ -73,36 +83,20 @@ fi`
 	return cmd, cleanup
 }
 
-func scpCommand(h host.Host, args []string) (*exec.Cmd, Cleanup) {
+func scpCommand(ctx context.Context, h host.Host, args []string) (*exec.Cmd, Cleanup) {
 	cleanup := func() {}
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
 			file, err := tempPasswordFile(h.Password)
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
-				fullArgs := append([]string{"-f", file, "scp", "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no"}, args...)
-				return exec.Command("sshpass", fullArgs...), cleanup
+				fullArgs := append([]string{"-f", file, "scp"}, passwordSSHOptions(h)...)
+				fullArgs = append(fullArgs, args...)
+				return exec.CommandContext(ctx, "sshpass", fullArgs...), cleanup
 			}
 		}
 	}
-	return exec.Command("scp", args...), cleanup
-}
-
-func attachInteractiveTerminal(cmd *exec.Cmd, cleanup Cleanup) (*exec.Cmd, Cleanup) {
-	if runtime.GOOS == "windows" {
-		return cmd, cleanup
-	}
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		return cmd, cleanup
-	}
-	cmd.Stdin = tty
-	cmd.Stdout = tty
-	cmd.Stderr = tty
-	return cmd, func() {
-		_ = tty.Close()
-		cleanup()
-	}
+	return exec.CommandContext(ctx, "scp", args...), cleanup
 }
 
 func interactiveCommand(name string, args ...string) *exec.Cmd {
@@ -143,6 +137,22 @@ func scpArgs(h host.Host) []string {
 	}
 	if h.IdentityFile != "" {
 		args = append(args, "-i", h.IdentityFile)
+	}
+	return args
+}
+
+func passwordSSHOptions(h host.Host) []string {
+	authMethods := "password,keyboard-interactive"
+	if strings.TrimSpace(h.IdentityFile) != "" {
+		authMethods = "publickey,password,keyboard-interactive"
+	}
+	args := []string{
+		"-o", "PreferredAuthentications=" + authMethods,
+		"-o", "PasswordAuthentication=yes",
+		"-o", "KbdInteractiveAuthentication=yes",
+	}
+	if strings.TrimSpace(h.IdentityFile) == "" {
+		args = append(args, "-o", "PubkeyAuthentication=no")
 	}
 	return args
 }

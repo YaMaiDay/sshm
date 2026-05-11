@@ -3,7 +3,7 @@ set -eu
 
 REPO="YaMaiDay/sshm"
 BINARY="sshm"
-INSTALL_DIR="${SSHM_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${SSHM_INSTALL_DIR:-}"
 VERSION="${SSHM_VERSION:-latest}"
 
 info() {
@@ -35,11 +35,29 @@ detect_arch() {
   esac
 }
 
+default_install_dir() {
+  if [ -n "$INSTALL_DIR" ]; then
+    printf '%s' "$INSTALL_DIR"
+    return
+  fi
+  case "$OS" in
+    darwin)
+      if [ -d /opt/homebrew/bin ]; then
+        printf '%s' "/opt/homebrew/bin"
+      else
+        printf '%s' "/usr/local/bin"
+      fi
+      ;;
+    *) printf '%s' "/usr/local/bin" ;;
+  esac
+}
+
 need_cmd curl
 need_cmd tar
 
 OS="$(detect_os)"
 ARCH="$(detect_arch)"
+INSTALL_DIR="$(default_install_dir)"
 
 if [ "$VERSION" = "latest" ]; then
   VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"

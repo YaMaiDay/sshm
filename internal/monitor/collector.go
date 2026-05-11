@@ -61,10 +61,7 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 				_, _ = f.WriteString(password + "\n")
 				_ = f.Close()
 				defer os.Remove(tempFile)
-				passwordArgs := append([]string{
-					"-o", "PreferredAuthentications=password",
-					"-o", "PubkeyAuthentication=no",
-				}, args...)
+				passwordArgs := append(passwordSSHOptions(h), args...)
 				fullArgs := append([]string{"-f", tempFile, "ssh"}, passwordArgs...)
 				cmd = exec.CommandContext(ctx, "sshpass", fullArgs...)
 			}
@@ -85,6 +82,22 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 	metrics.Online = true
 	metrics.UpdatedAt = time.Now()
 	return metrics
+}
+
+func passwordSSHOptions(h host.Host) []string {
+	authMethods := "password,keyboard-interactive"
+	if strings.TrimSpace(h.IdentityFile) != "" {
+		authMethods = "publickey,password,keyboard-interactive"
+	}
+	args := []string{
+		"-o", "PreferredAuthentications=" + authMethods,
+		"-o", "PasswordAuthentication=yes",
+		"-o", "KbdInteractiveAuthentication=yes",
+	}
+	if strings.TrimSpace(h.IdentityFile) == "" {
+		args = append(args, "-o", "PubkeyAuthentication=no")
+	}
+	return args
 }
 
 func sshSeconds(d time.Duration) string {
