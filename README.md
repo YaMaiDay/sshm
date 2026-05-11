@@ -20,7 +20,6 @@
 <p align="center">
   <a href="#-安装">安装</a> ·
   <a href="#-功能">功能</a> ·
-  <a href="#-快捷键">快捷键</a> ·
   <a href="https://github.com/YaMaiDay/sshm/releases">下载</a>
 </p>
 
@@ -59,16 +58,6 @@ sshm
 | 📁 | 文件和目录上传/下载 |
 | 🗂️ | 分类、收藏、备注、到期时间、复制服务器 |
 | 🔄 | 从 OpenSSH 配置迁移 |
-
-## ⌨️ 快捷键
-
-```text
-Enter 登录    Space 详情    a 添加    e 编辑    x 删除
-m 命令        b 批量        i 历史    w 总览
-u 上传        d 下载        f 收藏    v 收藏筛选
-/ 搜索        z 视图        Tab 分类  r 刷新
-? 帮助        q/Esc 返回
-```
 
 ## 🧭 使用
 
