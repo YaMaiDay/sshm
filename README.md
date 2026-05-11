@@ -85,7 +85,7 @@ curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | SSH
 安装指定版本：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | SSHM_VERSION=v0.1.12 sh
+curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | SSHM_VERSION=vX.Y.Z sh
 ```
 
 Windows 指定安装目录：
@@ -97,7 +97,7 @@ $env:SSHM_INSTALL_DIR="$HOME\bin"; irm https://raw.githubusercontent.com/YaMaiDa
 Windows 安装指定版本：
 
 ```powershell
-$env:SSHM_VERSION="v0.1.12"; irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
+$env:SSHM_VERSION="vX.Y.Z"; irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 ```
 
 使用 Go 安装：
