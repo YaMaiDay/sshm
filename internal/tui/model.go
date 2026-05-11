@@ -191,6 +191,7 @@ type transferPanel struct {
 	RightChoices []choice
 	LeftIndex    int
 	RightIndex   int
+	Confirming   bool
 }
 
 type pendingTransfer struct {
@@ -820,6 +821,11 @@ func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.panel.Confirming && msg.String() != "enter" {
+		m.panel.Confirming = false
+		m.status = transferPanelStatus(m.panel.Mode)
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc", "q":
 		m.mode = modeDashboard
@@ -827,21 +833,35 @@ func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.panel = transferPanel{}
 		m.status = "已取消。"
 	case "tab":
+		m.cancelTransferConfirm()
 		if m.panel.ActivePane == 0 {
 			m.panel.ActivePane = 1
 		} else {
 			m.panel.ActivePane = 0
 		}
 	case "j", "down":
+		m.cancelTransferConfirm()
 		m.movePanel(1)
 	case "k", "up":
+		m.cancelTransferConfirm()
 		m.movePanel(-1)
 	case "enter":
+		if m.panel.Confirming {
+			return m.confirmTransferPanel()
+		}
+		m.cancelTransferConfirm()
 		m.togglePanelTree()
 	case " ":
-		return m.confirmTransferPanel()
+		return m.prepareTransferConfirm()
 	}
 	return m, nil
+}
+
+func (m *Model) cancelTransferConfirm() {
+	if m.panel.Confirming {
+		m.panel.Confirming = false
+		m.status = transferPanelStatus(m.panel.Mode)
+	}
 }
 
 func (m *Model) movePanel(delta int) {
@@ -905,6 +925,7 @@ func (m *Model) activePanelTree() (*remoteTree, *[]choice, *int) {
 }
 
 func (m Model) confirmTransferPanel() (tea.Model, tea.Cmd) {
+	m.panel.Confirming = false
 	if len(m.panel.LeftChoices) == 0 || len(m.panel.RightChoices) == 0 {
 		m.status = "左右两边都需要选择。"
 		return m, nil
@@ -926,6 +947,27 @@ func (m Model) confirmTransferPanel() (tea.Model, tea.Cmd) {
 	m.pending.RemoteIsDir = left.IsDir
 	m.pending.SaveDir = right.Value
 	return m.startDownloadTransfer()
+}
+
+func (m Model) prepareTransferConfirm() (tea.Model, tea.Cmd) {
+	if len(m.panel.LeftChoices) == 0 || len(m.panel.RightChoices) == 0 {
+		m.status = "左右两边都需要选择。"
+		return m, nil
+	}
+	left := m.panel.LeftChoices[m.panel.LeftIndex]
+	right := m.panel.RightChoices[m.panel.RightIndex]
+	if !right.IsDir {
+		m.status = "右侧必须选择目录。"
+		return m, nil
+	}
+	h := m.states[m.panel.HostIndex].Host
+	m.panel.Confirming = true
+	if m.panel.Mode == transferUpload {
+		m.status = fmt.Sprintf("按回车上传：%s -> %s:%s/，Esc 取消", filepath.Base(left.Value), hostDisplayName(h), right.Value)
+		return m, nil
+	}
+	m.status = fmt.Sprintf("按回车下载：%s:%s -> %s/，Esc 取消", hostDisplayName(h), left.Value, right.Value)
+	return m, nil
 }
 
 func (m *Model) movePick(delta int) {
@@ -1312,19 +1354,20 @@ func treeLabel(node *remoteTreeNode) string {
 
 func (m Model) startTransferPanel(idx int, mode transferMode) Model {
 	h := m.states[idx].Host
+	remoteTitle := "远程 " + hostDisplayName(h)
 	panel := transferPanel{Mode: mode, HostIndex: idx}
 	if mode == transferUpload {
 		panel.LeftTitle = "本地"
-		panel.RightTitle = "远程"
+		panel.RightTitle = remoteTitle
 		panel.LeftTree = newTree(localTreeItems("/", true), -1, false, true)
 		panel.RightTree = newTree(fsselect.RemoteRootItems(h), idx, true, false)
-		m.status = "上传：左侧选择本地文件/目录，右侧选择远程目录，空格开始。"
+		m.status = transferPanelStatus(mode)
 	} else {
-		panel.LeftTitle = "远程"
+		panel.LeftTitle = remoteTitle
 		panel.RightTitle = "本地"
 		panel.LeftTree = newTree(fsselect.RemoteRootItems(h), idx, false, false)
 		panel.RightTree = newTree(localTreeItems("/", true), -1, true, true)
-		m.status = "下载：左侧选择远程文件/目录，右侧选择本地目录，空格开始。"
+		m.status = transferPanelStatus(mode)
 	}
 	panel.LeftChoices = flattenTree(panel.LeftTree)
 	panel.RightChoices = flattenTree(panel.RightTree)
@@ -1333,6 +1376,20 @@ func (m Model) startTransferPanel(idx int, mode transferMode) Model {
 	m.pending = pendingTransfer{HostIndex: idx}
 	m.panel = panel
 	return m
+}
+
+func hostDisplayName(h host.Host) string {
+	if strings.TrimSpace(h.Category) == "" {
+		return h.Name
+	}
+	return h.Category + "/" + h.Name
+}
+
+func transferPanelStatus(mode transferMode) string {
+	if mode == transferUpload {
+		return "上传：左侧选择本地文件/目录，右侧选择远程目录，空格确认。"
+	}
+	return "下载：左侧选择远程文件/目录，右侧选择本地目录，空格确认。"
 }
 
 func (m Model) startUpload(idx int) Model {
@@ -1756,7 +1813,7 @@ func (m Model) renderServerFormPane(title string, width int) string {
 	}
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("238")).
+		BorderForeground(softGray).
 		Padding(0, 1).
 		Width(width)
 	if m.formPane == 0 {
@@ -1795,7 +1852,7 @@ func (m Model) renderCategoryPane(width int) string {
 	}
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("238")).
+		BorderForeground(softGray).
 		Padding(0, 1).
 		Width(width)
 	if m.formPane == 1 {
@@ -1944,7 +2001,7 @@ func (m Model) renderTransferPanel() string {
 	left := renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, paneWidth, height, m.panel.ActivePane == 0)
 	right := renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, paneWidth, height, m.panel.ActivePane == 1)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
-	help := "Tab 切换  ↑↓/jk 移动  回车 展开/收起  空格 开始  退出键 取消"
+	help := "Tab 切换  ↑↓/jk 移动  回车 展开/收起  空格 确认  退出键 取消"
 	return strings.Join([]string{
 		titleStyle.Render(fit(header, width)),
 		"",
@@ -1954,7 +2011,7 @@ func (m Model) renderTransferPanel() string {
 }
 
 func renderTransferPane(title string, choices []choice, index int, width int, height int, active bool) string {
-	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).Padding(0, 1).Width(width - 4)
+	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width - 4)
 	if active {
 		style = style.BorderForeground(blue)
 	}
@@ -2298,7 +2355,7 @@ func compactPercentBarWithThreshold(value float64, total int, warn float64, crit
 		filled = 1
 	}
 	style := metricValueStyle(value, warn, crit)
-	bar := style.Render(strings.Repeat("▰", filled)) + navStyle.Render(strings.Repeat("▱", total-filled))
+	bar := style.Render(strings.Repeat("▰", filled)) + barEmptyStyle.Render(strings.Repeat("▱", total-filled))
 	return fmt.Sprintf("%s %s", bar, style.Render(fmt.Sprintf("%3.0f%%", value)))
 }
 
@@ -2376,7 +2433,7 @@ func percentBarWidthWithThreshold(value float64, total int, warn float64, crit f
 		filled = 1
 	}
 	style := metricValueStyle(value, warn, crit)
-	bar := style.Render(strings.Repeat("▰", filled)) + navStyle.Render(strings.Repeat("▱", total-filled))
+	bar := style.Render(strings.Repeat("▰", filled)) + barEmptyStyle.Render(strings.Repeat("▱", total-filled))
 	return fmt.Sprintf("%s %s", bar, style.Render(fmt.Sprintf("%3.0f%%", value)))
 }
 
@@ -2601,25 +2658,26 @@ func fit(s string, width int) string {
 }
 
 var (
-	green  = lipgloss.Color("42")
-	yellow = lipgloss.Color("214")
-	red    = lipgloss.Color("196")
-	blue   = lipgloss.Color("39")
-	gray   = lipgloss.Color("245")
-	dim    = lipgloss.Color("238")
+	green    = lipgloss.Color("42")
+	yellow   = lipgloss.Color("214")
+	red      = lipgloss.Color("196")
+	blue     = lipgloss.Color("39")
+	textGray = lipgloss.Color("245")
+	softGray = lipgloss.Color("235")
 
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(blue)
-	mutedStyle = lipgloss.NewStyle().Foreground(gray)
-	helpStyle  = lipgloss.NewStyle().Foreground(gray)
-	navStyle   = lipgloss.NewStyle().Foreground(dim)
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(blue)
+	mutedStyle    = lipgloss.NewStyle().Foreground(textGray)
+	helpStyle     = lipgloss.NewStyle().Foreground(textGray)
+	navStyle      = lipgloss.NewStyle().Foreground(textGray)
+	barEmptyStyle = lipgloss.NewStyle().Foreground(softGray)
 
 	cardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("238")).
+			BorderForeground(softGray).
 			Padding(0, 1).
 			MarginBottom(0)
 	selectedCardStyle       = cardStyle.BorderForeground(blue)
-	cardBorderStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	cardBorderStyle         = lipgloss.NewStyle().Foreground(softGray)
 	selectedCardBorderStyle = lipgloss.NewStyle().Foreground(blue)
 	detailStyle             = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).

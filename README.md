@@ -40,8 +40,6 @@
 
 ## ⚡ 安装
 
-当前准备发布版本：`v0.1.12`。安装脚本默认安装 GitHub Releases 的 latest 版本，也可以用 `SSHM_VERSION` 指定版本。
-
 ### macOS / Linux
 
 ```sh
