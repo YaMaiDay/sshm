@@ -143,15 +143,6 @@ health_ports = [80, 443, 8080]
 
 密码保存在本机 `servers.toml` 中，文件权限设置为 `600`。
 
-## 🛠️ 开发
-
-```sh
-git clone https://github.com/YaMaiDay/sshm.git
-cd sshm
-go test ./...
-go run ./cmd/sshm
-```
-
 ## 📄 执照
 
 Apache 2.0 — 请参阅 [LICENSE](LICENSE)。
