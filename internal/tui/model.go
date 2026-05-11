@@ -1767,18 +1767,6 @@ func (m Model) renderAddForm() string {
 		title = "编辑服务器"
 	}
 	width := contentWidth(m.width)
-	if width < 80 {
-		width = 80
-	}
-	gap := 2
-	leftWidth := (width - gap) * 2 / 3
-	rightWidth := width - gap - leftWidth
-	if rightWidth < 28 {
-		rightWidth = 28
-		leftWidth = width - gap - rightWidth
-	}
-	left := m.renderServerFormPane(title, leftWidth)
-	right := m.renderCategoryPane(rightWidth)
 	help := "Tab 切换区域  ↑↓选择  ←→切换分类  回车保存服务器  退出键取消"
 	if m.formPane == 1 {
 		help = "Tab 切回服务器  ↑↓选择分类  n添加分类  x删除分类  退出键取消"
@@ -1794,18 +1782,45 @@ func (m Model) renderAddForm() string {
 		}
 		header += "  " + statusStyle.Render(fit(m.status, width-ansi.StringWidth(title)-2))
 	}
+	body := ""
+	if m.useSingleFormPane(width) {
+		if m.formPane == 1 {
+			body = m.renderCategoryPane(width)
+		} else {
+			body = m.renderServerFormPane(title, width)
+		}
+	} else {
+		gap := 2
+		leftWidth := (width - gap) * 2 / 3
+		rightWidth := width - gap - leftWidth
+		if rightWidth < 28 {
+			rightWidth = 28
+			leftWidth = width - gap - rightWidth
+		}
+		left := m.renderServerFormPane(title, leftWidth)
+		right := m.renderCategoryPane(rightWidth)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	}
 	lines := []string{
 		header,
-		lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right),
+		body,
 		helpStyle.Render(fit(help, width)),
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) useSingleFormPane(width int) bool {
+	return width < 96
 }
 
 func (m Model) renderServerFormPane(title string, width int) string {
 	fields := m.form.fields()
 	lines := make([]string, 0, len(fields)+2)
 	lines = append(lines, titleStyle.Render("服务器"))
+	innerWidth := width - 4
+	if innerWidth < 24 {
+		innerWidth = 24
+	}
 	for i, field := range fields {
 		prefix := " "
 		style := lipgloss.NewStyle()
@@ -1823,7 +1838,7 @@ func (m Model) renderServerFormPane(title string, width int) string {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
-		lines = append(lines, style.Render(fit(fmt.Sprintf("%s %-10s %s", prefix, field.label, value), width-4)))
+		lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, i != 0)))
 	}
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1838,6 +1853,10 @@ func (m Model) renderServerFormPane(title string, width int) string {
 
 func (m Model) renderCategoryPane(width int) string {
 	lines := []string{titleStyle.Render("分类")}
+	innerWidth := width - 4
+	if innerWidth < 20 {
+		innerWidth = 20
+	}
 	if len(m.categories) == 0 {
 		lines = append(lines, mutedStyle.Render("没有分类"))
 	} else {
@@ -1851,18 +1870,14 @@ func (m Model) renderCategoryPane(width int) string {
 				}
 			}
 			count := m.categoryHostCount(category)
-			label := category
-			if count > 0 {
-				label = fmt.Sprintf("%s  %d台", category, count)
-			}
-			lines = append(lines, style.Render(fit(prefix+" "+label, width-4)))
+			lines = append(lines, style.Render(categoryLine(prefix, category, count, innerWidth)))
 		}
 	}
 	lines = append(lines, "")
 	if m.addingCategory {
-		lines = append(lines, blueStyle.Bold(true).Render(fit("新分类 "+m.categoryDraft+"█", width-4)))
+		lines = append(lines, blueStyle.Bold(true).Render(fit("新分类 "+m.categoryDraft+"█", innerWidth)))
 	} else {
-		lines = append(lines, helpStyle.Render(fit("n 添加  x 删除", width-4)))
+		lines = append(lines, helpStyle.Render(fit("n 添加  x 删除", innerWidth)))
 	}
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1873,6 +1888,52 @@ func (m Model) renderCategoryPane(width int) string {
 		style = style.BorderForeground(blue)
 	}
 	return style.Render(strings.Join(lines, "\n"))
+}
+
+func formFieldLine(prefix string, label string, value string, width int, boxed bool) string {
+	const labelWidth = 12
+	labelText := prefix + " " + padVisible(label, labelWidth)
+	valueWidth := width - ansi.StringWidth(labelText) - 1
+	if valueWidth < 8 {
+		valueWidth = 8
+	}
+	if boxed {
+		if valueWidth > 20 {
+			valueWidth = 20
+		}
+		boxWidth := valueWidth - 2
+		if boxWidth < 4 {
+			boxWidth = 4
+		}
+		value = "[" + padVisible(value, boxWidth) + "]"
+	} else {
+		value = fit(value, valueWidth)
+	}
+	return fit(labelText+" "+value, width)
+}
+
+func categoryLine(prefix string, category string, count int, width int) string {
+	countText := ""
+	if count > 0 {
+		countText = fmt.Sprintf("%d台", count)
+	}
+	prefixText := prefix + " "
+	nameWidth := width - ansi.StringWidth(prefixText) - ansi.StringWidth(countText)
+	if countText != "" {
+		nameWidth--
+	}
+	if nameWidth < 6 {
+		nameWidth = 6
+	}
+	line := prefixText + fit(category, nameWidth)
+	if countText != "" {
+		spaces := width - ansi.StringWidth(line) - ansi.StringWidth(countText)
+		if spaces < 1 {
+			spaces = 1
+		}
+		line += strings.Repeat(" ", spaces) + countText
+	}
+	return fit(line, width)
 }
 
 func (m Model) categoryHostCount(category string) int {
