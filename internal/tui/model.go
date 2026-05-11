@@ -1755,9 +1755,10 @@ func (m Model) View() string {
 		lines = append(lines, m.renderDashboardGrid(indexes))
 	}
 
-	lines = padToBottom(lines, m.height, 1)
 	help := "↑↓←→/hjkl 移动  回车登录  空格详情  a添加  e编辑  x删除  u上传  d下载  r刷新  /搜索  t分类  o在线  p异常  s排序  q退出"
-	lines = append(lines, helpStyle.Render(fit(help, contentWidth(m.width))))
+	helpBlock := renderHelp(contentWidth(m.width), help)
+	lines = padToBottom(lines, m.height, strings.Count(helpBlock, "\n")+1)
+	lines = append(lines, helpBlock)
 	return strings.Join(lines, "\n")
 }
 
@@ -1804,7 +1805,7 @@ func (m Model) renderAddForm() string {
 	lines := []string{
 		header,
 		body,
-		helpStyle.Render(fit(help, width)),
+		renderHelp(width, help),
 	}
 	return strings.Join(lines, "\n")
 }
@@ -1877,7 +1878,7 @@ func (m Model) renderCategoryPane(width int) string {
 	if m.addingCategory {
 		lines = append(lines, blueStyle.Bold(true).Render(fit("新分类 "+m.categoryDraft+"█", innerWidth)))
 	} else {
-		lines = append(lines, helpStyle.Render(fit("n 添加  x 删除", innerWidth)))
+		lines = append(lines, renderHelp(innerWidth, "n 添加  x 删除"))
 	}
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -1951,17 +1952,22 @@ func (m Model) renderDeleteConfirm() string {
 		return "没有选中的服务器"
 	}
 	h := m.states[m.deleteIndex].Host
+	width := contentWidth(m.width)
+	bodyWidth := width - 6
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
 	lines := []string{
 		titleStyle.Render("确认删除服务器"),
 		"",
-		"服务器：" + h.Name,
-		"文件：" + h.File,
+		wrapPlainLine("服务器："+h.Name, bodyWidth),
+		wrapPlainLine("文件："+h.File, bodyWidth),
 		"",
 		"将删除该服务器配置。",
 		"",
-		helpStyle.Render("回车/是 确认删除  退出键/否 取消"),
+		renderHelp(bodyWidth, "回车/是 确认删除  退出键/否 取消"),
 	}
-	return detailStyle.BorderForeground(red).Render(strings.Join(lines, "\n"))
+	return detailStyle.BorderForeground(red).Width(width).Render(strings.Join(lines, "\n"))
 }
 
 func (m Model) renderDetail() string {
@@ -2041,7 +2047,7 @@ func (m Model) detailLines() ([]string, bool) {
 	if metrics.Error != "" {
 		lines = append(lines, "", sectionTitle("最近错误"), m.detailRow("错误", metrics.Error))
 	}
-	lines = append(lines, "", helpStyle.Render("↑↓/jk 上下滚动  回车 登录  u上传  d下载  r刷新  q/退出键 返回"))
+	lines = append(lines, "", renderHelp(m.detailContentWidth(), "↑↓/jk 上下滚动  回车 登录  u上传  d下载  r刷新  q/退出键 返回"))
 	return lines, true
 }
 
@@ -2070,7 +2076,8 @@ func (m Model) renderPicker() string {
 	if m.status != "" && m.status != m.pickTitle {
 		header += "  " + m.status
 	}
-	lines := []string{titleStyle.Render(header), ""}
+	width := contentWidth(m.width)
+	lines := []string{titleStyle.Render(fit(header, width)), ""}
 	if len(m.choices) == 0 {
 		lines = append(lines, mutedStyle.Render("没有可选择的项目"))
 	} else {
@@ -2097,14 +2104,14 @@ func (m Model) renderPicker() string {
 			if m.treePickerActive() && m.choices[i].IsDir {
 				label = blueStyle.Render(label)
 			}
-			lines = append(lines, style.Render(fmt.Sprintf("%s %s", prefix, label)))
+			lines = append(lines, style.Render(fit(fmt.Sprintf("%s %s", prefix, label), width)))
 		}
 	}
 	help := "↑↓/jk 移动  回车 选择  退出键 取消"
 	if m.treePickerActive() {
 		help = "↑↓/jk 移动  回车 展开/收起  空格 选择  退出键 取消"
 	}
-	lines = append(lines, "", helpStyle.Render(help))
+	lines = append(lines, "", renderHelp(width, help))
 	return strings.Join(lines, "\n")
 }
 
@@ -2118,28 +2125,41 @@ func (m Model) renderTransferPanel() string {
 		header += "  " + m.status
 	}
 	width := contentWidth(m.width)
-	if width < 70 {
-		width = 70
-	}
-	gap := 2
-	paneWidth := (width - gap) / 2
 	height := m.height - 5
 	if height < 8 {
 		height = 8
 	}
-	left := renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, paneWidth, height, m.panel.ActivePane == 0)
-	right := renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, paneWidth, height, m.panel.ActivePane == 1)
-	body := lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	body := ""
+	if m.useSingleTransferPane(width) {
+		if m.panel.ActivePane == 0 {
+			body = renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, width, height, true)
+		} else {
+			body = renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, width, height, true)
+		}
+	} else {
+		gap := 2
+		paneWidth := (width - gap) / 2
+		left := renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, paneWidth, height, m.panel.ActivePane == 0)
+		right := renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, paneWidth, height, m.panel.ActivePane == 1)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
+	}
 	help := "Tab 切换  ↑↓/jk 移动  回车 展开/收起  空格 确认  退出键 取消"
 	return strings.Join([]string{
 		titleStyle.Render(fit(header, width)),
 		"",
 		body,
-		helpStyle.Render(fit(help, width)),
+		renderHelp(width, help),
 	}, "\n")
 }
 
+func (m Model) useSingleTransferPane(width int) bool {
+	return width < 70
+}
+
 func renderTransferPane(title string, choices []choice, index int, width int, height int, active bool) string {
+	if width < 34 {
+		width = 34
+	}
 	style := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width - 4)
 	if active {
 		style = style.BorderForeground(blue)
@@ -2356,9 +2376,9 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 	mem := percentBarWidth(metrics.MemPercent(), barWidth)
 	disk := percentBarWidthWithThreshold(metrics.DiskPercent(), barWidth, 80, 90)
 
-	cpuLine := metricLine("CPU", strings.TrimSpace(cpu+"  "+cpuCoresText(metrics)))
-	memLine := metricLine("内存", strings.TrimSpace(mem+"  "+bytesPair(metrics.MemUsed, metrics.MemTotal)))
-	diskLine := metricLine("磁盘", strings.TrimSpace(disk+"  "+bytesPair(metrics.DiskUsed, metrics.DiskTotal)))
+	cpuLine := cardMetricLine("CPU", cpu, cpuCoresText(metrics), innerWidth)
+	memLine := cardMetricLine("内存", mem, bytesPair(metrics.MemUsed, metrics.MemTotal), innerWidth)
+	diskLine := cardMetricLine("磁盘", disk, bytesPair(metrics.DiskUsed, metrics.DiskTotal), innerWidth)
 	runLine := fit("⏱️ "+uptimeCN(metrics.Uptime), innerWidth)
 	loadLine := fit(fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15)), innerWidth)
 	serviceLine := fit(fmt.Sprintf("🐳 %d 运行中  ⚠️ %d", metrics.DockerRunning, metrics.FailedServices), innerWidth)
@@ -2429,6 +2449,23 @@ func metricLine(label, value string) string {
 		padding = 1
 	}
 	return label + strings.Repeat(" ", padding) + value
+}
+
+func cardMetricLine(label string, base string, extra string, width int) string {
+	return metricLine(label, compactCardMetric(label, base, extra, width))
+}
+
+func compactCardMetric(label string, base string, extra string, width int) string {
+	base = strings.TrimSpace(base)
+	extra = strings.TrimSpace(extra)
+	if extra == "" || extra == "-" {
+		return base
+	}
+	full := base + "  " + extra
+	if ansi.StringWidth(metricLine(label, full)) <= width {
+		return full
+	}
+	return base
 }
 
 func threeMetricLine(width int, metrics monitor.Metrics) string {
@@ -2743,6 +2780,14 @@ func wrapDetailValue(value string, width int) []string {
 		lines = appendWrappedLine(lines, current, width)
 	}
 	return lines
+}
+
+func wrapPlainLine(value string, width int) string {
+	return strings.Join(wrapDetailValue(value, width), "\n")
+}
+
+func renderHelp(width int, value string) string {
+	return helpStyle.Render(wrapPlainLine(value, width))
 }
 
 func splitWrapTokens(value string) []string {
