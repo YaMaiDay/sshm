@@ -60,7 +60,7 @@ ARCH="$(detect_arch)"
 INSTALL_DIR="$(default_install_dir)"
 
 if [ "$VERSION" = "latest" ]; then
-  VERSION="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
+  VERSION="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" | sed 's#.*/##')"
 fi
 
 [ -n "$VERSION" ] || fail "无法获取最新版本号"

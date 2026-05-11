@@ -23,8 +23,8 @@ function Detect-Arch {
 }
 
 if ($Version -eq "latest") {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest"
-    $Version = $release.tag_name
+    $response = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -MaximumRedirection 5
+    $Version = Split-Path -Leaf $response.BaseResponse.ResponseUri.AbsoluteUri
 }
 
 if (-not $Version) {
