@@ -148,7 +148,3 @@ health_ports = [80, 443, 8080]
 ## 📄 执照
 
 Apache 2.0 — 请参阅 [LICENSE](LICENSE)。
-
-<p align="center">
-  ⭐ 如果这个项目对你有用，欢迎点个 Star。
-</p>
