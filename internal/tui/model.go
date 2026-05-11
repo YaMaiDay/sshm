@@ -1863,7 +1863,7 @@ func (m Model) renderDetail() string {
 		sectionTitle("资源监控"),
 		detailRow("CPU", percentBar(metrics.CPUPercent)),
 		detailRow("内存", fmt.Sprintf("%s  %s / %s", percentBar(metrics.MemPercent()), bytesHuman(metrics.MemUsed), bytesHuman(metrics.MemTotal))),
-		detailRow("磁盘", fmt.Sprintf("%s  %s / %s", percentBar(metrics.DiskPercent()), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
+		detailRow("磁盘", fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.DiskPercent(), 80, 90), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
 		detailRow("负载", fmt.Sprintf("%s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))),
 		detailRow("运行", uptimeCN(metrics.Uptime)),
 		"",
@@ -2168,7 +2168,7 @@ func (m Model) renderCard(index int, selected bool, width int) string {
 	}
 	cpu := percentBarWidth(metrics.CPUPercent, barWidth)
 	mem := percentBarWidth(metrics.MemPercent(), barWidth)
-	disk := percentBarWidth(metrics.DiskPercent(), barWidth)
+	disk := percentBarWidthWithThreshold(metrics.DiskPercent(), barWidth, 80, 90)
 
 	cpuLine := metricLine("CPU", cpu)
 	memLine := metricLine("内存", mem)
@@ -2232,6 +2232,10 @@ func percentBar(value float64) string {
 	return percentBarWidth(value, 8)
 }
 
+func percentBarWithThreshold(value float64, warn float64, crit float64) string {
+	return percentBarWidthWithThreshold(value, 8, warn, crit)
+}
+
 func metricLine(label, value string) string {
 	const labelWidth = 4
 	padding := labelWidth - runewidth.StringWidth(label) + 1
@@ -2256,13 +2260,17 @@ func threeMetricLine(width int, metrics monitor.Metrics) string {
 	}
 	cpu := compactMetric("CPU", metrics.CPUPercent, colWidth, barWidth)
 	mem := compactMetric("内存", metrics.MemPercent(), colWidth, barWidth)
-	disk := compactMetric("磁盘", metrics.DiskPercent(), colWidth, barWidth)
+	disk := compactMetricWithThreshold("磁盘", metrics.DiskPercent(), colWidth, barWidth, 80, 90)
 	line := padVisible(cpu, colWidth) + strings.Repeat(" ", gap) + padVisible(mem, colWidth) + strings.Repeat(" ", gap) + padVisible(disk, colWidth)
 	return fit(line, width)
 }
 
 func compactMetric(label string, value float64, width int, barWidth int) string {
-	bar := compactPercentBar(value, barWidth)
+	return compactMetricWithThreshold(label, value, width, barWidth, 70, 85)
+}
+
+func compactMetricWithThreshold(label string, value float64, width int, barWidth int, warn float64, crit float64) string {
+	bar := compactPercentBarWithThreshold(value, barWidth, warn, crit)
 	labelWidth := 4
 	padding := labelWidth - runewidth.StringWidth(label)
 	if padding < 1 {
@@ -2272,6 +2280,10 @@ func compactMetric(label string, value float64, width int, barWidth int) string 
 }
 
 func compactPercentBar(value float64, total int) string {
+	return compactPercentBarWithThreshold(value, total, 70, 85)
+}
+
+func compactPercentBarWithThreshold(value float64, total int, warn float64, crit float64) string {
 	if value < 0 {
 		value = 0
 	}
@@ -2285,8 +2297,9 @@ func compactPercentBar(value float64, total int) string {
 	if value > 0 && filled == 0 {
 		filled = 1
 	}
-	bar := strings.Repeat("▰", filled) + strings.Repeat("▱", total-filled)
-	return fmt.Sprintf("%s %3.0f%%", bar, value)
+	style := metricValueStyle(value, warn, crit)
+	bar := style.Render(strings.Repeat("▰", filled)) + navStyle.Render(strings.Repeat("▱", total-filled))
+	return fmt.Sprintf("%s %s", bar, style.Render(fmt.Sprintf("%3.0f%%", value)))
 }
 
 func padVisible(s string, width int) string {
@@ -2345,6 +2358,10 @@ func statusDot(loading bool, online bool) string {
 }
 
 func percentBarWidth(value float64, total int) string {
+	return percentBarWidthWithThreshold(value, total, 70, 85)
+}
+
+func percentBarWidthWithThreshold(value float64, total int, warn float64, crit float64) string {
 	if value < 0 {
 		value = 0
 	}
@@ -2358,14 +2375,19 @@ func percentBarWidth(value float64, total int) string {
 	if value > 0 && filled == 0 {
 		filled = 1
 	}
-	style := greenStyle
-	if value >= 85 {
-		style = redStyle
-	} else if value >= 70 {
-		style = yellowStyle
+	style := metricValueStyle(value, warn, crit)
+	bar := style.Render(strings.Repeat("▰", filled)) + navStyle.Render(strings.Repeat("▱", total-filled))
+	return fmt.Sprintf("%s %s", bar, style.Render(fmt.Sprintf("%3.0f%%", value)))
+}
+
+func metricValueStyle(value float64, warn float64, crit float64) lipgloss.Style {
+	if value >= crit {
+		return redStyle
 	}
-	bar := strings.Repeat("▰", filled) + strings.Repeat("▱", total-filled)
-	return style.Render(fmt.Sprintf("%s %3.0f%%", bar, value))
+	if value >= warn {
+		return yellowStyle
+	}
+	return greenStyle
 }
 
 func colorStatus(value string, loading bool, online bool) string {
