@@ -12,7 +12,6 @@
     .card { fill: #111722; stroke: #283241; stroke-width: 2; }
     .selected { stroke: #38bdf8; }
     .bar-empty { fill: #334155; }
-    .cursor { fill: #38bdf8; }
     .scene { fill: #0f172a; stroke: #334155; }
     .fade-a { animation: fadeA 6s infinite; }
     .fade-b { animation: fadeB 6s infinite; }
@@ -151,11 +150,6 @@
       <text x="636" y="482" class="muted fade-b" font-size="18">多选传输 · 断点续传 · 任务历史</text>
     </g>
   </g>
-
-  <rect x="76" y="126" width="10" height="24" rx="2" class="cursor">
-    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
-    <animate attributeName="x" values="76;76;442;442;76" keyTimes="0;0.32;0.48;0.76;1" dur="6s" repeatCount="indefinite"/>
-  </rect>
 
   <g class="mono">
     <rect x="58" y="530" width="1062" height="34" rx="8" class="scene"/>
