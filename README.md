@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/preview.svg" alt="sshm preview" width="920">
+  <img src="assets/demo.svg" alt="sshm demo" width="920">
 </p>
 
 <h1 align="center">sshm</h1>
