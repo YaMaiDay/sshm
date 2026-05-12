@@ -73,7 +73,7 @@ func SaveCommandHistory(home string, file CommandHistoryFile) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return writeFile0600(path, data)
 }
 
 func AppendCommandHistory(home string, entry CommandHistoryEntry) error {

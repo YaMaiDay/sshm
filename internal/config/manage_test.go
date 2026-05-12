@@ -199,6 +199,8 @@ func TestSaveAndLoadFavoriteHost(t *testing.T) {
 			Note:        "部署入口机",
 			ExpireAt:    "2026-08-31",
 			Favorite:    true,
+			Pinned:      true,
+			PinnedOrder: 7,
 			HealthPorts: []int{80, 5432},
 		},
 	}
@@ -212,6 +214,12 @@ func TestSaveAndLoadFavoriteHost(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "favorite = true") {
 		t.Fatalf("favorite not written: %s", data)
+	}
+	if !strings.Contains(string(data), "pinned = true") {
+		t.Fatalf("pinned not written: %s", data)
+	}
+	if !strings.Contains(string(data), "pinned_order = 7") {
+		t.Fatalf("pinned order not written: %s", data)
 	}
 	if !strings.Contains(string(data), "health_ports = [80, 5432]") {
 		t.Fatalf("health ports not written: %s", data)
@@ -232,6 +240,12 @@ func TestSaveAndLoadFavoriteHost(t *testing.T) {
 	}
 	if !loaded[0].Favorite {
 		t.Fatalf("Favorite = false, want true")
+	}
+	if !loaded[0].Pinned {
+		t.Fatalf("Pinned = false, want true")
+	}
+	if loaded[0].PinnedOrder != 7 {
+		t.Fatalf("PinnedOrder = %d, want 7", loaded[0].PinnedOrder)
 	}
 	if len(loaded[0].HealthPorts) != 2 || loaded[0].HealthPorts[0] != 80 || loaded[0].HealthPorts[1] != 5432 {
 		t.Fatalf("HealthPorts = %#v, want [80 5432]", loaded[0].HealthPorts)

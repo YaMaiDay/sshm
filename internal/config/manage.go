@@ -21,6 +21,8 @@ type HostInput struct {
 	Note         string
 	ExpireAt     string
 	Favorite     bool
+	Pinned       bool
+	PinnedOrder  int64
 	HealthPorts  []int
 }
 
@@ -64,6 +66,8 @@ func InputFromHost(h host.Host, password string) HostInput {
 		Note:         h.Note,
 		ExpireAt:     h.ExpireAt,
 		Favorite:     h.Favorite,
+		Pinned:       h.Pinned,
+		PinnedOrder:  h.PinnedOrder,
 		HealthPorts:  normalizeHealthPorts(h.HealthPorts),
 	}
 }
@@ -158,6 +162,8 @@ func hostFromInput(home string, input HostInput) host.Host {
 		Note:         strings.TrimSpace(input.Note),
 		ExpireAt:     strings.TrimSpace(input.ExpireAt),
 		Favorite:     input.Favorite,
+		Pinned:       input.Pinned,
+		PinnedOrder:  input.PinnedOrder,
 		HealthPorts:  normalizeHealthPorts(input.HealthPorts),
 		File:         ServersPath(home),
 		HasPassword:  password != "",

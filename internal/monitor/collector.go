@@ -55,12 +55,9 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 	}
 	if password != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
-			f, err := os.CreateTemp("", "sshm-pass-*")
+			file, err := sshconfig.TempPasswordFile(password)
 			if err == nil {
-				tempFile = f.Name()
-				_ = f.Chmod(0600)
-				_, _ = f.WriteString(password + "\n")
-				_ = f.Close()
+				tempFile = file
 				defer os.Remove(tempFile)
 				passwordArgs := append(passwordSSHOptions(h), args...)
 				fullArgs := append([]string{"-f", tempFile, "ssh"}, passwordArgs...)

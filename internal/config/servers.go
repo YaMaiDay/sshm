@@ -28,6 +28,8 @@ type serverEntry struct {
 	Note        string `toml:"note,omitempty"`
 	ExpireAt    string `toml:"expire_at,omitempty"`
 	Favorite    bool   `toml:"favorite,omitempty"`
+	Pinned      bool   `toml:"pinned,omitempty"`
+	PinnedOrder int64  `toml:"pinned_order,omitempty"`
 	HealthPorts []int  `toml:"health_ports,omitempty"`
 }
 
@@ -71,6 +73,8 @@ func LoadServerHosts(home string) ([]host.Host, bool, error) {
 			Note:         strings.TrimSpace(entry.Note),
 			ExpireAt:     strings.TrimSpace(entry.ExpireAt),
 			Favorite:     entry.Favorite,
+			Pinned:       entry.Pinned,
+			PinnedOrder:  entry.PinnedOrder,
 			HealthPorts:  normalizeHealthPorts(entry.HealthPorts),
 			File:         path,
 			HasPassword:  password != "",
@@ -185,6 +189,8 @@ func SaveServerData(home string, categories []string, hosts []host.Host) error {
 			Note:        strings.TrimSpace(h.Note),
 			ExpireAt:    strings.TrimSpace(h.ExpireAt),
 			Favorite:    h.Favorite,
+			Pinned:      h.Pinned,
+			PinnedOrder: h.PinnedOrder,
 			HealthPorts: normalizeHealthPorts(h.HealthPorts),
 		})
 	}
@@ -192,7 +198,7 @@ func SaveServerData(home string, categories []string, hosts []host.Host) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return writeFile0600(path, data)
 }
 
 func normalizeCategories(categories []string, servers []serverEntry) []string {

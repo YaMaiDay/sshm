@@ -58,7 +58,7 @@ func SaveCommands(home string, file CommandsFile) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0600)
+	return writeFile0600(path, data)
 }
 
 func ValidateCommandTemplate(name, command string) error {

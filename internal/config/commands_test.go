@@ -38,6 +38,16 @@ func TestSaveAndLoadCommands(t *testing.T) {
 	if !strings.Contains(string(data), "name") || !strings.Contains(string(data), "command") || !strings.Contains(string(data), "server") {
 		t.Fatalf("commands.toml = %s, want name, command and server keys", data)
 	}
+	if info, err := os.Stat(filepath.Join(home, ".config", "sshm", "commands.toml")); err != nil {
+		t.Fatal(err)
+	} else if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("commands.toml mode = %o, want 600", got)
+	}
+	if matches, err := filepath.Glob(filepath.Join(home, ".config", "sshm", ".commands.toml.tmp-*")); err != nil {
+		t.Fatal(err)
+	} else if len(matches) != 0 {
+		t.Fatalf("temporary files left behind: %v", matches)
+	}
 
 	got, ok, err := LoadCommands(home)
 	if err != nil {

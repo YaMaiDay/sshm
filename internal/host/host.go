@@ -12,6 +12,8 @@ type Host struct {
 	Note         string
 	ExpireAt     string
 	Favorite     bool
+	Pinned       bool
+	PinnedOrder  int64
 	HealthPorts  []int
 	File         string
 	HasPassword  bool

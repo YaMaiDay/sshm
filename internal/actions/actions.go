@@ -24,7 +24,7 @@ func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 	args = append(args, "-tt", h.Target())
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := tempPasswordFile(h.Password)
+			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
 				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
@@ -73,7 +73,7 @@ fi`
 	args := append(sshArgs(h), "-o", "LogLevel=ERROR", h.Target(), "sh", "-s", "--", remotePath)
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := tempPasswordFile(h.Password)
+			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
 				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
@@ -108,7 +108,7 @@ func remoteShellCommand(ctx context.Context, h host.Host, script string) (*exec.
 	args := append(sshArgs(h), "-o", "LogLevel=ERROR", h.Target(), "sh", "-s")
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := tempPasswordFile(h.Password)
+			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
 				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
@@ -128,7 +128,7 @@ func scpCommand(ctx context.Context, h host.Host, args []string) (*exec.Cmd, Cle
 	cleanup := func() {}
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := tempPasswordFile(h.Password)
+			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
 				cleanup = func() { _ = os.Remove(file) }
 				fullArgs := append([]string{"-f", file, "scp"}, passwordSSHOptions(h)...)
@@ -186,21 +186,4 @@ func scpArgs(h host.Host) []string {
 
 func passwordSSHOptions(h host.Host) []string {
 	return sshconfig.PasswordAuthArgs(h)
-}
-
-func tempPasswordFile(password string) (string, error) {
-	file, err := os.CreateTemp("", "sshm-pass-*")
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	if err := file.Chmod(0600); err != nil {
-		_ = os.Remove(file.Name())
-		return "", err
-	}
-	if _, err := file.WriteString(password + "\n"); err != nil {
-		_ = os.Remove(file.Name())
-		return "", err
-	}
-	return file.Name(), nil
 }

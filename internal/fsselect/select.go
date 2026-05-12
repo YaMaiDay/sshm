@@ -155,13 +155,10 @@ func runSSH(h host.Host, script string) (string, error) {
 	args = append(args, h.Target(), "sh", "-s")
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := os.CreateTemp("", "sshm-pass-*")
+			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
-				_ = file.Chmod(0600)
-				_, _ = file.WriteString(h.Password + "\n")
-				_ = file.Close()
-				defer os.Remove(file.Name())
-				fullArgs := append([]string{"-f", file.Name(), "ssh"}, passwordSSHOptions(h)...)
+				defer os.Remove(file)
+				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
 				fullArgs = append(fullArgs, args...)
 				cmd := exec.Command("sshpass", fullArgs...)
 				cmd.Stdin = strings.NewReader(script)
@@ -177,19 +174,7 @@ func runSSH(h host.Host, script string) (string, error) {
 }
 
 func passwordSSHOptions(h host.Host) []string {
-	authMethods := "password,keyboard-interactive"
-	if strings.TrimSpace(h.IdentityFile) != "" {
-		authMethods = "publickey,password,keyboard-interactive"
-	}
-	args := []string{
-		"-o", "PreferredAuthentications=" + authMethods,
-		"-o", "PasswordAuthentication=yes",
-		"-o", "KbdInteractiveAuthentication=yes",
-	}
-	if strings.TrimSpace(h.IdentityFile) == "" {
-		args = append(args, "-o", "PubkeyAuthentication=no")
-	}
-	return args
+	return sshconfig.PasswordAuthArgs(h)
 }
 
 func sortItems(items []Item) {

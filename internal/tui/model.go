@@ -92,6 +92,7 @@ type dashboardMode int
 const (
 	dashboardCards dashboardMode = iota
 	dashboardCategory
+	dashboardGrouped
 )
 
 type anomalyFilterMode int
@@ -649,6 +650,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.toggleFavorite(idx)
 			}
+		case "t":
+			if idx, ok := m.selectedRealIndex(); ok {
+				return m.togglePinned(idx)
+			}
 		case "v":
 			m.favoriteOnly = !m.favoriteOnly
 			m.selected = 0
@@ -703,12 +708,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = modeAnomalyOverview
 			m.anomalyIndex = 0
 		case "z":
-			if m.dashboardMode == dashboardCards {
+			switch m.dashboardMode {
+			case dashboardCards:
+				m.dashboardMode = dashboardGrouped
+			case dashboardGrouped:
 				m.dashboardMode = dashboardCategory
-			} else {
+				m.dashboardFocus = 1
+			default:
 				m.dashboardMode = dashboardCards
 			}
-			m.dashboardFocus = 1
 			m.status = ""
 		case "r":
 			m.status = "正在刷新全部服务器..."
@@ -781,12 +789,16 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		favorite := false
+		pinned := false
+		pinnedOrder := int64(0)
 		if m.editing {
 			if m.editIndex < 0 || m.editIndex >= len(m.states) {
 				m.status = "编辑失败：没有选中的服务器"
 				return m, nil
 			}
 			favorite = m.states[m.editIndex].Host.Favorite
+			pinned = m.states[m.editIndex].Host.Pinned
+			pinnedOrder = m.states[m.editIndex].Host.PinnedOrder
 		}
 		input := config.HostInput{
 			Category:     m.form.Category,
@@ -800,6 +812,8 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Note:         m.form.Note,
 			ExpireAt:     expireAt,
 			Favorite:     favorite,
+			Pinned:       pinned,
+			PinnedOrder:  pinnedOrder,
 			HealthPorts:  healthPorts,
 		}
 		if m.editing {
@@ -1178,6 +1192,45 @@ func (m Model) toggleFavorite(index int) (tea.Model, tea.Cmd) {
 		m.selected = 0
 	}
 	return m, nil
+}
+
+func (m Model) togglePinned(index int) (tea.Model, tea.Cmd) {
+	if index < 0 || index >= len(m.states) {
+		return m, nil
+	}
+	hosts := make([]host.Host, len(m.states))
+	for i, state := range m.states {
+		hosts[i] = state.Host
+	}
+	if hosts[index].Pinned {
+		hosts[index].Pinned = false
+		hosts[index].PinnedOrder = 0
+	} else {
+		hosts[index].Pinned = true
+		hosts[index].PinnedOrder = nextPinnedOrder(hosts)
+	}
+	if err := config.SaveServerHosts(m.home, hosts); err != nil {
+		m.status = "置顶更新失败：" + err.Error()
+		return m, nil
+	}
+	m.states[index].Host.Pinned = hosts[index].Pinned
+	m.states[index].Host.PinnedOrder = hosts[index].PinnedOrder
+	if hosts[index].Pinned {
+		m.status = "已置顶：" + hosts[index].Name
+	} else {
+		m.status = "已取消置顶：" + hosts[index].Name
+	}
+	return m, nil
+}
+
+func nextPinnedOrder(hosts []host.Host) int64 {
+	var maxOrder int64
+	for _, h := range hosts {
+		if h.PinnedOrder > maxOrder {
+			maxOrder = h.PinnedOrder
+		}
+	}
+	return maxOrder + 1
 }
 
 func (m Model) startCommandList(index int) Model {
@@ -3497,6 +3550,18 @@ func hostDisplayName(h host.Host) string {
 	return "[" + strings.TrimSpace(h.Category) + "] " + h.Name
 }
 
+func dashboardHostDisplayName(h host.Host) string {
+	parts := make([]string, 0, 3)
+	if h.Pinned {
+		parts = append(parts, "▲")
+	}
+	if h.Favorite {
+		parts = append(parts, "★")
+	}
+	parts = append(parts, hostDisplayName(h))
+	return strings.Join(parts, " ")
+}
+
 func transferPanelStatus(mode transferMode) string {
 	if mode == transferUpload {
 		return "上传：左侧选择本地文件/目录，右侧选择远程目录，空格确认。"
@@ -3782,6 +3847,15 @@ func (m Model) filteredIndexes() []int {
 	sort.SliceStable(indexes, func(i, j int) bool {
 		a := m.states[indexes[i]]
 		b := m.states[indexes[j]]
+		if m.sortCategoryBeforePinned() && a.Host.Category != b.Host.Category {
+			return a.Host.Category < b.Host.Category
+		}
+		if a.Host.Pinned != b.Host.Pinned {
+			return a.Host.Pinned
+		}
+		if a.Host.Pinned && b.Host.Pinned && a.Host.PinnedOrder != b.Host.PinnedOrder {
+			return a.Host.PinnedOrder > b.Host.PinnedOrder
+		}
 		switch m.sortBy {
 		case sortState:
 			if a.Metrics.Online != b.Metrics.Online {
@@ -3800,6 +3874,10 @@ func (m Model) filteredIndexes() []int {
 		return a.Host.Category < b.Host.Category
 	})
 	return indexes
+}
+
+func (m Model) sortCategoryBeforePinned() bool {
+	return m.dashboardMode == dashboardGrouped || m.category != ""
 }
 
 func isProblem(state hostState) bool {
@@ -3836,6 +3914,7 @@ func (m Model) filterName() string {
 }
 
 func (m *Model) cycleCategory() {
+	m.favoriteOnly = false
 	categories := []string{""}
 	seen := map[string]bool{}
 	for _, state := range m.states {
@@ -4033,7 +4112,9 @@ func (m Model) View() string {
 	helpBlock := renderDashboardHelp(helpWidth)
 	pageDots := ""
 	if m.dashboardMode == dashboardCards && !m.searching {
-		pageDots = m.dashboardPageDots(len(indexes))
+		pageDots = m.dashboardPageDots(indexes)
+	} else if m.dashboardMode == dashboardGrouped && !m.searching {
+		pageDots = m.dashboardGroupedDots(indexes)
 	}
 	reservedBottomLines := strings.Count(helpBlock, "\n") + 1
 	if pageDots != "" {
@@ -4061,6 +4142,7 @@ func renderDashboardHelp(width int) string {
 		"历史 i",
 		"总览 w",
 		"视图 z",
+		"置顶 t",
 		"收藏 f",
 		"收藏 v",
 		"添加 a",
@@ -5007,6 +5089,7 @@ func (m Model) renderHelpPanel() string {
 		{"i", "命令历史"},
 		{"w", "异常总览"},
 		{"z", "切换首页视图"},
+		{"t", "置顶 / 取消置顶"},
 		{"f", "收藏 / 取消收藏"},
 		{"v", "只看收藏 / 取消筛选"},
 		{"a", "添加服务器"},
@@ -5819,6 +5902,7 @@ func (m Model) detailLines() ([]string, bool) {
 		m.detailRow("端口", h.Port),
 		m.detailRow("分类", emptyDash(h.Category)),
 		m.detailRow("收藏", yesNo(h.Favorite)),
+		m.detailRow("置顶", yesNo(h.Pinned)),
 		m.detailRow("认证方式", authText(h)),
 		m.detailRow("主机名", emptyDash(metrics.RemoteHostname)),
 		m.detailRow("系统", emptyDash(metrics.OS)),
@@ -6116,6 +6200,9 @@ func (m Model) renderDashboard(indexes []int) string {
 	if m.dashboardMode == dashboardCategory {
 		return m.renderDashboardCategory(indexes)
 	}
+	if m.dashboardMode == dashboardGrouped {
+		return m.renderDashboardGrouped(indexes)
+	}
 	return m.renderDashboardGrid(indexes)
 }
 
@@ -6123,43 +6210,50 @@ func dashboardModeName(mode dashboardMode) string {
 	switch mode {
 	case dashboardCategory:
 		return "分类"
+	case dashboardGrouped:
+		return "分组"
 	default:
 		return "卡片"
 	}
 }
 
 func (m Model) renderDashboardGrid(indexes []int) string {
-	totalWidth := m.width
-	if totalWidth <= 0 {
-		totalWidth = contentWidth(m.width)
+	width := m.dashboardGridWidth()
+	height := m.dashboardGridHeight()
+	lines, selectedTop, selectedBottom := m.dashboardGridLines(indexes, width)
+	start, end := dashboardLineWindow(len(lines), selectedTop, selectedBottom, height)
+	return strings.Join(lines[start:end], "\n")
+}
+
+func (m Model) dashboardGridWidth() int {
+	width := m.width
+	if width <= 0 {
+		width = contentWidth(m.width)
 	}
-	width := totalWidth
 	if width < 34 {
 		width = 34
 	}
+	return width
+}
+
+func (m Model) dashboardGridHeight() int {
+	height := m.height - 4
+	if height < 1 {
+		height = 1
+	}
+	return height
+}
+
+func (m Model) dashboardGridLines(indexes []int, width int) ([]string, int, int) {
 	cols := m.dashboardColumns()
 	cardWidths := distributeWidths(width, cols)
-
-	rowsVisible := (m.height - 4) / dashboardCardTotalHeight
-	if rowsVisible < 1 {
-		rowsVisible = 1
-	}
-	selectedRow := m.selected / cols
-	startRow := selectedRow - rowsVisible + 1
-	if startRow < 0 {
-		startRow = 0
-	}
-	start := startRow * cols
-	end := start + rowsVisible*cols
-	if end > len(indexes) {
-		end = len(indexes)
-	}
-
-	var out []string
-	for i := start; i < end; i += cols {
+	lines := []string{}
+	selectedTop := 0
+	selectedBottom := 0
+	for i := 0; i < len(indexes); i += cols {
 		rowEnd := i + cols
-		if rowEnd > end {
-			rowEnd = end
+		if rowEnd > len(indexes) {
+			rowEnd = len(indexes)
 		}
 		rowHasNote := false
 		for j := i; j < rowEnd; j++ {
@@ -6171,17 +6265,27 @@ func (m Model) renderDashboardGrid(indexes []int) string {
 		var row []string
 		for col := 0; col < cols; col++ {
 			cardWidth := cardWidths[col]
-			if i+col >= end {
+			if i+col >= len(indexes) {
 				row = append(row, padBlock(blankCard(cardWidth, rowHasNote), cardWidth))
 				continue
 			}
 			visibleIndex := i + col
 			realIndex := indexes[visibleIndex]
+			if visibleIndex == m.selected {
+				selectedTop = len(lines)
+			}
 			row = append(row, padBlock(m.renderCard(realIndex, visibleIndex == m.selected, cardWidth, rowHasNote), cardWidth))
 		}
-		out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, row...))
+		rowLines := strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, row...), "\n")
+		lines = append(lines, rowLines...)
+		if m.selected >= i && m.selected < rowEnd {
+			selectedBottom = len(lines)
+		}
 	}
-	return strings.Join(out, "\n")
+	if selectedBottom == 0 {
+		selectedBottom = selectedTop
+	}
+	return lines, selectedTop, selectedBottom
 }
 
 func (m Model) renderDashboardList(indexes []int, width int) string {
@@ -6232,7 +6336,7 @@ func (m Model) dashboardListLine(index int, selected bool, width int) string {
 	if width < 78 {
 		nameWidth = 16
 	}
-	name := nameStyle.Render(padVisible(fitANSI(hostDisplayName(h), nameWidth), nameWidth))
+	name := nameStyle.Render(padVisible(fitANSI(dashboardHostDisplayName(h), nameWidth), nameWidth))
 	statusText := padVisible(colorStatus(status, state.Loading, metrics.Online), 6)
 	cpu, mem, disk := dashboardListResourceColumns(state)
 	containerText, serviceText := dashboardListServiceColumns(metrics)
@@ -6244,6 +6348,304 @@ func (m Model) dashboardListLine(index int, selected bool, width int) string {
 	address := cardMutedStyle.Render(padVisible(fit(h.Address(), addressWidth), addressWidth))
 	line := fmt.Sprintf("%s %s  %s  %s  %s  %s  %s  %s  %s  %s", prefix, name, statusText, cpu, mem, disk, containerText, serviceText, expire, address)
 	return fitANSI(line, width)
+}
+
+func (m Model) renderDashboardGrouped(indexes []int) string {
+	width := contentWidth(m.width)
+	if width <= 0 {
+		width = m.width
+	}
+	if width < 34 {
+		width = 34
+	}
+	height := m.dashboardGroupedHeight()
+	allLines, selectedTop, selectedBottom := m.groupedLines(indexes, width)
+	start, end := dashboardLineWindow(len(allLines), selectedTop, selectedBottom, height)
+	lines := append([]string{}, allLines[start:end]...)
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) dashboardGroupedHeight() int {
+	height := m.height - 4
+	if height < dashboardGroupedCardHeight() {
+		height = dashboardGroupedCardHeight()
+	}
+	return height
+}
+
+func (m Model) groupedLines(indexes []int, width int) ([]string, int, int) {
+	lines := []string{}
+	selectedTop := 0
+	selectedBottom := 0
+	lastCategory := ""
+	for i, index := range indexes {
+		category := strings.TrimSpace(m.states[index].Host.Category)
+		if category == "" {
+			category = "未分类"
+		}
+		if i == 0 || category != lastCategory {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, m.groupedCategoryHeader(category, indexes, width))
+			lastCategory = category
+		}
+		if i == m.selected {
+			selectedTop = len(lines)
+		}
+		cardLines := strings.Split(m.renderGroupedCard(index, i == m.selected, width), "\n")
+		lines = append(lines, cardLines...)
+		if i == m.selected {
+			selectedBottom = len(lines)
+		}
+	}
+	if selectedBottom == 0 {
+		selectedBottom = selectedTop
+	}
+	return lines, selectedTop, selectedBottom
+}
+
+func dashboardGroupedCardHeight() int {
+	return 6
+}
+
+func (m Model) groupedCategoryHeader(category string, indexes []int, width int) string {
+	count := 0
+	for _, index := range indexes {
+		cat := strings.TrimSpace(m.states[index].Host.Category)
+		if cat == "" {
+			cat = "未分类"
+		}
+		if cat == category {
+			count++
+		}
+	}
+	countText := fmt.Sprintf("%d台", count)
+	nameWidth := width - runewidth.StringWidth(countText) - 2
+	if nameWidth < 1 {
+		nameWidth = 1
+	}
+	label := fit(category, nameWidth)
+	spaces := width - runewidth.StringWidth(label) - runewidth.StringWidth(countText)
+	if spaces < 1 {
+		spaces = 1
+	}
+	return titleStyle.Render(label + strings.Repeat(" ", spaces) + countText)
+}
+
+func (m Model) renderGroupedCard(index int, selected bool, width int) string {
+	state := m.states[index]
+	h := state.Host
+	metrics := state.Metrics
+	cardWidth := width
+	if cardWidth < 34 {
+		cardWidth = 34
+	}
+	innerWidth := cardWidth - 4
+	if innerWidth < 30 {
+		innerWidth = 30
+	}
+	borderStyle := cardBorderStyle
+	if selected {
+		borderStyle = selectedCardBorderStyle
+	}
+	favoriteMark := ""
+	if h.Favorite {
+		favoriteMark = favoriteStyle.Render("★") + " "
+	}
+	pinnedMark := ""
+	if h.Pinned {
+		pinnedMark = pinnedStyle.Render("▲") + " "
+	}
+	title := pinnedMark + favoriteMark + h.Name
+	recentLabel := ""
+	if recent := lastLoginCard(m.lastLogin(h)); recent != "" {
+		recentLabel = cardMutedStyle.Render(recent)
+	}
+	uptimeLabel := cardHeaderMeta(h, metrics)
+	stateMark := colorStatus("●", state.Loading, metrics.Online)
+
+	userPort := h.User
+	if userPort == "" {
+		userPort = "-"
+	}
+	port := h.Port
+	if port == "" {
+		port = "22"
+	}
+	addressLine := fmt.Sprintf("%s %s:%s", h.Address(), userPort, port)
+
+	barWidth := 8
+	cpuLine := groupedMetricText("CPU", metrics.CPUPercent, cpuCoresText(metrics), barWidth, 70, 85)
+	memLine := groupedMetricText("内存", metrics.MemPercent(), bytesPair(metrics.MemUsed, metrics.MemTotal), barWidth, 70, 85)
+	diskLine := groupedMetricText("磁盘", metrics.DiskPercent(), bytesPair(metrics.DiskUsed, metrics.DiskTotal), barWidth, 80, 90)
+	loadLine := fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))
+	serviceLine := serviceCardText(metrics)
+	if riskText := cardRiskText(buildChecks(state), innerWidth); riskText != "" {
+		serviceLine += "  " + riskText
+	}
+	noteLine := groupedNoteText(h.Note)
+
+	lines := []string{groupedCardTopLine(cardWidth, title, recentLabel, uptimeLabel, stateMark, borderStyle)}
+	contentParts := []groupedAdaptivePart{
+		{Text: cardMutedStyle.Render(addressLine), Width: 26},
+		{Text: cpuLine, Width: 24},
+		{Text: memLine, Width: 36},
+		{Text: diskLine, Width: 36},
+		{Text: cardMutedStyle.Render(loadLine), Width: 25},
+		{Text: serviceLine, Width: 26},
+	}
+	if noteLine != "" {
+		contentParts = append(contentParts, groupedAdaptivePart{Text: cardMutedStyle.Render(noteLine), Width: 30})
+	}
+	for _, line := range groupedAdaptiveContentLines(innerWidth, contentParts) {
+		lines = append(lines, cardContentLine(cardWidth, line, borderStyle))
+	}
+	lines = append(lines, cardBottomLine(cardWidth, borderStyle))
+	return strings.Join(lines, "\n")
+}
+
+func groupedMetricText(label string, value float64, extra string, barWidth int, warn float64, crit float64) string {
+	return fmt.Sprintf("%s %s %s",
+		cardMutedStyle.Render(label),
+		percentBarWidthWithThreshold(value, barWidth, warn, crit),
+		cardMutedStyle.Render(emptyDash(extra)),
+	)
+}
+
+func groupedCardTopLine(width int, title string, middle string, meta string, dot string, borderStyle lipgloss.Style) string {
+	innerWidth := width - 2
+	left := borderStyle.Render("╭")
+	right := borderStyle.Render("╮")
+	prefix := borderStyle.Render("─ ")
+	titleGap := " "
+	suffixText := dot
+	if strings.TrimSpace(meta) != "" && strings.TrimSpace(meta) != "-" {
+		suffixText = meta + " " + dot
+	}
+	suffix := " " + suffixText + " "
+	baseWidth := innerWidth - ansi.StringWidth(prefix) - ansi.StringWidth(titleGap) - ansi.StringWidth(suffix)
+	if baseWidth < 1 {
+		baseWidth = 1
+	}
+	if ansi.StringWidth(title) > baseWidth {
+		title = ansi.Truncate(title, baseWidth, "…")
+	}
+	fillWidth := innerWidth - ansi.StringWidth(prefix) - ansi.StringWidth(title) - ansi.StringWidth(titleGap) - ansi.StringWidth(suffix)
+	if fillWidth < 0 {
+		fillWidth = 0
+	}
+	fill := borderStyle.Render(strings.Repeat("─", fillWidth))
+	middle = strings.TrimSpace(middle)
+	if middle != "" && fillWidth > ansi.StringWidth(middle)+2 {
+		middleWidth := ansi.StringWidth(middle)
+		fillStart := ansi.StringWidth(prefix) + ansi.StringWidth(title) + ansi.StringWidth(titleGap)
+		targetStart := (innerWidth - middleWidth) / 2
+		leftFill := targetStart - fillStart - 1
+		if leftFill < 0 {
+			leftFill = 0
+		}
+		if leftFill+middleWidth+2 > fillWidth {
+			leftFill = fillWidth - middleWidth - 2
+		}
+		if leftFill < 0 {
+			leftFill = 0
+		}
+		rightFill := fillWidth - ansi.StringWidth(middle) - 2 - leftFill
+		if rightFill < 0 {
+			rightFill = 0
+		}
+		fill = borderStyle.Render(strings.Repeat("─", leftFill)) + " " + middle + " " + borderStyle.Render(strings.Repeat("─", rightFill))
+	}
+	return left + prefix + title + titleGap + fill + suffix + right
+}
+
+func groupedNoteText(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
+	}
+	return "备注 " + note
+}
+
+type groupedAdaptivePart struct {
+	Text  string
+	Width int
+}
+
+func groupedAdaptiveContentLines(width int, parts []groupedAdaptivePart) []string {
+	if width < 1 {
+		width = 1
+	}
+	const minTrailingWidth = 10
+	lines := []string{}
+	for i := 0; i < len(parts); {
+		rowStart := i
+		rowWidth := 0
+		for i < len(parts) {
+			partWidth := parts[i].Width
+			if partWidth < 1 {
+				partWidth = ansi.StringWidth(strings.TrimSpace(parts[i].Text))
+			}
+			if partWidth > width {
+				partWidth = width
+			}
+			nextWidth := partWidth
+			if i > rowStart {
+				nextWidth += 2
+			}
+			if i > rowStart && rowWidth+nextWidth > width {
+				remaining := width - rowWidth - 2
+				if remaining >= minTrailingWidth {
+					i++
+				}
+				break
+			}
+			rowWidth += nextWidth
+			i++
+		}
+		lines = append(lines, groupedAdaptiveLine(width, parts[rowStart:i]))
+	}
+	return lines
+}
+
+func groupedAdaptiveLine(width int, parts []groupedAdaptivePart) string {
+	line := ""
+	used := 0
+	for i, part := range parts {
+		text := strings.TrimSpace(part.Text)
+		if text == "" {
+			continue
+		}
+		partWidth := part.Width
+		if partWidth < 1 {
+			partWidth = ansi.StringWidth(text)
+		}
+		if used > 0 {
+			if used+2 >= width {
+				break
+			}
+			line += "  "
+			used += 2
+		}
+		if used+partWidth > width {
+			partWidth = width - used
+		}
+		if i == len(parts)-1 {
+			partWidth = width - used
+		}
+		if partWidth <= 0 {
+			break
+		}
+		tail := ""
+		if i == len(parts)-1 {
+			tail = "…"
+		}
+		text = ansi.Truncate(text, partWidth, tail)
+		line += padVisible(text, partWidth)
+		used += partWidth
+	}
+	return line
 }
 
 func dashboardListResourceColumns(state hostState) (string, string, string) {
@@ -6284,11 +6686,13 @@ func dashboardListServiceColumns(metrics monitor.Metrics) (string, string) {
 func compactResourceTriplet(state hostState) (string, string, string) {
 	metrics := state.Metrics
 	if state.Loading || !metrics.Online {
-		return detailValueStyle.Render("CPU-"), detailValueStyle.Render("内-"), detailValueStyle.Render("磁-")
+		return cardMutedStyle.Render("CPU") + detailValueStyle.Render("-"),
+			cardMutedStyle.Render("内") + detailValueStyle.Render("-"),
+			cardMutedStyle.Render("磁") + detailValueStyle.Render("-")
 	}
-	return "CPU" + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%.0f", metrics.CPUPercent)),
-		"内" + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%.0f", metrics.MemPercent())),
-		"磁" + metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%.0f", metrics.DiskPercent()))
+	return cardMutedStyle.Render("CPU") + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%.0f", metrics.CPUPercent)),
+		cardMutedStyle.Render("内") + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%.0f", metrics.MemPercent())),
+		cardMutedStyle.Render("磁") + metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%.0f", metrics.DiskPercent()))
 }
 
 func compactServicePair(metrics monitor.Metrics) (string, string) {
@@ -6296,7 +6700,7 @@ func compactServicePair(metrics monitor.Metrics) (string, string) {
 	container := "容器0"
 	if total > 0 {
 		if metrics.DockerFailed > 0 {
-			container = "容器" + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
+			container = cardMutedStyle.Render("容器") + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
 		} else {
 			container = cardMutedStyle.Render(fmt.Sprintf("容器0/%d/%d", metrics.DockerRunning, total))
 		}
@@ -6409,6 +6813,9 @@ func (m Model) dashboardCategoryBodyHeight() int {
 }
 
 func (m Model) renderDashboardCategoryServers(indexes []int, width int, height int) string {
+	if m.dashboardCategoryShowsGroupedServers() {
+		return m.renderDashboardCategoryGroupedServers(indexes, width, height)
+	}
 	start, end := visibleRange(len(indexes), m.selected, height)
 	lines := []string{}
 	for i := start; i < end; i++ {
@@ -6418,6 +6825,88 @@ func (m Model) renderDashboardCategoryServers(indexes []int, width int, height i
 		lines = append(lines, strings.Repeat(" ", width))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) dashboardCategoryShowsGroupedServers() bool {
+	return m.dashboardMode == dashboardCategory && m.filter == filterAll && !m.favoriteOnly && strings.TrimSpace(m.query) == ""
+}
+
+func (m Model) renderDashboardCategoryGroupedServers(indexes []int, width int, height int) string {
+	allLines, selectedLine := m.dashboardCategoryGroupedServerLines(indexes, width)
+	start := selectedLine - height + 1
+	if start < 0 {
+		start = 0
+	}
+	if selectedLine < start {
+		start = selectedLine
+	}
+	if start+height > len(allLines) {
+		start = len(allLines) - height
+		if start < 0 {
+			start = 0
+		}
+	}
+	end := start + height
+	if end > len(allLines) {
+		end = len(allLines)
+	}
+	lines := append([]string{}, allLines[start:end]...)
+	for len(lines) < height {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) dashboardCategoryGroupedServerLines(indexes []int, width int) ([]string, int) {
+	lines := []string{}
+	selectedLine := 0
+	lastCategory := ""
+	for i, index := range indexes {
+		category := strings.TrimSpace(m.states[index].Host.Category)
+		if category == "" {
+			category = "未分类"
+		}
+		if i == 0 || category != lastCategory {
+			if len(lines) > 0 {
+				lines = append(lines, strings.Repeat(" ", width))
+			}
+			lines = append(lines, m.dashboardCategoryGroupHeader(category, indexes, width))
+			lastCategory = category
+		}
+		if i == m.selected {
+			selectedLine = len(lines)
+		}
+		line := m.dashboardCategoryServerLineWithOptions(index, i == m.selected, width, false, true)
+		lines = append(lines, padVisible(fitANSI(line, width), width))
+	}
+	if len(lines) == 0 {
+		return []string{}, 0
+	}
+	return lines, selectedLine
+}
+
+func (m Model) dashboardCategoryGroupHeader(category string, indexes []int, width int) string {
+	count := 0
+	for _, index := range indexes {
+		cat := strings.TrimSpace(m.states[index].Host.Category)
+		if cat == "" {
+			cat = "未分类"
+		}
+		if cat == category {
+			count++
+		}
+	}
+	countText := fmt.Sprintf("%d台", count)
+	nameWidth := width - runewidth.StringWidth(countText) - 2
+	if nameWidth < 1 {
+		nameWidth = 1
+	}
+	label := cardMutedStyle.Render(fit(category, nameWidth))
+	spaces := width - ansi.StringWidth(label) - runewidth.StringWidth(countText)
+	if spaces < 1 {
+		spaces = 1
+	}
+	return padVisible(label+strings.Repeat(" ", spaces)+cardMutedStyle.Render(countText), width)
 }
 
 func (m Model) renderDashboardCategoryServerPane(indexes []int, width int, height int) string {
@@ -6446,14 +6935,78 @@ func dashboardCategoryNameWidth(width int) int {
 	return nameWidth
 }
 
-func (m Model) dashboardCategoryServerLine(index int, selected bool, width int) string {
-	state := m.states[index]
-	h := state.Host
-	metrics := state.Metrics
+func dashboardCategoryHostName(h host.Host, selected bool, width int, showCategory bool, fixedMarkSlots bool) string {
+	marks := ""
+	if fixedMarkSlots {
+		if h.Pinned {
+			marks += pinnedStyle.Render("▲")
+		} else {
+			marks += " "
+		}
+		marks += " "
+		if h.Favorite {
+			marks += favoriteStyle.Render("★")
+		} else {
+			marks += " "
+		}
+		marks += " "
+	} else {
+		if h.Pinned {
+			marks += pinnedStyle.Render("▲") + " "
+		}
+		if h.Favorite {
+			marks += favoriteStyle.Render("★") + " "
+		}
+	}
+	category := strings.TrimSpace(h.Category)
+	if category == "" {
+		category = "未分类"
+	}
+	categoryText := ""
+	if showCategory {
+		categoryText = cardMutedStyle.Render("[" + category + "]")
+	}
 	nameStyle := detailValueStyle
 	if selected {
 		nameStyle = blueStyle.Bold(true)
 	}
+	name := strings.TrimSpace(h.Name)
+	if name == "" {
+		name = h.Address()
+	}
+	marksWidth := ansi.StringWidth(marks)
+	categoryWidth := 0
+	if showCategory {
+		categoryWidth = runewidth.StringWidth("[" + category + "]")
+	}
+	nameMinWidth := 8
+	if width < marksWidth+categoryWidth+1+nameMinWidth {
+		categoryText = ""
+		categoryWidth = 0
+	}
+	nameWidth := width - marksWidth - categoryWidth
+	if categoryText != "" {
+		nameWidth--
+	}
+	if nameWidth < 1 {
+		nameWidth = 1
+	}
+	text := marks
+	if categoryText != "" {
+		text += categoryText + " "
+	}
+	text += nameStyle.Render(fitANSI(name, nameWidth))
+	return padVisible(text, width)
+}
+
+func (m Model) dashboardCategoryServerLine(index int, selected bool, width int) string {
+	return m.dashboardCategoryServerLineWithOptions(index, selected, width, true, false)
+}
+
+func (m Model) dashboardCategoryServerLineWithOptions(index int, selected bool, width int, showCategory bool, fixedMarkSlots bool) string {
+	state := m.states[index]
+	h := state.Host
+	metrics := state.Metrics
 	status := "离线"
 	if state.Loading {
 		status = "采集"
@@ -6461,7 +7014,7 @@ func (m Model) dashboardCategoryServerLine(index int, selected bool, width int) 
 		status = "在线"
 	}
 	nameWidth := dashboardCategoryNameWidth(width)
-	name := nameStyle.Render(padVisible(fitANSI(hostDisplayName(h), nameWidth), nameWidth))
+	name := dashboardCategoryHostName(h, selected, nameWidth, showCategory, fixedMarkSlots)
 	statusText := colorStatus(status, state.Loading, metrics.Online)
 	cpu, mem, disk := compactResourceTriplet(state)
 	container, service := compactServicePair(metrics)
@@ -6581,10 +7134,6 @@ func (m Model) countHosts(match func(hostState) bool) int {
 func (m Model) dashboardCategorySelectedIndex(items []dashboardCategoryItem) int {
 	for i, item := range items {
 		switch item.Kind {
-		case "favorite":
-			if m.favoriteOnly {
-				return i
-			}
 		case "problem":
 			if m.filter == filterProblem {
 				return i
@@ -6594,11 +7143,11 @@ func (m Model) dashboardCategorySelectedIndex(items []dashboardCategoryItem) int
 				return i
 			}
 		case "category":
-			if !m.favoriteOnly && m.filter == filterAll && m.category == item.Value {
+			if m.filter == filterAll && m.category == item.Value {
 				return i
 			}
 		case "all":
-			if !m.favoriteOnly && m.filter == filterAll && m.category == "" {
+			if m.filter == filterAll && m.category == "" {
 				return i
 			}
 		}
@@ -6623,8 +7172,6 @@ func (m *Model) applyDashboardCategoryItem(item dashboardCategoryItem) {
 	m.filter = filterAll
 	m.category = ""
 	switch item.Kind {
-	case "favorite":
-		m.favoriteOnly = true
 	case "problem":
 		m.filter = filterProblem
 	case "online":
@@ -6642,26 +7189,70 @@ func indexesHostNote(states []hostState, index int) string {
 	return states[index].Host.Note
 }
 
-func (m Model) dashboardPageDots(totalItems int) string {
-	if totalItems <= 0 {
+func (m Model) dashboardPageDots(indexes []int) string {
+	if len(indexes) == 0 {
 		return ""
 	}
-	cols := m.dashboardColumns()
-	rowsVisible := (m.height - 4) / dashboardCardTotalHeight
-	if rowsVisible < 1 {
-		rowsVisible = 1
-	}
-	perPage := cols * rowsVisible
-	if perPage <= 0 {
+	lines, selectedTop, selectedBottom := m.dashboardGridLines(indexes, m.dashboardGridWidth())
+	height := m.dashboardGridHeight()
+	return dashboardLineDots(len(lines), selectedTop, selectedBottom, height, m.width)
+}
+
+func (m Model) dashboardGroupedDots(indexes []int) string {
+	if len(indexes) == 0 {
 		return ""
 	}
-	totalPages := (totalItems + perPage - 1) / perPage
+	width := contentWidth(m.width)
+	if width <= 0 {
+		width = m.width
+	}
+	if width < 34 {
+		width = 34
+	}
+	lines, selectedTop, selectedBottom := m.groupedLines(indexes, width)
+	height := m.dashboardGroupedHeight()
+	return dashboardLineDots(len(lines), selectedTop, selectedBottom, height, m.width)
+}
+
+func dashboardLineWindow(totalLines int, selectedTop int, selectedBottom int, height int) (int, int) {
+	if height <= 0 {
+		return 0, 0
+	}
+	start := selectedBottom - height
+	if start < 0 {
+		start = 0
+	}
+	if selectedTop < start {
+		start = selectedTop
+	}
+	if start+height > totalLines {
+		start = totalLines - height
+		if start < 0 {
+			start = 0
+		}
+	}
+	end := start + height
+	if end > totalLines {
+		end = totalLines
+	}
+	return start, end
+}
+
+func dashboardLineDots(totalLines int, selectedTop int, selectedBottom int, height int, width int) string {
+	if height <= 0 || totalLines <= 0 {
+		return ""
+	}
+	totalPages := (totalLines + height - 1) / height
 	if totalPages <= 1 {
 		return ""
 	}
-	currentPage := m.selected / perPage
+	_, windowEnd := dashboardLineWindow(totalLines, selectedTop, selectedBottom, height)
+	currentPage := (windowEnd - 1) / height
 	if currentPage >= totalPages {
 		currentPage = totalPages - 1
+	}
+	if currentPage < 0 {
+		currentPage = 0
 	}
 	start := 0
 	dotCount := totalPages
@@ -6690,9 +7281,8 @@ func (m Model) dashboardPageDots(totalItems int) string {
 		parts = append(parts, mutedStyle.Render(fmt.Sprintf("%d/%d", currentPage+1, totalPages)))
 	}
 	line := strings.Join(parts, " ")
-	width := m.width
 	if width <= 0 {
-		width = contentWidth(m.width)
+		width = 80
 	}
 	padding := (width - ansi.StringWidth(line)) / 2
 	if padding < 0 {
@@ -6818,17 +7408,19 @@ func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine b
 	}
 	favoriteMark := ""
 	if h.Favorite {
-		favoriteMark = yellowStyle.Render("★") + " "
+		favoriteMark = favoriteStyle.Render("★") + " "
 	}
+	pinnedMark := ""
+	if h.Pinned {
+		pinnedMark = pinnedStyle.Render("▲") + " "
+	}
+	prefixMarks := pinnedMark + favoriteMark
 	categoryLabel := "[" + category + "]"
-	categoryWidth := runewidth.StringWidth(categoryLabel)
-	nameWidth := innerWidth - categoryWidth - ansi.StringWidth(favoriteMark) - 2
-	if nameWidth < 8 {
-		nameWidth = innerWidth
-		categoryLabel = ""
-		favoriteMark = ""
+	titleText := prefixMarks + h.Name
+	if ansi.StringWidth(titleText) > innerWidth {
+		prefixMarks = ""
+		titleText = h.Name
 	}
-	name := fit(h.Name, nameWidth)
 	barWidth := 12
 	if innerWidth < 42 {
 		barWidth = 8
@@ -6847,11 +7439,10 @@ func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine b
 	if riskText != "" {
 		serviceLine = ansi.Truncate(serviceLine+"  "+riskText, innerWidth, "…")
 	}
-	titleText := name
-	if categoryLabel != "" {
-		titleText = favoriteMark + categoryLabel + " " + name
+	if ansi.StringWidth(titleText)+1+runewidth.StringWidth(categoryLabel) <= innerWidth {
+		titleText += " " + categoryLabel
 	}
-	title := fit(titleText, innerWidth)
+	title := titleText
 
 	cardWidth := width
 	if cardWidth < 34 {
@@ -8909,10 +9500,12 @@ var (
 				BorderForeground(blue).
 				Padding(1, 2)
 
-	greenStyle  = lipgloss.NewStyle().Foreground(green)
-	yellowStyle = lipgloss.NewStyle().Foreground(yellow)
-	redStyle    = lipgloss.NewStyle().Foreground(red)
-	blueStyle   = lipgloss.NewStyle().Foreground(blue)
+	greenStyle    = lipgloss.NewStyle().Foreground(green)
+	yellowStyle   = lipgloss.NewStyle().Foreground(yellow)
+	favoriteStyle = lipgloss.NewStyle().Bold(true).Foreground(yellow)
+	pinnedStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("201"))
+	redStyle      = lipgloss.NewStyle().Foreground(red)
+	blueStyle     = lipgloss.NewStyle().Foreground(blue)
 )
 
 func Run(hosts []host.Host, passwords config.PasswordStore) error {
