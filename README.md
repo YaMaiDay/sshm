@@ -199,4 +199,4 @@ Apache 2.0 — 请参阅 [LICENSE](LICENSE)。
 
 [报告问题](https://github.com/YaMaiDay/sshm/issues/new) ·
 [提出功能建议](https://github.com/YaMaiDay/sshm/issues/new) ·
-[参与讨论](https://github.com/YaMaiDay/sshm/discussions)
+[查看 Issues](https://github.com/YaMaiDay/sshm/issues)
