@@ -167,6 +167,6 @@
       <tspan>传输任务：多选上传下载、进度查看、中断后继续</tspan>
       <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.32;0.42;0.76;1" dur="6s" repeatCount="indefinite"/>
     </text>
-    <text x="906" y="553" class="muted" font-size="17">Local only · No telemetry</text>
+    <text x="840" y="553" class="muted" font-size="17">本地运行 · 无遥测</text>
   </g>
 </svg>
