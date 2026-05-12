@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -39,6 +42,8 @@ const (
 	modePickRemoteItem
 	modePickSaveDir
 	modeTransferPanel
+	modeTransferJobs
+	modeTransferDetail
 	modeCommandList
 	modeCommandEdit
 	modeCommandConfirm
@@ -142,11 +147,23 @@ type collectMsg struct {
 type tickMsg time.Time
 
 type transferDoneMsg struct {
+	ID     string
 	Kind   string
 	Source string
 	Target string
 	Err    error
 	Output string
+}
+
+type rsyncCheckMsg struct {
+	HostIndex int
+	Missing   bool
+	ErrText   string
+}
+
+type rsyncInstallMsg struct {
+	HostIndex int
+	ErrText   string
 }
 
 type transferProgressMsg time.Time
@@ -182,6 +199,7 @@ type batchCommandDoneMsg struct {
 }
 
 type activeTransfer struct {
+	ID         string
 	Kind       string
 	Source     string
 	Target     string
@@ -194,83 +212,88 @@ type activeTransfer struct {
 }
 
 type Model struct {
-	states              []hostState
-	selected            int
-	width               int
-	height              int
-	searching           bool
-	query               string
-	status              string
-	refreshStatus       string
-	collector           monitor.Collector
-	passwords           config.PasswordStore
-	appConfig           config.AppConfig
-	appState            config.AppState
-	home                string
-	mode                viewMode
-	transfer            transferMode
-	pickIndex           int
-	pickTitle           string
-	choices             []choice
-	remoteTree          remoteTree
-	pending             pendingTransfer
-	panel               transferPanel
-	form                addForm
-	formIndex           int
-	formCursor          int
-	formPane            int
-	categories          []string
-	categoryIndex       int
-	addingCategory      bool
-	categoryDraft       string
-	editing             bool
-	copying             bool
-	editIndex           int
-	deleteIndex         int
-	confirm             confirmAction
-	filter              filterMode
-	sortBy              sortMode
-	dashboardMode       dashboardMode
-	dashboardFocus      int
-	category            string
-	favoriteOnly        bool
-	detailScroll        int
-	detailSectionIndex  int
-	activeTransfer      activeTransfer
-	commandFile         config.CommandsFile
-	commandItems        []commandItem
-	commandIndex        int
-	commandForm         commandEditForm
-	commandField        int
-	commandCursor       int
-	commandEditing      bool
-	commandEditItem     commandItem
-	commandConfirm      commandItem
-	commandOutputScroll int
-	commandOutputBack   viewMode
-	activeCommand       activeCommand
-	batchIndexes        []int
-	batchSelected       map[int]bool
-	batchCursor         int
-	batchCommandItems   []commandItem
-	batchCommandIndex   int
-	batchCommand        commandItem
-	batchJobs           []batchJob
-	batchCurrent        int
-	batchOutputIndex    int
-	batchOutputScroll   int
-	batchOutputBack     viewMode
-	commandHistory      config.CommandHistoryFile
-	historyIndex        int
-	historyScroll       int
-	historySearch       bool
-	historyQuery        string
-	anomalyIndex        int
-	anomalyFilter       anomalyFilterMode
-	helpBackMode        viewMode
-	collectRound        int
-	manualRound         int
-	pendingByRound      map[int]int
+	states               []hostState
+	selected             int
+	width                int
+	height               int
+	searching            bool
+	query                string
+	status               string
+	refreshStatus        string
+	collector            monitor.Collector
+	passwords            config.PasswordStore
+	appConfig            config.AppConfig
+	appState             config.AppState
+	home                 string
+	mode                 viewMode
+	transfer             transferMode
+	pickIndex            int
+	pickTitle            string
+	choices              []choice
+	remoteTree           remoteTree
+	pending              pendingTransfer
+	panel                transferPanel
+	form                 addForm
+	formIndex            int
+	formCursor           int
+	formPane             int
+	categories           []string
+	categoryIndex        int
+	addingCategory       bool
+	categoryDraft        string
+	editing              bool
+	copying              bool
+	editIndex            int
+	deleteIndex          int
+	confirm              confirmAction
+	filter               filterMode
+	sortBy               sortMode
+	dashboardMode        dashboardMode
+	dashboardFocus       int
+	category             string
+	favoriteOnly         bool
+	detailScroll         int
+	detailSectionIndex   int
+	activeTransfer       activeTransfer
+	transferHistory      config.TransferHistoryFile
+	transferIndex        int
+	transferStatusFilter int
+	transferRunAll       bool
+	commandFile          config.CommandsFile
+	commandItems         []commandItem
+	commandIndex         int
+	commandForm          commandEditForm
+	commandField         int
+	commandCursor        int
+	commandEditing       bool
+	commandEditItem      commandItem
+	commandConfirm       commandItem
+	commandOutputScroll  int
+	commandOutputBack    viewMode
+	activeCommand        activeCommand
+	batchIndexes         []int
+	batchSelected        map[int]bool
+	batchCursor          int
+	batchCommandItems    []commandItem
+	batchCommandIndex    int
+	batchCommand         commandItem
+	batchJobs            []batchJob
+	batchCurrent         int
+	batchOutputIndex     int
+	batchOutputScroll    int
+	batchOutputBack      viewMode
+	commandHistory       config.CommandHistoryFile
+	historyIndex         int
+	historyScroll        int
+	historySearch        bool
+	historyQuery         string
+	anomalyIndex         int
+	anomalyFilter        anomalyFilterMode
+	transferJobsBack     viewMode
+	helpBackMode         viewMode
+	collectRound         int
+	manualRound          int
+	pendingByRound       map[int]int
 }
 
 type choice struct {
@@ -306,9 +329,11 @@ type transferPanel struct {
 	RightTree    remoteTree
 	LeftChoices  []choice
 	RightChoices []choice
+	LeftSelected map[string]bool
 	LeftIndex    int
 	RightIndex   int
 	Confirming   bool
+	NeedsInstall bool
 }
 
 type pendingTransfer struct {
@@ -436,6 +461,8 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	appState := config.LoadState(home)
 	categories, _, _ := config.LoadCategories(home)
 	commandFile, _, _ := config.LoadCommands(home)
+	_ = config.MarkRunningTransfersInterrupted(home)
+	transferHistory, _, _ := config.LoadTransfers(home)
 	states := make([]hostState, len(hosts))
 	for i, h := range hosts {
 		states[i] = hostState{Host: h, Loading: true}
@@ -445,17 +472,18 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	collector.Timeout = appConfig.CommandDuration()
 	collector.ConnectTimeout = appConfig.ConnectDuration()
 	return Model{
-		states:         states,
-		collector:      collector,
-		passwords:      passwords,
-		appConfig:      appConfig,
-		appState:       appState,
-		home:           home,
-		commandFile:    commandFile,
-		categories:     categories,
-		status:         "正在采集服务器状态...",
-		collectRound:   1,
-		pendingByRound: pendingByRound,
+		states:          states,
+		collector:       collector,
+		passwords:       passwords,
+		appConfig:       appConfig,
+		appState:        appState,
+		home:            home,
+		commandFile:     commandFile,
+		transferHistory: transferHistory,
+		categories:      categories,
+		status:          "正在采集服务器状态...",
+		collectRound:    1,
+		pendingByRound:  pendingByRound,
 	}
 }
 
@@ -497,17 +525,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case transferDoneMsg:
 		m.activeTransfer.Active = false
 		m.activeTransfer.Cancel = nil
+		m.updateTransferEntryDone(msg)
+		m.reloadTransfers()
+		if status, ok := m.transferEntryStatus(msg.ID); ok {
+			if status == config.TransferStatusInterrupted {
+				m.status = msg.Kind + "已中断。"
+				return m, clearStatusAfter(3 * time.Second)
+			}
+			if status == config.TransferStatusCanceled {
+				m.status = msg.Kind + "已取消。"
+				return m, clearStatusAfter(3 * time.Second)
+			}
+		}
 		if msg.Err != nil {
 			m.status = msg.Kind + "失败：" + transferErrorText(msg.Err, msg.Output)
+			if m.transferRunAll {
+				return m.startNextQueuedTransfer()
+			}
 			return m, clearStatusAfter(3 * time.Second)
 		} else {
 			m.status = fmt.Sprintf("%s完成：%s -> %s", msg.Kind, filepath.Base(msg.Source), msg.Target)
+			if m.transferRunAll {
+				return m.startNextQueuedTransfer()
+			}
 			return m, clearStatusAfter(3 * time.Second)
 		}
+	case rsyncCheckMsg:
+		if msg.Missing {
+			m.panel.NeedsInstall = true
+			m.status = "远程未安装 rsync。按 i 尝试安装并继续，Esc 取消。"
+			return m, nil
+		}
+		if msg.ErrText != "" {
+			m.status = "检测 rsync 失败：" + msg.ErrText
+			return m, nil
+		}
+		return m.createTransferJobsFromPanel()
+	case rsyncInstallMsg:
+		if msg.ErrText != "" {
+			m.status = "安装 rsync 失败：" + msg.ErrText
+			return m, nil
+		}
+		m.panel.NeedsInstall = false
+		m.status = "rsync 安装成功，开始传输。"
+		return m.createTransferJobsFromPanel()
 	case transferProgressMsg:
 		if !m.activeTransfer.Active {
 			return m, nil
 		}
+		m.reloadTransfers()
 		m.status = transferProgressText(m.activeTransfer, m.states)
 		return m, transferProgressAfter(500 * time.Millisecond)
 	case clearStatusMsg:
@@ -583,6 +649,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCommandHistoryDetail(msg)
 		case modeAnomalyOverview:
 			return m.updateAnomalyOverview(msg)
+		case modeTransferJobs:
+			return m.updateTransferJobs(msg)
+		case modeTransferDetail:
+			return m.updateTransferDetail(msg)
 		case modeHelp:
 			return m.updateHelpPanel(msg)
 		}
@@ -611,6 +681,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch key {
 		case "q", "esc", "ctrl+c":
 			if m.activeTransfer.Active && m.activeTransfer.Cancel != nil {
+				m.markActiveTransferInterrupted()
 				m.activeTransfer.Cancel()
 			}
 			return m, tea.Quit
@@ -654,6 +725,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.togglePinned(idx)
 			}
+		case "y":
+			m.transferJobsBack = modeDashboard
+			m.mode = modeTransferJobs
+			m.reloadTransfers()
 		case "v":
 			m.favoriteOnly = !m.favoriteOnly
 			m.selected = 0
@@ -2988,6 +3063,19 @@ func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.panel.NeedsInstall {
+		key := shortcutKey(msg)
+		switch key {
+		case "i":
+			m.status = "正在远程安装 rsync..."
+			return m, m.installRemoteRsync(m.panel.HostIndex)
+		case "esc", "q":
+			m.panel.NeedsInstall = false
+			m.status = "已取消。"
+			return m, nil
+		}
+		return m, nil
+	}
 	if m.panel.Confirming && msg.String() != "enter" {
 		m.panel.Confirming = false
 		m.status = transferPanelStatus(m.panel.Mode)
@@ -3020,8 +3108,253 @@ func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancelTransferConfirm()
 		m.togglePanelTree()
 	case " ":
-		return m.prepareTransferConfirm()
+		m.cancelTransferConfirm()
+		m.togglePanelSelection()
+	case "s":
+		m.cancelTransferConfirm()
+		return m.confirmTransferPanel()
 	}
+	return m, nil
+}
+
+func (m Model) updateTransferJobs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.panel.NeedsInstall {
+		key := shortcutKey(msg)
+		switch key {
+		case "i":
+			m.status = "正在远程安装 rsync..."
+			return m, m.installRemoteRsync(m.panel.HostIndex)
+		case "esc", "q":
+			m.panel.NeedsInstall = false
+			m.status = "已取消安装 rsync。"
+			return m, nil
+		}
+		return m, nil
+	}
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q":
+		m.mode = m.transferJobsBack
+		if m.mode == 0 {
+			m.mode = modeDashboard
+		}
+	case "j", "down":
+		m.moveTransferIndex(m.dashboardColumns())
+	case "k", "up":
+		m.moveTransferIndex(-m.dashboardColumns())
+	case "h", "left":
+		m.moveTransferIndex(-1)
+	case "l", "right":
+		m.moveTransferIndex(1)
+	case "tab":
+		m.cycleTransferStatusFilter()
+	case "enter":
+		m.transferRunAll = false
+		return m.startSelectedTransfer()
+	case " ":
+		return m.openTransferDetail(), nil
+	case "a":
+		return m.startAllQueuedTransfers()
+	case "p":
+		return m.pauseRunningTransfers()
+	case "c":
+		return m.cancelSelectedTransfer()
+	case "x":
+		return m.deleteSelectedTransfer()
+	}
+	return m, nil
+}
+
+func (m Model) openTransferDetail() Model {
+	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
+		return m
+	}
+	m.mode = modeTransferDetail
+	m.detailScroll = 0
+	return m
+}
+
+func (m Model) updateTransferDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c", "b":
+		m.mode = modeTransferJobs
+		m.detailScroll = 0
+	case "j", "down":
+		m.detailScroll = clampInt(m.detailScroll+1, 0, m.transferDetailMaxScroll())
+	case "k", "up":
+		m.detailScroll = clampInt(m.detailScroll-1, 0, m.transferDetailMaxScroll())
+	case "enter":
+		m.transferRunAll = false
+		return m.startSelectedTransfer()
+	case "a":
+		return m.startAllQueuedTransfers()
+	case "p":
+		return m.pauseRunningTransfers()
+	case "c":
+		return m.cancelSelectedTransfer()
+	case "x":
+		return m.deleteSelectedTransfer()
+	}
+	return m, nil
+}
+
+func (m *Model) moveTransferIndex(delta int) {
+	indexes := m.filteredTransferIndexes()
+	if len(indexes) == 0 {
+		m.transferIndex = 0
+		return
+	}
+	pos := 0
+	for i, index := range indexes {
+		if index == m.transferIndex {
+			pos = i
+			break
+		}
+	}
+	pos = clampInt(pos+delta, 0, len(indexes)-1)
+	m.transferIndex = indexes[pos]
+}
+
+func (m *Model) cycleTransferStatusFilter() {
+	m.transferStatusFilter++
+	if m.transferStatusFilter >= len(transferStatusFilterOptions()) {
+		m.transferStatusFilter = 0
+	}
+	m.ensureTransferIndexVisible()
+}
+
+func (m Model) startSelectedTransfer() (tea.Model, tea.Cmd) {
+	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
+		return m, nil
+	}
+	entry := m.transferHistory.Entries[m.transferIndex]
+	switch entry.Status {
+	case config.TransferStatusQueued:
+		return m.startTransferEntry(entry)
+	case config.TransferStatusFailed, config.TransferStatusInterrupted:
+		entry.Status = config.TransferStatusQueued
+		entry.Error = ""
+		entry.UpdatedAt = time.Now().Format(time.RFC3339)
+		_ = config.UpdateTransfer(m.home, entry)
+		m.reloadTransfers()
+		return m.startTransferEntry(entry)
+	default:
+		m.status = "该任务当前不可开始。"
+		return m, nil
+	}
+}
+
+func (m Model) startAllQueuedTransfers() (tea.Model, tea.Cmd) {
+	file := m.transferHistory
+	count := 0
+	now := time.Now().Format(time.RFC3339)
+	for i := range file.Entries {
+		if file.Entries[i].Status == config.TransferStatusQueued || file.Entries[i].Status == config.TransferStatusInterrupted {
+			file.Entries[i].Status = config.TransferStatusPending
+			file.Entries[i].Error = ""
+			file.Entries[i].UpdatedAt = now
+			count++
+		}
+	}
+	if count == 0 {
+		m.status = "没有等待中或中断的任务。"
+		return m, nil
+	}
+	_ = config.SaveTransfers(m.home, file)
+	m.transferStatusFilter = 0
+	m.reloadTransfers()
+	m.transferRunAll = true
+	if m.activeTransfer.Active {
+		m.status = fmt.Sprintf("已加入全部开始：排队中 %d 个。", count)
+		return m, nil
+	}
+	return m.startNextQueuedTransfer()
+}
+
+func (m Model) transferEntryStatus(id string) (string, bool) {
+	for _, entry := range m.transferHistory.Entries {
+		if entry.ID == id {
+			return entry.Status, true
+		}
+	}
+	return "", false
+}
+
+func (m Model) pauseRunningTransfers() (tea.Model, tea.Cmd) {
+	file := m.transferHistory
+	changed := false
+	now := time.Now().Format(time.RFC3339)
+	for i := range file.Entries {
+		switch file.Entries[i].Status {
+		case config.TransferStatusRunning:
+			file.Entries[i].Status = config.TransferStatusInterrupted
+			file.Entries[i].UpdatedAt = now
+			changed = true
+		case config.TransferStatusPending:
+			file.Entries[i].Status = config.TransferStatusQueued
+			file.Entries[i].UpdatedAt = now
+			changed = true
+		}
+	}
+	if !changed {
+		m.status = "没有运行中或排队中的任务。"
+		return m, nil
+	}
+	m.transferRunAll = false
+	_ = config.SaveTransfers(m.home, file)
+	m.reloadTransfers()
+	if m.activeTransfer.Active && m.activeTransfer.Cancel != nil {
+		m.activeTransfer.Cancel()
+	}
+	m.status = "已暂停运行中任务，排队中任务已退回等待中。"
+	return m, nil
+}
+
+func (m Model) deleteSelectedTransfer() (tea.Model, tea.Cmd) {
+	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
+		return m, nil
+	}
+	entry := m.transferHistory.Entries[m.transferIndex]
+	if entry.Status == config.TransferStatusRunning {
+		m.status = "运行中的任务不能删除。"
+		return m, nil
+	}
+	_ = config.DeleteTransfer(m.home, entry.ID)
+	m.reloadTransfers()
+	return m, nil
+}
+
+func (m Model) cancelSelectedTransfer() (tea.Model, tea.Cmd) {
+	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
+		return m, nil
+	}
+	entry := m.transferHistory.Entries[m.transferIndex]
+	if entry.Status == config.TransferStatusQueued {
+		entry.Status = config.TransferStatusCanceled
+		entry.UpdatedAt = time.Now().Format(time.RFC3339)
+		_ = config.UpdateTransfer(m.home, entry)
+		m.reloadTransfers()
+		return m, nil
+	}
+	if entry.Status == config.TransferStatusRunning && m.activeTransfer.ID == entry.ID && m.activeTransfer.Cancel != nil {
+		entry.Status = config.TransferStatusInterrupted
+		entry.UpdatedAt = time.Now().Format(time.RFC3339)
+		_ = config.UpdateTransfer(m.home, entry)
+		m.reloadTransfers()
+		m.activeTransfer.Cancel()
+		m.status = "已中断当前传输。再次按 c 可取消该任务。"
+		return m, nil
+	}
+	if entry.Status == config.TransferStatusInterrupted {
+		entry.Status = config.TransferStatusCanceled
+		entry.UpdatedAt = time.Now().Format(time.RFC3339)
+		_ = config.UpdateTransfer(m.home, entry)
+		m.reloadTransfers()
+		m.status = "已取消当前中断任务。"
+		return m, nil
+	}
+	m.status = "该任务当前不可取消。"
 	return m, nil
 }
 
@@ -3038,6 +3371,47 @@ func (m *Model) movePanel(delta int) {
 		return
 	}
 	m.panel.RightIndex = moveIndex(m.panel.RightIndex, len(m.panel.RightChoices), delta)
+}
+
+func (m *Model) togglePanelSelection() {
+	if m.panel.ActivePane != 0 {
+		return
+	}
+	if len(m.panel.LeftChoices) == 0 || m.panel.LeftIndex < 0 || m.panel.LeftIndex >= len(m.panel.LeftChoices) {
+		return
+	}
+	pick := m.panel.LeftChoices[m.panel.LeftIndex]
+	if m.panel.LeftSelected == nil {
+		m.panel.LeftSelected = map[string]bool{}
+	}
+	if m.panel.LeftSelected[pick.Value] {
+		delete(m.panel.LeftSelected, pick.Value)
+	} else {
+		m.panel.LeftSelected[pick.Value] = true
+	}
+}
+
+func (m Model) selectedTransferSources() []choice {
+	if len(m.panel.LeftSelected) == 0 {
+		return nil
+	}
+	out := make([]choice, 0, len(m.panel.LeftSelected))
+	for path := range m.panel.LeftSelected {
+		node := m.panel.LeftTree.Nodes[path]
+		if node == nil {
+			continue
+		}
+		out = append(out, choice{
+			Label: treeLabel(node),
+			Value: node.Item.Path,
+			IsDir: node.Item.IsDir,
+			Depth: node.Depth,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Value) < strings.ToLower(out[j].Value)
+	})
+	return out
 }
 
 func moveIndex(index, count, delta int) int {
@@ -3094,35 +3468,27 @@ func (m *Model) activePanelTree() (*remoteTree, *[]choice, *int) {
 
 func (m Model) confirmTransferPanel() (tea.Model, tea.Cmd) {
 	m.panel.Confirming = false
-	if len(m.panel.LeftChoices) == 0 || len(m.panel.RightChoices) == 0 {
-		m.status = "左右两边都需要选择。"
+	if len(m.selectedTransferSources()) == 0 || len(m.panel.RightChoices) == 0 {
+		m.status = "左侧至少选择一个文件或目录，右侧选择目标目录。"
 		return m, nil
 	}
-	left := m.panel.LeftChoices[m.panel.LeftIndex]
 	right := m.panel.RightChoices[m.panel.RightIndex]
 	if !right.IsDir {
 		m.status = "右侧必须选择目录。"
 		return m, nil
 	}
-	m.pending = pendingTransfer{HostIndex: m.panel.HostIndex}
-	if m.panel.Mode == transferUpload {
-		m.pending.LocalPath = left.Value
-		m.pending.LocalIsDir = left.IsDir
-		m.pending.RemoteDir = right.Value
-		return m.startUploadTransfer()
-	}
-	m.pending.RemotePath = left.Value
-	m.pending.RemoteIsDir = left.IsDir
-	m.pending.SaveDir = right.Value
-	return m.startDownloadTransfer()
+	m.transferJobsBack = modeTransferPanel
+	m.mode = modeTransferJobs
+	m.status = "正在检测远程 rsync..."
+	return m, m.checkRemoteRsync(m.panel.HostIndex)
 }
 
 func (m Model) prepareTransferConfirm() (tea.Model, tea.Cmd) {
-	if len(m.panel.LeftChoices) == 0 || len(m.panel.RightChoices) == 0 {
-		m.status = "左右两边都需要选择。"
+	selected := m.selectedTransferSources()
+	if len(selected) == 0 || len(m.panel.RightChoices) == 0 {
+		m.status = "左侧至少选择一个文件或目录，右侧选择目标目录。"
 		return m, nil
 	}
-	left := m.panel.LeftChoices[m.panel.LeftIndex]
 	right := m.panel.RightChoices[m.panel.RightIndex]
 	if !right.IsDir {
 		m.status = "右侧必须选择目录。"
@@ -3131,10 +3497,10 @@ func (m Model) prepareTransferConfirm() (tea.Model, tea.Cmd) {
 	h := m.states[m.panel.HostIndex].Host
 	m.panel.Confirming = true
 	if m.panel.Mode == transferUpload {
-		m.status = fmt.Sprintf("上传 Enter：%s -> %s:%s/  取消 Esc", filepath.Base(left.Value), hostDisplayName(h), right.Value)
+		m.status = fmt.Sprintf("上传 Enter：%d 项 -> %s:%s/  取消 Esc", len(selected), hostDisplayName(h), right.Value)
 		return m, nil
 	}
-	m.status = fmt.Sprintf("下载 Enter：%s:%s -> %s/  取消 Esc", hostDisplayName(h), left.Value, right.Value)
+	m.status = fmt.Sprintf("下载 Enter：%d 项 -> %s/  取消 Esc", len(selected), right.Value)
 	return m, nil
 }
 
@@ -3257,6 +3623,115 @@ func (m Model) startDownloadTransfer() (tea.Model, tea.Cmd) {
 	}
 	m.status = transferProgressText(m.activeTransfer, m.states)
 	return m, tea.Batch(m.runDownload(ctx), transferProgressAfter(500*time.Millisecond))
+}
+
+func (m Model) checkRemoteRsync(index int) tea.Cmd {
+	return func() tea.Msg {
+		if index < 0 || index >= len(m.states) {
+			return rsyncCheckMsg{HostIndex: index, ErrText: "服务器索引无效"}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
+		defer cancel()
+		cmd, cleanup := actions.RemoteRsyncCheckCommand(ctx, m.states[index].Host)
+		defer cleanup()
+		err := cmd.Run()
+		if err == nil {
+			return rsyncCheckMsg{HostIndex: index}
+		}
+		return rsyncCheckMsg{HostIndex: index, Missing: true}
+	}
+}
+
+func (m Model) installRemoteRsync(index int) tea.Cmd {
+	return func() tea.Msg {
+		if index < 0 || index >= len(m.states) {
+			return rsyncInstallMsg{HostIndex: index, ErrText: "服务器索引无效"}
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		cmd, cleanup := actions.RemoteRsyncInstallCommand(ctx, m.states[index].Host)
+		defer cleanup()
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return rsyncInstallMsg{HostIndex: index, ErrText: transferErrorText(err, string(output))}
+		}
+		return rsyncInstallMsg{HostIndex: index}
+	}
+}
+
+func (m Model) createTransferJobsFromPanel() (tea.Model, tea.Cmd) {
+	selected := m.selectedTransferSources()
+	if len(selected) == 0 || len(m.panel.RightChoices) == 0 {
+		m.status = "没有可传输的项目。"
+		return m, nil
+	}
+	target := m.panel.RightChoices[m.panel.RightIndex]
+	h := m.states[m.panel.HostIndex].Host
+	now := time.Now()
+	for i, item := range selected {
+		totalBytes := int64(0)
+		if m.panel.Mode == transferDownload {
+			totalBytes = remoteSizeBytes(h, item.Value)
+		} else {
+			totalBytes = localSizeBytes(item.Value)
+		}
+		entry := config.TransferEntry{
+			ID:           config.NewTransferID(now.Add(time.Duration(i))),
+			Time:         now.Format(time.RFC3339),
+			Kind:         transferKindString(m.panel.Mode),
+			Status:       config.TransferStatusQueued,
+			HostCategory: h.Category,
+			HostName:     h.Name,
+			Host:         h.HostName,
+			User:         h.User,
+			Port:         h.Port,
+			Source:       item.Value,
+			TargetDir:    target.Value,
+			IsDir:        item.IsDir,
+			TotalBytes:   totalBytes,
+			UpdatedAt:    now.Format(time.RFC3339),
+		}
+		_ = config.AppendTransfer(m.home, entry)
+	}
+	m.reloadTransfers()
+	m.transferJobsBack = modeTransferPanel
+	m.mode = modeTransferJobs
+	m.transfer = transferNone
+	m.status = fmt.Sprintf("已创建 %d 个传输任务。", len(selected))
+	return m, nil
+}
+
+func transferKindString(mode transferMode) string {
+	if mode == transferDownload {
+		return "download"
+	}
+	return "upload"
+}
+
+func (m *Model) reloadTransfers() {
+	file, _, _ := config.LoadTransfers(m.home)
+	m.transferHistory = file
+	if m.transferIndex >= len(m.transferHistory.Entries) {
+		m.transferIndex = len(m.transferHistory.Entries) - 1
+	}
+	if m.transferIndex < 0 {
+		m.transferIndex = 0
+	}
+	m.ensureTransferIndexVisible()
+}
+
+func (m *Model) ensureTransferIndexVisible() {
+	indexes := m.filteredTransferIndexes()
+	if len(indexes) == 0 {
+		m.transferIndex = 0
+		return
+	}
+	for _, index := range indexes {
+		if index == m.transferIndex {
+			return
+		}
+	}
+	m.transferIndex = indexes[0]
 }
 
 func (m *Model) startLocalTree(title string, mode viewMode, dirsOnly bool) {
@@ -3523,7 +3998,7 @@ func treeLabel(node *remoteTreeNode) string {
 func (m Model) startTransferPanel(idx int, mode transferMode) Model {
 	h := m.states[idx].Host
 	remoteTitle := "远程 " + hostDisplayName(h)
-	panel := transferPanel{Mode: mode, HostIndex: idx}
+	panel := transferPanel{Mode: mode, HostIndex: idx, LeftSelected: map[string]bool{}}
 	if mode == transferUpload {
 		panel.LeftTitle = "本地"
 		panel.RightTitle = remoteTitle
@@ -3564,9 +4039,9 @@ func dashboardHostDisplayName(h host.Host) string {
 
 func transferPanelStatus(mode transferMode) string {
 	if mode == transferUpload {
-		return "上传：左侧选择本地文件/目录，右侧选择远程目录，空格确认。"
+		return "上传：左侧多选本地文件/目录，右侧选择远程目录，s 开始。"
 	}
-	return "下载：左侧选择远程文件/目录，右侧选择本地目录，空格确认。"
+	return "下载：左侧多选远程文件/目录，右侧选择本地目录，s 开始。"
 }
 
 func (m Model) startUpload(idx int) Model {
@@ -3603,6 +4078,302 @@ func (m Model) runDownload(ctx context.Context) tea.Cmd {
 	}
 }
 
+func (m Model) startNextQueuedTransfer() (tea.Model, tea.Cmd) {
+	if m.activeTransfer.Active {
+		return m, nil
+	}
+	for _, entry := range m.transferHistory.Entries {
+		if entry.Status == config.TransferStatusPending {
+			return m.startTransferEntry(entry)
+		}
+	}
+	m.transferRunAll = false
+	return m, clearStatusAfter(3 * time.Second)
+}
+
+func (m Model) startTransferEntry(entry config.TransferEntry) (tea.Model, tea.Cmd) {
+	h, index, ok := m.findTransferHost(entry)
+	if !ok {
+		entry.Status = config.TransferStatusFailed
+		entry.Error = "找不到服务器：" + entry.HostName
+		entry.UpdatedAt = time.Now().Format(time.RFC3339)
+		_ = config.UpdateTransfer(m.home, entry)
+		m.reloadTransfers()
+		return m, clearStatusAfter(3 * time.Second)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	entry.Status = config.TransferStatusRunning
+	entry.Error = ""
+	entry.UpdatedAt = time.Now().Format(time.RFC3339)
+	_ = config.UpdateTransfer(m.home, entry)
+	m.activeTransfer = activeTransfer{
+		ID:        entry.ID,
+		Kind:      transferEntryKindText(entry),
+		Source:    entry.Source,
+		Target:    entry.TargetDir,
+		HostIndex: index,
+		Active:    true,
+		Cancel:    cancel,
+	}
+	m.reloadTransfers()
+	m.status = transferProgressText(m.activeTransfer, m.states)
+	cmd := func() tea.Msg {
+		cmd, cleanup := m.rsyncCommandForEntry(ctx, h, entry)
+		output, err := runRsyncWithProgress(cmd, m.home, entry.ID)
+		cleanup()
+		cancel()
+		return transferDoneMsg{ID: entry.ID, Kind: transferEntryKindText(entry), Source: entry.Source, Target: entry.TargetDir, Err: err, Output: string(output)}
+	}
+	return m, tea.Batch(cmd, transferProgressAfter(500*time.Millisecond))
+}
+
+func runRsyncWithProgress(cmd *exec.Cmd, home string, id string) (string, error) {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", err
+	}
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	var mu sync.Mutex
+	var output strings.Builder
+	lastProgress := ""
+	collect := func(text string) {
+		progress := ""
+		mu.Lock()
+		output.WriteString(text)
+		if !strings.HasSuffix(text, "\n") {
+			output.WriteString("\n")
+		}
+		if progressText := rsyncProgressText(text); progressText != "" && progressText != lastProgress {
+			lastProgress = progressText
+			progress = progressText
+		}
+		mu.Unlock()
+		if progress != "" {
+			updateTransferProgress(home, id, progress)
+		}
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		readRsyncProgress(stdout, collect)
+	}()
+	go func() {
+		defer wg.Done()
+		readRsyncProgress(stderr, collect)
+	}()
+	err = cmd.Wait()
+	wg.Wait()
+	mu.Lock()
+	text := output.String()
+	mu.Unlock()
+	return text, err
+}
+
+func readRsyncProgress(r io.Reader, collect func(string)) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Split(splitRsyncProgress)
+	for scanner.Scan() {
+		text := strings.TrimSpace(scanner.Text())
+		if text != "" {
+			collect(text)
+		}
+	}
+}
+
+func splitRsyncProgress(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	for i, b := range data {
+		if b == '\n' || b == '\r' {
+			return i + 1, data[:i], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
+}
+
+func (m Model) rsyncCommandForEntry(ctx context.Context, h host.Host, entry config.TransferEntry) (*exec.Cmd, actions.Cleanup) {
+	if entry.Kind == "download" {
+		return actions.RsyncDownloadCommandContext(ctx, h, entry.Source, entry.TargetDir)
+	}
+	return actions.RsyncUploadCommandContext(ctx, h, entry.Source, entry.TargetDir)
+}
+
+func (m Model) findTransferHost(entry config.TransferEntry) (host.Host, int, bool) {
+	for i, state := range m.states {
+		h := state.Host
+		if h.Name == entry.HostName && h.Category == entry.HostCategory {
+			return h, i, true
+		}
+	}
+	return host.Host{}, -1, false
+}
+
+func transferEntryKindText(entry config.TransferEntry) string {
+	if entry.Kind == "download" {
+		return "下载"
+	}
+	return "上传"
+}
+
+func (m *Model) updateTransferEntryDone(msg transferDoneMsg) {
+	file, _, err := config.LoadTransfers(m.home)
+	if err != nil {
+		return
+	}
+	for i := range file.Entries {
+		if file.Entries[i].ID != msg.ID {
+			continue
+		}
+		if file.Entries[i].Status == config.TransferStatusCanceled || file.Entries[i].Status == config.TransferStatusInterrupted {
+			_ = config.SaveTransfers(m.home, file)
+			return
+		}
+		file.Entries[i].UpdatedAt = time.Now().Format(time.RFC3339)
+		file.Entries[i].Progress = lastRsyncProgressLine(msg.Output)
+		updateTransferProgressBytes(&file.Entries[i], file.Entries[i].Progress)
+		if msg.Err != nil {
+			file.Entries[i].Status = config.TransferStatusFailed
+			file.Entries[i].Error = transferErrorText(msg.Err, msg.Output)
+		} else {
+			file.Entries[i].Status = config.TransferStatusDone
+			file.Entries[i].Progress = "100%"
+			if file.Entries[i].TotalBytes > 0 {
+				file.Entries[i].DoneBytes = file.Entries[i].TotalBytes
+				file.Entries[i].CurrentBytes = 0
+			}
+			file.Entries[i].Error = ""
+		}
+		_ = config.SaveTransfers(m.home, file)
+		return
+	}
+}
+
+func updateTransferProgress(home string, id string, progress string) {
+	if id == "" || progress == "" {
+		return
+	}
+	_, _ = config.UpdateRunningTransferProgress(home, id, func(entry *config.TransferEntry) {
+		entry.Progress = progress
+		updateTransferProgressBytes(entry, progress)
+		entry.UpdatedAt = time.Now().Format(time.RFC3339)
+	})
+}
+
+func updateTransferProgressBytes(entry *config.TransferEntry, progress string) {
+	bytes, percent, seq, ok := parseRsyncProgressValues(progress)
+	if !ok {
+		return
+	}
+	if percent >= 100 && seq > 0 && seq > entry.ProgressSeq {
+		entry.DoneBytes += bytes
+		entry.CurrentBytes = 0
+		entry.ProgressSeq = seq
+	} else if percent >= 100 && entry.TotalBytes > 0 && bytes >= entry.TotalBytes {
+		entry.DoneBytes = entry.TotalBytes
+		entry.CurrentBytes = 0
+	} else {
+		entry.CurrentBytes = bytes
+	}
+	if entry.TotalBytes > 0 && entry.DoneBytes > entry.TotalBytes {
+		entry.DoneBytes = entry.TotalBytes
+	}
+}
+
+func (m Model) markActiveTransferInterrupted() {
+	if m.activeTransfer.ID == "" {
+		return
+	}
+	file, _, err := config.LoadTransfers(m.home)
+	if err != nil {
+		return
+	}
+	for i := range file.Entries {
+		if file.Entries[i].ID == m.activeTransfer.ID && file.Entries[i].Status == config.TransferStatusRunning {
+			file.Entries[i].Status = config.TransferStatusInterrupted
+			file.Entries[i].UpdatedAt = time.Now().Format(time.RFC3339)
+			_ = config.SaveTransfers(m.home, file)
+			return
+		}
+	}
+}
+
+func lastRsyncProgressLine(output string) string {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if progress := rsyncProgressText(line); progress != "" {
+			return progress
+		}
+	}
+	return ""
+}
+
+var rsyncPercentPattern = regexp.MustCompile(`\b([0-9]{1,3})%`)
+var rsyncXferPattern = regexp.MustCompile(`xfer#([0-9]+)`)
+
+func rsyncProgressText(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if value == "" || rsyncPercentText(value) == "" {
+		return ""
+	}
+	return value
+}
+
+func rsyncPercentText(value string) string {
+	match := rsyncPercentPattern.FindStringSubmatch(value)
+	if len(match) < 2 {
+		return ""
+	}
+	percent, err := strconv.Atoi(match[1])
+	if err != nil {
+		return ""
+	}
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	return fmt.Sprintf("%d%%", percent)
+}
+
+func parseRsyncProgressValues(value string) (int64, int, int, bool) {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) < 2 {
+		return 0, 0, 0, false
+	}
+	bytesText := strings.ReplaceAll(fields[0], ",", "")
+	bytes, err := strconv.ParseInt(bytesText, 10, 64)
+	if err != nil || bytes < 0 {
+		return 0, 0, 0, false
+	}
+	percentText := strings.TrimSuffix(fields[1], "%")
+	percent, err := strconv.Atoi(percentText)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	seq := 0
+	if match := rsyncXferPattern.FindStringSubmatch(value); len(match) == 2 {
+		seq, _ = strconv.Atoi(match[1])
+	}
+	return bytes, percent, seq, true
+}
+
 func remoteSizeBytes(h host.Host, remotePath string) int64 {
 	cmd, cleanup := actions.RemoteSizeCommand(h, remotePath)
 	defer cleanup()
@@ -3615,6 +4386,29 @@ func remoteSizeBytes(h host.Host, remotePath string) int64 {
 		return 0
 	}
 	return size
+}
+
+func localSizeBytes(path string) int64 {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return 0
+	}
+	if !info.IsDir() {
+		return info.Size()
+	}
+	var total int64
+	_ = filepath.WalkDir(path, func(itemPath string, entry os.DirEntry, err error) error {
+		if err != nil || entry == nil {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		total += info.Size()
+		return nil
+	})
+	return total
 }
 
 func transferProgressAfter(d time.Duration) tea.Cmd {
@@ -4044,6 +4838,12 @@ func (m Model) View() string {
 	if m.mode == modeAnomalyOverview {
 		return m.renderAnomalyOverview()
 	}
+	if m.mode == modeTransferJobs {
+		return m.renderTransferJobs()
+	}
+	if m.mode == modeTransferDetail {
+		return m.renderTransferDetail()
+	}
 	if m.mode == modeHelp {
 		return m.renderHelpPanel()
 	}
@@ -4140,6 +4940,7 @@ func renderDashboardHelp(width int) string {
 		"命令 m",
 		"批量 b",
 		"历史 i",
+		"传输 y",
 		"总览 w",
 		"视图 z",
 		"置顶 t",
@@ -5087,6 +5888,7 @@ func (m Model) renderHelpPanel() string {
 		{"m", "命令模板"},
 		{"b", "批量命令"},
 		{"i", "命令历史"},
+		{"y", "传输任务"},
 		{"w", "异常总览"},
 		{"z", "切换首页视图"},
 		{"t", "置顶 / 取消置顶"},
@@ -6118,7 +6920,7 @@ func (m Model) renderTransferPanel() string {
 		header += "  " + m.status
 	}
 	width := formContentWidth(m.width)
-	help := "切换 Tab  移动 ↑↓/jk  展开 Enter  确认 Space  返回 Esc"
+	help := "切换 Tab  移动 ↑↓/jk  展开 Enter  选择 Space  任务 s  返回 Esc"
 	height := m.height - 4
 	if height < 8 {
 		height = 8
@@ -6126,16 +6928,16 @@ func (m Model) renderTransferPanel() string {
 	body := ""
 	if m.useSingleTransferPane(width) {
 		if m.panel.ActivePane == 0 {
-			body = renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, width, height, true)
+			body = renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, width, height, true, m.panel.LeftSelected)
 		} else {
-			body = renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, width, height, true)
+			body = renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, width, height, true, nil)
 		}
 	} else {
 		gap := 1
 		leftWidth := (width - gap) / 2
 		rightWidth := width - gap - leftWidth
-		left := renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, leftWidth, height, m.panel.ActivePane == 0)
-		right := renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, rightWidth, height, m.panel.ActivePane == 1)
+		left := renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, leftWidth, height, m.panel.ActivePane == 0, m.panel.LeftSelected)
+		right := renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, rightWidth, height, m.panel.ActivePane == 1, nil)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 	}
 	return strings.Join([]string{
@@ -6145,11 +6947,744 @@ func (m Model) renderTransferPanel() string {
 	}, "\n")
 }
 
+func (m Model) renderTransferJobs() string {
+	width := m.width
+	if width <= 0 {
+		width = contentWidth(m.width)
+	}
+	if width < 34 {
+		width = 34
+	}
+	help := renderTransferJobsHelp(width)
+	reservedBottomLines := strings.Count(help, "\n") + 1
+	counts := transferStatusCounts(m.transferHistory.Entries)
+	filtered := m.filteredTransferIndexes()
+	header := fmt.Sprintf("传输任务  状态 %s  显示 %d/%d  运行 %d  未完成 %d  已完成 %d", m.transferStatusFilterName(), len(filtered), len(m.transferHistory.Entries), counts[config.TransferStatusRunning], transferUnfinishedCount(m.transferHistory.Entries), counts[config.TransferStatusDone])
+	lines := []string{titleStyle.Render(fit(header, width)), ""}
+	if len(m.transferHistory.Entries) == 0 {
+		lines = append(lines, mutedStyle.Render("暂无传输记录"))
+	} else if len(filtered) == 0 {
+		lines = append(lines, mutedStyle.Render("当前状态没有传输任务"))
+	} else {
+		bodyLines := m.height - reservedBottomLines - 2
+		if bodyLines < 1 {
+			bodyLines = 1
+		}
+		cardLines, selectedTop, selectedBottom := m.transferJobGridLines(width)
+		start, end := dashboardLineWindow(len(cardLines), selectedTop, selectedBottom, bodyLines)
+		lines = append(lines, cardLines[start:end]...)
+	}
+	lines = padToBottom(lines, m.height, reservedBottomLines)
+	lines = append(lines, help)
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderTransferDetail() string {
+	m.reloadTransfers()
+	entry, ok := m.selectedTransferEntry()
+	width := detailFrameWidth(m.width)
+	if width < 34 {
+		width = 34
+	}
+	if !ok {
+		return strings.Join([]string{
+			titleStyle.Render(fit("传输详情", width)),
+			mutedStyle.Render("当前任务不存在"),
+			renderHelp(width, "返回 Esc"),
+		}, "\n")
+	}
+	lines := m.transferDetailLines(entry)
+	viewportHeight := m.detailViewportHeight()
+	if viewportHeight < len(lines) {
+		maxScroll := len(lines) - viewportHeight
+		scroll := clampInt(m.detailScroll, 0, maxScroll)
+		lines = lines[scroll : scroll+viewportHeight]
+	}
+	headerText := fmt.Sprintf("传输详情  %s  %s", transferEntryName(entry), transferStatusText(entry.Status))
+	header := titleStyle.Render(fitANSI(headerText, width))
+	body := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	help := renderHelp(width, "滚动 ↑↓/jk  开始 Enter  全部开始 a  全部暂停 p  取消 c  删除 x  返回 Esc")
+	return strings.Join([]string{header, body, help}, "\n")
+}
+
+func (m Model) selectedTransferEntry() (config.TransferEntry, bool) {
+	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
+		return config.TransferEntry{}, false
+	}
+	return m.transferHistory.Entries[m.transferIndex], true
+}
+
+func (m Model) transferDetailLines(entry config.TransferEntry) []string {
+	status := lipgloss.NewStyle().Foreground(transferStatusColor(entry.Status)).Bold(true).Render(transferStatusText(entry.Status))
+	total := "-"
+	if entry.TotalBytes > 0 {
+		total = bytesHuman(uint64(entry.TotalBytes))
+	}
+	done := "-"
+	if entry.TotalBytes > 0 || transferProgressDoneBytes(entry) > 0 {
+		done = bytesHuman(uint64(transferProgressDoneBytes(entry)))
+	}
+	remaining := transferRemainingBytesText(entry)
+	speed, remain := transferProgressSpeedRemain(entry.Progress)
+	percent := transferPercentText(entry)
+	progress := transferProgressBarLine(entry, m.detailContentWidth())
+	lines := []string{
+		m.renderDetailSectionLine("基本信息", sectionTitle("基本信息")),
+		m.detailRow("状态", status),
+		m.detailRow("类型", transferEntryKindText(entry)),
+		m.detailRow("方向", transferDirectionText(entry)),
+		m.detailRow("文件", transferEntryName(entry)),
+		m.detailRow("目录", yesNo(entry.IsDir)),
+		m.detailRow("任务ID", entry.ID),
+		m.detailRow("服务器", ansi.Strip(transferEntryHostTitle(entry))),
+		m.detailRow("连接", transferEntryConnection(entry)),
+		m.detailRow("创建时间", transferTimeShort(entry.Time)),
+		m.detailRow("更新时间", transferTimeShort(entry.UpdatedAt)),
+		m.detailRow("队列位置", transferQueueText(m.transferHistory.Entries, entry)),
+		m.detailRow("传输方式", "rsync，支持断点续传，保留半成品"),
+		"",
+		m.renderDetailSectionLine("路径信息", sectionTitle("路径信息")),
+		m.detailRow("来源", entry.Source),
+		m.detailRow("目标", transferJobTarget(entry)),
+		"",
+		m.renderDetailSectionLine("传输进度", sectionTitle("传输进度")),
+		m.detailRow("进度", progress),
+		m.detailRow("百分比", percent),
+		m.detailRow("总大小", total),
+		m.detailRow("已完成", done),
+		m.detailRow("剩余大小", remaining),
+		m.detailRow("速度", emptyDash(speed)),
+		m.detailRow("剩余时间", emptyDash(remain)),
+		m.detailRow("原始进度", emptyDash(strings.Join(strings.Fields(entry.Progress), " "))),
+		"",
+		m.renderDetailSectionLine("操作", sectionTitle("操作")),
+		m.detailRow("可操作", transferActionHint(entry.Status)),
+	}
+	if strings.TrimSpace(entry.Error) != "" {
+		lines = append(lines, "", m.renderDetailSectionLine("错误", sectionTitle("错误")), m.detailRow("错误", redStyle.Render(entry.Error)))
+	}
+	return lines
+}
+
+func (m Model) transferDetailMaxScroll() int {
+	entry, ok := m.selectedTransferEntry()
+	if !ok {
+		return 0
+	}
+	maxScroll := len(m.transferDetailLines(entry)) - m.detailViewportHeight()
+	if maxScroll < 0 {
+		return 0
+	}
+	return maxScroll
+}
+
+func transferEntryConnection(entry config.TransferEntry) string {
+	user := strings.TrimSpace(entry.User)
+	if user == "" {
+		user = "-"
+	}
+	host := strings.TrimSpace(entry.Host)
+	if host == "" {
+		host = "-"
+	}
+	port := strings.TrimSpace(entry.Port)
+	if port == "" {
+		port = "22"
+	}
+	return fmt.Sprintf("%s@%s:%s", user, host, port)
+}
+
+func transferDirectionText(entry config.TransferEntry) string {
+	if entry.Kind == "download" {
+		return "远程 → 本地"
+	}
+	return "本地 → 远程"
+}
+
+func transferRemotePath(entry config.TransferEntry) string {
+	if entry.Kind == "download" {
+		return entry.Source
+	}
+	return transferJobTarget(entry)
+}
+
+func transferLocalPath(entry config.TransferEntry) string {
+	if entry.Kind == "download" {
+		return entry.TargetDir
+	}
+	return entry.Source
+}
+
+func transferPercentText(entry config.TransferEntry) string {
+	percent, ok := transferProgressPercent(entry)
+	if !ok {
+		return "-"
+	}
+	return fmt.Sprintf("%d%%", percent)
+}
+
+func transferRemainingBytesText(entry config.TransferEntry) string {
+	if entry.TotalBytes <= 0 {
+		return "-"
+	}
+	done := transferProgressDoneBytes(entry)
+	if done >= entry.TotalBytes {
+		return "0B"
+	}
+	return bytesHuman(uint64(entry.TotalBytes - done))
+}
+
+func transferQueueText(entries []config.TransferEntry, entry config.TransferEntry) string {
+	if entry.Status == config.TransferStatusRunning {
+		return "当前运行"
+	}
+	if entry.Status != config.TransferStatusPending && entry.Status != config.TransferStatusQueued {
+		return "-"
+	}
+	position := 0
+	total := 0
+	for _, item := range entries {
+		if item.Status != entry.Status {
+			continue
+		}
+		total++
+		if item.ID == entry.ID {
+			position = total
+		}
+	}
+	if position == 0 || total == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d/%d", position, total)
+}
+
+func transferActionHint(status string) string {
+	switch status {
+	case config.TransferStatusQueued:
+		return "Enter 开始，c 取消，x 删除"
+	case config.TransferStatusPending:
+		return "p 全部暂停，等待自动开始"
+	case config.TransferStatusRunning:
+		return "p 暂停，c 中断"
+	case config.TransferStatusInterrupted:
+		return "Enter 继续，a 全部开始，c 取消，x 删除"
+	case config.TransferStatusFailed:
+		return "Enter 重试，x 删除"
+	case config.TransferStatusCanceled:
+		return "x 删除"
+	case config.TransferStatusDone:
+		return "x 删除"
+	default:
+		return "-"
+	}
+}
+
+func transferProgressSpeedRemain(progress string) (string, string) {
+	fields := strings.Fields(strings.TrimSpace(progress))
+	if len(fields) == 0 {
+		return "", ""
+	}
+	percentIndex := -1
+	for i, field := range fields {
+		if rsyncPercentText(field) != "" {
+			percentIndex = i
+			break
+		}
+	}
+	if percentIndex < 0 {
+		return "", ""
+	}
+	speed := ""
+	remain := ""
+	for _, field := range fields[percentIndex+1:] {
+		cleaned := strings.Trim(field, "()")
+		if speed == "" && strings.Contains(cleaned, "/s") {
+			speed = cleaned
+			continue
+		}
+		if remain == "" && strings.Count(cleaned, ":") >= 2 {
+			remain = cleaned
+		}
+	}
+	return speed, remain
+}
+
+func renderTransferJobsHelp(width int) string {
+	if width < 1 {
+		width = 1
+	}
+	help := strings.Join([]string{
+		"状态 Tab",
+		"移动 ↑↓←→/hjkl",
+		"开始 Enter",
+		"详情 Space",
+		"全部开始 a",
+		"全部暂停 p",
+		"取消 c",
+		"删除 x",
+		"返回 Esc",
+	}, "  ")
+	return helpStyle.Render(fit(help, width))
+}
+
+func transferStatusFilterOptions() []string {
+	return []string{
+		"",
+		config.TransferStatusQueued,
+		config.TransferStatusPending,
+		config.TransferStatusRunning,
+		config.TransferStatusDone,
+		config.TransferStatusFailed,
+		config.TransferStatusCanceled,
+		config.TransferStatusInterrupted,
+	}
+}
+
+func (m Model) transferStatusFilterValue() string {
+	options := transferStatusFilterOptions()
+	if m.transferStatusFilter < 0 || m.transferStatusFilter >= len(options) {
+		return ""
+	}
+	return options[m.transferStatusFilter]
+}
+
+func (m Model) transferStatusFilterName() string {
+	status := m.transferStatusFilterValue()
+	if status == "" {
+		return "全部"
+	}
+	return transferStatusText(status)
+}
+
+func (m Model) filteredTransferIndexes() []int {
+	status := m.transferStatusFilterValue()
+	indexes := make([]int, 0, len(m.transferHistory.Entries))
+	for i, entry := range m.transferHistory.Entries {
+		if status == "" || entry.Status == status {
+			indexes = append(indexes, i)
+		}
+	}
+	return indexes
+}
+
+func (m Model) transferJobGridLines(width int) ([]string, int, int) {
+	cols := m.dashboardColumns()
+	cardWidths := distributeWidths(width, cols)
+	lines := []string{}
+	selectedTop := 0
+	selectedBottom := 0
+	indexes := m.filteredTransferIndexes()
+	for i := 0; i < len(indexes); i += cols {
+		rowEnd := i + cols
+		if rowEnd > len(indexes) {
+			rowEnd = len(indexes)
+		}
+		rowBlocks := make([]string, cols)
+		rowHeight := 0
+		rowHasError := false
+		for j := i; j < rowEnd; j++ {
+			entry := m.transferHistory.Entries[indexes[j]]
+			if strings.TrimSpace(entry.Error) != "" {
+				rowHasError = true
+				break
+			}
+		}
+		for col := 0; col < cols; col++ {
+			cardWidth := cardWidths[col]
+			visibleIndex := i + col
+			if visibleIndex >= rowEnd {
+				continue
+			}
+			entryIndex := indexes[visibleIndex]
+			if entryIndex == m.transferIndex {
+				selectedTop = len(lines)
+			}
+			block := renderTransferJobCard(m.transferHistory.Entries[entryIndex], cardWidth, entryIndex == m.transferIndex, rowHasError)
+			rowBlocks[col] = block
+			if height := blockLineCount(block); height > rowHeight {
+				rowHeight = height
+			}
+		}
+		if rowHeight == 0 {
+			continue
+		}
+		for col := 0; col < cols; col++ {
+			if rowBlocks[col] == "" {
+				rowBlocks[col] = blankTransferJobBlock(cardWidths[col], rowHeight)
+			} else {
+				rowBlocks[col] = padBlockHeight(rowBlocks[col], cardWidths[col], rowHeight)
+			}
+		}
+		rowLines := strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, rowBlocks...), "\n")
+		lines = append(lines, rowLines...)
+		for _, index := range indexes[i:rowEnd] {
+			if index == m.transferIndex {
+				selectedBottom = len(lines)
+				break
+			}
+		}
+	}
+	if selectedBottom == 0 {
+		selectedBottom = selectedTop
+	}
+	return lines, selectedTop, selectedBottom
+}
+
+func blockLineCount(block string) int {
+	if block == "" {
+		return 0
+	}
+	return strings.Count(block, "\n") + 1
+}
+
+func blankTransferJobBlock(width int, height int) string {
+	if width < 1 {
+		width = 1
+	}
+	if height < 1 {
+		height = 1
+	}
+	lines := make([]string, height)
+	for i := range lines {
+		lines[i] = strings.Repeat(" ", width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func padBlockHeight(block string, width int, height int) string {
+	lines := strings.Split(padBlock(block, width), "\n")
+	for len(lines) < height {
+		lines = append(lines, strings.Repeat(" ", width))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderTransferJobCard(entry config.TransferEntry, width int, selected bool, reserveErrorLine bool) string {
+	cardWidth := width
+	if cardWidth < 34 {
+		cardWidth = 34
+	}
+	borderStyle := cardBorderStyle
+	if selected {
+		borderStyle = selectedCardBorderStyle
+	}
+
+	title := transferEntryHostTitle(entry)
+	meta := transferJobMeta(entry)
+	dot := transferJobDot(entry.Status)
+	nameLine := transferFileLine(entry, cardWidth-4, selected)
+	sourceLine := transferPathLine(transferSourceSymbol(entry), entry.Source)
+	targetLine := transferPathLine("→", transferJobTarget(entry))
+
+	lines := []string{
+		cardTopLine(cardWidth, title, meta, dot, borderStyle),
+		cardContentLine(cardWidth, nameLine, borderStyle),
+		cardContentLine(cardWidth, sourceLine, borderStyle),
+		cardContentLine(cardWidth, targetLine, borderStyle),
+		cardContentLine(cardWidth, transferProgressBarLine(entry, cardWidth-4), borderStyle),
+	}
+	if errorLine := transferJobError(entry); errorLine != "" || reserveErrorLine {
+		lines = append(lines, cardContentLine(cardWidth, errorLine, borderStyle))
+	}
+	lines = append(lines, cardBottomLine(cardWidth, borderStyle))
+	return strings.Join(lines, "\n")
+}
+
+func transferEntryHostTitle(entry config.TransferEntry) string {
+	category := strings.TrimSpace(entry.HostCategory)
+	if category == "" {
+		category = "未分类"
+	}
+	name := strings.TrimSpace(entry.HostName)
+	if name == "" {
+		name = "服务器"
+	}
+	return cardMutedStyle.Render("["+category+"]") + " " + detailValueStyle.Render(name)
+}
+
+func transferEntryName(entry config.TransferEntry) string {
+	name := filepath.Base(strings.TrimRight(entry.Source, "/"))
+	if name == "." || name == "/" || name == "" {
+		name = entry.Source
+	}
+	if entry.IsDir && !strings.HasSuffix(name, "/") {
+		name += "/"
+	}
+	return name
+}
+
+func transferSourceSymbol(entry config.TransferEntry) string {
+	if entry.Kind == "download" {
+		return "↓"
+	}
+	return "↑"
+}
+
+func transferJobTarget(entry config.TransferEntry) string {
+	if entry.Kind == "upload" {
+		return entry.HostName + ":" + entry.TargetDir
+	}
+	return entry.TargetDir
+}
+
+func transferJobMeta(entry config.TransferEntry) string {
+	style := lipgloss.NewStyle().Foreground(transferStatusColor(entry.Status)).Bold(true)
+	return style.Render(transferStatusText(entry.Status))
+}
+
+func transferJobDot(status string) string {
+	return lipgloss.NewStyle().Foreground(transferStatusColor(status)).Render("●")
+}
+
+func transferFieldLine(label string, value string) string {
+	return cardMutedStyle.Render(label+" ") + detailValueStyle.Render(value)
+}
+
+func transferPathLine(label string, value string) string {
+	return transferArrowStyle(label).Render(label+" ") + cardMutedStyle.Render(value)
+}
+
+func transferArrowStyle(label string) lipgloss.Style {
+	switch label {
+	case "↑", "↓", "→":
+		return blueStyle
+	default:
+		return cardMutedStyle
+	}
+}
+
+func transferFileLine(entry config.TransferEntry, width int, selected bool) string {
+	nameStyle := detailValueStyle
+	if selected {
+		nameStyle = blueStyle.Bold(true)
+	}
+	left := cardMutedStyle.Render("文件 ") + nameStyle.Render(transferEntryName(entry))
+	right := cardMutedStyle.Render(transferEntryKindText(entry) + " " + transferTimeText(entry))
+	gap := width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	if gap < 2 {
+		maxLeft := width - ansi.StringWidth(right) - 2
+		if maxLeft < 8 {
+			return left
+		}
+		left = fitANSI(left, maxLeft)
+		gap = width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+func transferJobError(entry config.TransferEntry) string {
+	if entry.Error != "" {
+		return cardMutedStyle.Render("错误 ") + redStyle.Render(entry.Error)
+	}
+	return ""
+}
+
+func transferProgressBarLine(entry config.TransferEntry, width int) string {
+	percent, ok := transferProgressPercent(entry)
+	if !ok && entry.Status == config.TransferStatusDone {
+		percent = 100
+		ok = true
+	}
+	label := "--"
+	if ok {
+		label = fmt.Sprintf("%3d%%", percent)
+	}
+	style := transferProgressStyle(entry.Status)
+	suffix := style.Render(label)
+	if detail := transferProgressDetail(entry); detail != "" {
+		maxDetail := width - 8 - runewidth.StringWidth(label) - 2
+		if maxDetail > 4 {
+			suffix += " " + cardMutedStyle.Render(fit(detail, maxDetail))
+		}
+	}
+	barWidth := width - ansi.StringWidth(suffix) - 1
+	if barWidth < 8 {
+		barWidth = 8
+	}
+	filled := 0
+	if ok {
+		filled = int(float64(barWidth) * float64(percent) / 100)
+		if percent > 0 && filled == 0 {
+			filled = 1
+		}
+		if filled > barWidth {
+			filled = barWidth
+		}
+	}
+	bar := style.Render(strings.Repeat("▰", filled)) + barEmptyStyle.Render(strings.Repeat("▱", barWidth-filled))
+	return bar + " " + suffix
+}
+
+func transferProgressPercent(entry config.TransferEntry) (int, bool) {
+	if entry.TotalBytes > 0 {
+		done := transferProgressDoneBytes(entry)
+		percent := int(float64(done) * 100 / float64(entry.TotalBytes))
+		if percent < 0 {
+			percent = 0
+		}
+		if percent > 100 {
+			percent = 100
+		}
+		return percent, true
+	}
+	percentText := rsyncPercentText(entry.Progress)
+	if percentText == "" {
+		return 0, false
+	}
+	value := strings.TrimSuffix(percentText, "%")
+	percent, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, false
+	}
+	return percent, true
+}
+
+func transferProgressDoneBytes(entry config.TransferEntry) int64 {
+	done := entry.DoneBytes + entry.CurrentBytes
+	if entry.TotalBytes > 0 && done > entry.TotalBytes {
+		return entry.TotalBytes
+	}
+	if done < 0 {
+		return 0
+	}
+	return done
+}
+
+func transferProgressDetail(entry config.TransferEntry) string {
+	sizeText := ""
+	if entry.TotalBytes > 0 {
+		sizeText = bytesPair(uint64(transferProgressDoneBytes(entry)), uint64(entry.TotalBytes))
+	}
+	progress := strings.Join(strings.Fields(strings.TrimSpace(entry.Progress)), " ")
+	percent := rsyncPercentText(progress)
+	if progress == "" || percent == "" || progress == percent {
+		return sizeText
+	}
+	if idx := strings.Index(progress, " ("); idx >= 0 {
+		progress = strings.TrimSpace(progress[:idx])
+	}
+	idx := strings.Index(progress, percent)
+	if idx < 0 {
+		return ""
+	}
+	before := strings.TrimSpace(progress[:idx])
+	after := strings.TrimSpace(progress[idx+len(percent):])
+	rsyncText := strings.TrimSpace(before + " " + after)
+	if sizeText == "" {
+		return rsyncText
+	}
+	if after == "" {
+		return sizeText
+	}
+	return strings.TrimSpace(sizeText + " " + after)
+}
+
+func transferProgressStyle(status string) lipgloss.Style {
+	switch status {
+	case config.TransferStatusQueued:
+		return detailSubTitleStyle
+	case config.TransferStatusPending:
+		return blueStyle
+	case config.TransferStatusRunning:
+		return blueStyle
+	case config.TransferStatusDone:
+		return greenStyle
+	case config.TransferStatusFailed:
+		return redStyle
+	case config.TransferStatusInterrupted:
+		return yellowStyle
+	case config.TransferStatusCanceled:
+		return mutedStyle
+	default:
+		return mutedStyle
+	}
+}
+
+func transferStatusColor(status string) lipgloss.Color {
+	switch status {
+	case config.TransferStatusQueued:
+		return cyan
+	case config.TransferStatusPending:
+		return blue
+	case config.TransferStatusRunning:
+		return blue
+	case config.TransferStatusDone:
+		return green
+	case config.TransferStatusFailed:
+		return red
+	case config.TransferStatusInterrupted:
+		return yellow
+	case config.TransferStatusCanceled:
+		return textGray
+	default:
+		return textGray
+	}
+}
+
+func transferStatusText(status string) string {
+	switch status {
+	case config.TransferStatusQueued:
+		return "等待中"
+	case config.TransferStatusPending:
+		return "排队中"
+	case config.TransferStatusRunning:
+		return "运行中"
+	case config.TransferStatusDone:
+		return "已完成"
+	case config.TransferStatusFailed:
+		return "失败"
+	case config.TransferStatusCanceled:
+		return "已取消"
+	case config.TransferStatusInterrupted:
+		return "中断"
+	default:
+		return status
+	}
+}
+
+func transferTimeText(entry config.TransferEntry) string {
+	if entry.UpdatedAt != "" {
+		return transferTimeShort(entry.UpdatedAt)
+	}
+	return transferTimeShort(entry.Time)
+}
+
+func transferTimeShort(value string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if err != nil {
+		return strings.TrimSpace(value)
+	}
+	return t.Local().Format("01-02 15:04")
+}
+
+func transferStatusCounts(entries []config.TransferEntry) map[string]int {
+	counts := map[string]int{}
+	for _, entry := range entries {
+		counts[entry.Status]++
+	}
+	return counts
+}
+
+func transferUnfinishedCount(entries []config.TransferEntry) int {
+	total := 0
+	for _, entry := range entries {
+		if entry.Status == config.TransferStatusQueued || entry.Status == config.TransferStatusPending || entry.Status == config.TransferStatusRunning || entry.Status == config.TransferStatusInterrupted {
+			total++
+		}
+	}
+	return total
+}
+
 func (m Model) useSingleTransferPane(width int) bool {
 	return width < 70
 }
 
-func renderTransferPane(title string, choices []choice, index int, width int, height int, active bool) string {
+func renderTransferPane(title string, choices []choice, index int, width int, height int, active bool, selected map[string]bool) string {
 	if width < 34 {
 		width = 34
 	}
@@ -6184,7 +7719,11 @@ func renderTransferPane(title string, choices []choice, index int, width int, he
 				prefix = "▶"
 				lineStyle = lineStyle.Bold(true)
 			}
-			lines = append(lines, lineStyle.Render(fit(prefix+" "+choices[i].Label, innerWidth)))
+			mark := " "
+			if selected != nil && selected[choices[i].Value] {
+				mark = "✓"
+			}
+			lines = append(lines, lineStyle.Render(fit(prefix+" "+mark+" "+choices[i].Label, innerWidth)))
 		}
 	}
 	for len(lines) < height {
@@ -7416,10 +8955,10 @@ func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine b
 	}
 	prefixMarks := pinnedMark + favoriteMark
 	categoryLabel := "[" + category + "]"
-	titleText := prefixMarks + h.Name
+	titleText := prefixMarks + categoryLabel + " " + h.Name
 	if ansi.StringWidth(titleText) > innerWidth {
 		prefixMarks = ""
-		titleText = h.Name
+		titleText = categoryLabel + " " + h.Name
 	}
 	barWidth := 12
 	if innerWidth < 42 {
@@ -7438,9 +8977,6 @@ func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine b
 	riskText := cardRiskText(buildChecks(state), innerWidth)
 	if riskText != "" {
 		serviceLine = ansi.Truncate(serviceLine+"  "+riskText, innerWidth, "…")
-	}
-	if ansi.StringWidth(titleText)+1+runewidth.StringWidth(categoryLabel) <= innerWidth {
-		titleText += " " + categoryLabel
 	}
 	title := titleText
 
@@ -7907,6 +9443,9 @@ func cleanTransferOutput(output string) string {
 		if strings.HasPrefix(line, "** WARNING:") ||
 			strings.HasPrefix(line, "** This session") ||
 			strings.HasPrefix(line, "** The server") {
+			continue
+		}
+		if rsyncProgressText(line) != "" {
 			continue
 		}
 		return line

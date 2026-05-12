@@ -62,6 +62,42 @@ func SCPDownloadCommandContext(ctx context.Context, h host.Host, remotePath, loc
 	return scpCommand(ctx, h, args)
 }
 
+func RsyncUploadCommandContext(ctx context.Context, h host.Host, localPath, remoteDir string) (*exec.Cmd, Cleanup) {
+	args := rsyncArgs(h)
+	args = append(args, ensureRsyncSource(localPath), h.Target()+":"+ensureRemoteDir(remoteDir))
+	return rsyncCommand(ctx, h, args)
+}
+
+func RsyncDownloadCommandContext(ctx context.Context, h host.Host, remotePath, localDir string) (*exec.Cmd, Cleanup) {
+	args := rsyncArgs(h)
+	args = append(args, h.Target()+":"+remotePath, ensureLocalDir(localDir))
+	return rsyncCommand(ctx, h, args)
+}
+
+func RemoteRsyncCheckCommand(ctx context.Context, h host.Host) (*exec.Cmd, Cleanup) {
+	return remoteShellCommand(ctx, h, "command -v rsync >/dev/null 2>&1")
+}
+
+func RemoteRsyncInstallCommand(ctx context.Context, h host.Host) (*exec.Cmd, Cleanup) {
+	script := `set -eu
+if command -v rsync >/dev/null 2>&1; then
+  exit 0
+fi
+if command -v apt-get >/dev/null 2>&1; then
+  sudo -n apt-get update && sudo -n apt-get install -y rsync
+elif command -v dnf >/dev/null 2>&1; then
+  sudo -n dnf install -y rsync
+elif command -v yum >/dev/null 2>&1; then
+  sudo -n yum install -y rsync
+elif command -v apk >/dev/null 2>&1; then
+  sudo -n apk add rsync
+else
+  echo "__SSHM_UNSUPPORTED_PACKAGE_MANAGER__"
+  exit 1
+fi`
+	return remoteShellCommand(ctx, h, script)
+}
+
 func RemoteSizeCommand(h host.Host, remotePath string) (*exec.Cmd, Cleanup) {
 	cleanup := func() {}
 	script := `p=$1
@@ -140,6 +176,21 @@ func scpCommand(ctx context.Context, h host.Host, args []string) (*exec.Cmd, Cle
 	return exec.CommandContext(ctx, "scp", args...), cleanup
 }
 
+func rsyncCommand(ctx context.Context, h host.Host, args []string) (*exec.Cmd, Cleanup) {
+	cleanup := func() {}
+	if strings.TrimSpace(h.Password) != "" {
+		if _, err := exec.LookPath("sshpass"); err == nil {
+			file, err := sshconfig.TempPasswordFile(h.Password)
+			if err == nil {
+				cleanup = func() { _ = os.Remove(file) }
+				fullArgs := append([]string{"-f", file, "rsync"}, args...)
+				return exec.CommandContext(ctx, "sshpass", fullArgs...), cleanup
+			}
+		}
+	}
+	return exec.CommandContext(ctx, "rsync", args...), cleanup
+}
+
 func interactiveCommand(name string, args ...string) *exec.Cmd {
 	cmd := exec.Command(name, args...)
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
@@ -182,6 +233,53 @@ func scpArgs(h host.Host) []string {
 		args = append(args, "-i", h.IdentityFile)
 	}
 	return args
+}
+
+func rsyncArgs(h host.Host) []string {
+	args := []string{"-az", "--partial", "--append", "--progress"}
+	args = append(args, "-e", "ssh "+strings.Join(shellQuoteArgs(sshArgsForRsync(h)), " "))
+	return args
+}
+
+func sshArgsForRsync(h host.Host) []string {
+	args := sshArgs(h)
+	if h.Port != "" {
+		// sshArgs already includes -p, but keep this function separate for clarity.
+	}
+	return args
+}
+
+func shellQuoteArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		out = append(out, shellQuote(arg))
+	}
+	return out
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	if strings.IndexFunc(value, func(r rune) bool {
+		return !(r == '_' || r == '-' || r == '/' || r == '.' || r == ':' || r == '=' || r == ',' ||
+			(r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'))
+	}) == -1 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+func ensureRsyncSource(path string) string {
+	return path
+}
+
+func ensureRemoteDir(path string) string {
+	return strings.TrimRight(path, "/") + "/"
+}
+
+func ensureLocalDir(path string) string {
+	return strings.TrimRight(path, string(os.PathSeparator)) + string(os.PathSeparator)
 }
 
 func passwordSSHOptions(h host.Host) []string {
