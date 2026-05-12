@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/demo.svg" alt="sshm demo" width="920">
-</p>
-
 <h1 align="center">sshm</h1>
 
 <p align="center">
@@ -23,6 +19,10 @@
   <a href="#-安装">安装</a> ·
   <a href="#-功能">功能</a> ·
   <a href="https://github.com/YaMaiDay/sshm/releases">下载</a>
+</p>
+
+<p align="center">
+  <img src="assets/demo.svg" alt="sshm demo" width="920">
 </p>
 
 ---

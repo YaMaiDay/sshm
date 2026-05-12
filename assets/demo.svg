@@ -13,16 +13,26 @@
     .selected { stroke: #38bdf8; }
     .bar-empty { fill: #334155; }
     .cursor { fill: #38bdf8; }
+    .scene { fill: #0f172a; stroke: #334155; }
   </style>
 
   <rect width="1180" height="620" rx="28" fill="#0f121a"/>
   <rect x="34" y="34" width="1112" height="552" rx="18" class="frame"/>
   <text x="58" y="76" class="mono title">sshm 服务器管理</text>
-  <text x="280" y="76" class="mono muted" font-size="18">分类：全部  搜索：demo  最后刷新：05:10:26</text>
+  <text x="280" y="76" class="mono muted" font-size="18">
+    <tspan opacity="1">分类：全部  搜索：demo  最后刷新：05:10:26</tspan>
+    <animate attributeName="opacity" values="1;0;0;1" keyTimes="0;0.32;0.76;1" dur="6s" repeatCount="indefinite"/>
+  </text>
+  <text x="280" y="76" class="mono muted" font-size="18" opacity="0">
+    <tspan>传输任务  运行 1  未完成 3  已完成 12</tspan>
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.34;0.74;1" dur="6s" repeatCount="indefinite"/>
+  </text>
 
   <g class="mono">
     <g>
-      <rect x="58" y="112" width="330" height="190" rx="12" class="card selected"/>
+      <rect x="58" y="112" width="330" height="190" rx="12" class="card selected">
+        <animate attributeName="stroke" values="#38bdf8;#38bdf8;#283241;#38bdf8" keyTimes="0;0.32;0.5;1" dur="6s" repeatCount="indefinite"/>
+      </rect>
       <text x="78" y="146" class="text" font-size="21" font-weight="700">[production] demo-web</text>
       <circle cx="358" cy="139" r="7" fill="#22c55e"/>
       <text x="78" y="178" class="muted" font-size="17">203.0.113.10  deploy:22</text>
@@ -45,7 +55,9 @@
     </g>
 
     <g>
-      <rect x="424" y="112" width="330" height="190" rx="12" class="card"/>
+      <rect x="424" y="112" width="330" height="190" rx="12" class="card">
+        <animate attributeName="stroke" values="#283241;#283241;#38bdf8;#283241" keyTimes="0;0.3;0.48;1" dur="6s" repeatCount="indefinite"/>
+      </rect>
       <text x="444" y="146" class="text" font-size="21" font-weight="700">[staging] demo-db</text>
       <circle cx="724" cy="139" r="7" fill="#22c55e"/>
       <text x="444" y="178" class="muted" font-size="17">198.51.100.20  admin:22</text>
@@ -82,7 +94,9 @@
     </g>
 
     <g>
-      <rect x="58" y="336" width="510" height="164" rx="12" class="card"/>
+      <rect x="58" y="336" width="510" height="164" rx="12" class="card">
+        <animate attributeName="stroke" values="#283241;#38bdf8;#38bdf8;#283241" keyTimes="0;0.34;0.78;1" dur="6s" repeatCount="indefinite"/>
+      </rect>
       <text x="82" y="374" class="cyan" font-size="21" font-weight="700">传输任务</text>
       <text x="82" y="414" class="text" font-size="18">下载  demo-web:/var/log/app.log</text>
       <text x="82" y="448" class="muted" font-size="18">→ ~/Downloads</text>
@@ -90,10 +104,7 @@
       <rect x="82" y="468" width="86" height="16" rx="3" fill="#38bdf8">
         <animate attributeName="width" values="86;250;360" dur="5s" repeatCount="indefinite"/>
       </rect>
-      <text x="456" y="482" class="text" font-size="18">
-        <tspan>24%</tspan>
-        <animate attributeName="opacity" values="1;0.55;1" dur="1.2s" repeatCount="indefinite"/>
-      </text>
+      <text x="456" y="482" class="text" font-size="18">68%</text>
     </g>
 
     <g>
@@ -107,5 +118,19 @@
 
   <rect x="76" y="126" width="10" height="24" rx="2" class="cursor">
     <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+    <animate attributeName="x" values="76;76;442;442;76" keyTimes="0;0.32;0.48;0.76;1" dur="6s" repeatCount="indefinite"/>
   </rect>
+
+  <g class="mono">
+    <rect x="58" y="530" width="1062" height="34" rx="8" class="scene"/>
+    <text x="82" y="553" class="cyan" font-size="17">
+      <tspan opacity="1">首页卡片：监控 CPU、内存、磁盘、Docker 与 SSH 风险</tspan>
+      <animate attributeName="opacity" values="1;1;0;0;1" keyTimes="0;0.3;0.38;0.82;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="82" y="553" class="green" font-size="17" opacity="0">
+      <tspan>传输任务：多选上传下载、进度查看、中断后继续</tspan>
+      <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;0.32;0.42;0.76;1" dur="6s" repeatCount="indefinite"/>
+    </text>
+    <text x="906" y="553" class="muted" font-size="17">Local only · No telemetry</text>
+  </g>
 </svg>
