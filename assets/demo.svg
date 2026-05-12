@@ -14,6 +14,10 @@
     .bar-empty { fill: #334155; }
     .cursor { fill: #38bdf8; }
     .scene { fill: #0f172a; stroke: #334155; }
+    .fade-a { animation: fadeA 6s infinite; }
+    .fade-b { animation: fadeB 6s infinite; }
+    @keyframes fadeA { 0%, 38%, 100% { opacity: 1; } 46%, 82% { opacity: 0; } }
+    @keyframes fadeB { 0%, 38%, 100% { opacity: 0; } 46%, 82% { opacity: 1; } }
   </style>
 
   <rect width="1180" height="620" rx="28" fill="#0f121a"/>
@@ -80,17 +84,30 @@
     <g>
       <rect x="790" y="112" width="330" height="190" rx="12" class="card"/>
       <text x="810" y="146" class="text" font-size="21" font-weight="700">[home] lab-node</text>
-      <circle cx="1090" cy="139" r="7" class="red"/>
+      <circle cx="1090" cy="139" r="7" class="red fade-a"/>
+      <circle cx="1090" cy="139" r="7" fill="#22c55e" class="fade-b"/>
       <text x="810" y="178" class="muted" font-size="17">192.0.2.50  root:22</text>
       <text x="810" y="213" class="text" font-size="18">CPU</text>
       <rect x="866" y="198" width="126" height="14" rx="3" class="bar-empty"/>
-      <text x="1018" y="213" class="text" font-size="18">0%</text>
+      <rect x="866" y="198" width="0" height="14" rx="3" class="green">
+        <animate attributeName="width" values="0;0;44;44;0" keyTimes="0;0.38;0.5;0.82;1" dur="6s" repeatCount="indefinite"/>
+      </rect>
+      <text x="1018" y="213" class="text fade-a" font-size="18">0%</text>
+      <text x="1018" y="213" class="text fade-b" font-size="18">35%</text>
       <text x="810" y="245" class="text" font-size="18">内存</text>
       <rect x="866" y="230" width="126" height="14" rx="3" class="bar-empty"/>
-      <text x="1018" y="245" class="text" font-size="18">0%</text>
+      <rect x="866" y="230" width="0" height="14" rx="3" class="green">
+        <animate attributeName="width" values="0;0;66;66;0" keyTimes="0;0.38;0.5;0.82;1" dur="6s" repeatCount="indefinite"/>
+      </rect>
+      <text x="1018" y="245" class="text fade-a" font-size="18">0%</text>
+      <text x="1018" y="245" class="text fade-b" font-size="18">52%</text>
       <text x="810" y="277" class="text" font-size="18">磁盘</text>
       <rect x="866" y="262" width="126" height="14" rx="3" class="bar-empty"/>
-      <text x="1018" y="277" class="text" font-size="18">0%</text>
+      <rect x="866" y="262" width="0" height="14" rx="3" class="yellow">
+        <animate attributeName="width" values="0;0;82;82;0" keyTimes="0;0.38;0.5;0.82;1" dur="6s" repeatCount="indefinite"/>
+      </rect>
+      <text x="1018" y="277" class="text fade-a" font-size="18">0%</text>
+      <text x="1018" y="277" class="text fade-b" font-size="18">65%</text>
     </g>
 
     <g>
@@ -98,21 +115,27 @@
         <animate attributeName="stroke" values="#283241;#38bdf8;#38bdf8;#283241" keyTimes="0;0.34;0.78;1" dur="6s" repeatCount="indefinite"/>
       </rect>
       <text x="82" y="374" class="cyan" font-size="21" font-weight="700">传输任务</text>
-      <text x="82" y="414" class="text" font-size="18">下载  demo-web:/var/log/app.log</text>
-      <text x="82" y="448" class="muted" font-size="18">→ ~/Downloads</text>
+      <text x="82" y="414" class="text fade-a" font-size="18">下载  demo-web:/var/log/app.log</text>
+      <text x="82" y="414" class="text fade-b" font-size="18">上传  ~/Downloads/release.tar.gz</text>
+      <text x="82" y="448" class="muted fade-a" font-size="18">→ ~/Downloads</text>
+      <text x="82" y="448" class="muted fade-b" font-size="18">→ demo-web:/opt/deploy</text>
       <rect x="82" y="468" width="360" height="16" rx="3" class="bar-empty"/>
       <rect x="82" y="468" width="86" height="16" rx="3" fill="#38bdf8">
-        <animate attributeName="width" values="86;250;360" dur="5s" repeatCount="indefinite"/>
+        <animate attributeName="width" values="58;168;302;360;58" keyTimes="0;0.3;0.62;0.82;1" dur="6s" repeatCount="indefinite"/>
       </rect>
-      <text x="456" y="482" class="text" font-size="18">68%</text>
+      <text x="456" y="482" class="text fade-a" font-size="18">24%</text>
+      <text x="456" y="482" class="text fade-b" font-size="18">84%</text>
     </g>
 
     <g>
       <rect x="612" y="336" width="508" height="164" rx="12" class="card"/>
       <text x="636" y="374" class="cyan" font-size="21" font-weight="700">快捷操作</text>
-      <text x="636" y="414" class="text" font-size="18">Enter 登录    Space 详情    y 任务</text>
-      <text x="636" y="448" class="text" font-size="18">u 上传        d 下载        / 搜索</text>
-      <text x="636" y="482" class="muted" font-size="18">本地配置 · 原生 ssh · 无遥测</text>
+      <text x="636" y="414" class="text fade-a" font-size="18">Enter 登录    Space 详情    y 任务</text>
+      <text x="636" y="414" class="text fade-b" font-size="18">Tab 筛选      a 全部开始   p 暂停</text>
+      <text x="636" y="448" class="text fade-a" font-size="18">u 上传        d 下载        / 搜索</text>
+      <text x="636" y="448" class="text fade-b" font-size="18">c 取消        x 删除        Esc 返回</text>
+      <text x="636" y="482" class="muted fade-a" font-size="18">本地配置 · 原生 ssh · 无遥测</text>
+      <text x="636" y="482" class="muted fade-b" font-size="18">多选传输 · 断点续传 · 任务历史</text>
     </g>
   </g>
 
