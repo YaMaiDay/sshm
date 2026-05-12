@@ -47,6 +47,26 @@ irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 sshm
 ```
 
+### 手动下载与校验
+
+不想使用安装脚本时，可以到 [Releases](https://github.com/YaMaiDay/sshm/releases) 手动下载对应系统的压缩包，并下载同一版本里的 `checksums.txt`。
+
+macOS / Linux 校验示例：
+
+```sh
+shasum -a 256 sshm_v*_darwin_arm64.tar.gz
+cat checksums.txt
+```
+
+Windows PowerShell 校验示例：
+
+```powershell
+Get-FileHash .\sshm_v*_windows_amd64.zip -Algorithm SHA256
+type .\checksums.txt
+```
+
+确认本地文件的 SHA256 和 `checksums.txt` 中对应文件一致后，再解压使用。Release 同时提供 `sbom.spdx.json` 依赖清单，并启用 GitHub Artifact Attestations 用于查看构建来源。
+
 ## ✨ 功能
 
 |  |  |
