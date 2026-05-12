@@ -195,7 +195,7 @@ Apache 2.0 — 请参阅 [LICENSE](LICENSE)。
 
 ---
 
-### ⭐ 如果这个项目对你有用，欢迎点一个 Star
+### ⭐ 如果这个项目对你有用，欢迎点一个 Star！⭐
 
 [报告问题](https://github.com/YaMaiDay/sshm/issues/new) ·
 [提出功能建议](https://github.com/YaMaiDay/sshm/issues/new) ·
