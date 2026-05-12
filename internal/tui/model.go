@@ -7463,7 +7463,7 @@ func transferFileLine(entry config.TransferEntry, width int, selected bool) stri
 	if selected {
 		nameStyle = blueStyle.Bold(true)
 	}
-	left := cardMutedStyle.Render("文件 ") + nameStyle.Render(transferEntryName(entry))
+	left := cardMutedStyle.Render(transferEntryTypeLabel(entry)+" ") + nameStyle.Render(transferEntryName(entry))
 	right := cardMutedStyle.Render(transferEntryKindText(entry) + " " + transferTimeText(entry))
 	gap := width - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if gap < 2 {
@@ -7475,6 +7475,13 @@ func transferFileLine(entry config.TransferEntry, width int, selected bool) stri
 		gap = width - ansi.StringWidth(left) - ansi.StringWidth(right)
 	}
 	return left + strings.Repeat(" ", gap) + right
+}
+
+func transferEntryTypeLabel(entry config.TransferEntry) string {
+	if entry.IsDir {
+		return "目录"
+	}
+	return "文件"
 }
 
 func transferJobError(entry config.TransferEntry) string {
