@@ -1,5 +1,5 @@
-name: Bug report
-description: Report a reproducible problem in sshm.
+name: Bug 反馈
+description: 报告 sshm 中可复现的问题。
 title: "[Bug]: "
 labels:
   - bug
@@ -7,68 +7,68 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a problem. Please remove passwords, private keys, private IPs, and production hostnames before submitting.
+        感谢反馈问题。提交前请移除密码、私钥、私有 IP 和生产主机名。
   - type: input
     id: version
     attributes:
-      label: sshm version
-      description: Run `sshm --version` if available.
+      label: sshm 版本
+      description: 如果可用，请运行 `sshm --version`。
       placeholder: v0.1.31
     validations:
       required: true
   - type: dropdown
     id: os
     attributes:
-      label: Operating system
+      label: 操作系统
       options:
         - macOS
         - Linux
         - Windows
-        - Other
+        - 其他
     validations:
       required: true
   - type: input
     id: arch
     attributes:
-      label: CPU architecture
+      label: CPU 架构
       placeholder: amd64, arm64
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction steps
-      description: Tell us exactly how to reproduce the issue.
+      label: 复现步骤
+      description: 请说明如何稳定复现这个问题。
       placeholder: |
-        1. Run `sshm`
-        2. Select ...
-        3. Press ...
+        1. 运行 `sshm`
+        2. 选择 ...
+        3. 按下 ...
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
+      label: 期望行为
     validations:
       required: true
   - type: textarea
     id: actual
     attributes:
-      label: Actual behavior
+      label: 实际行为
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Logs or screenshots
-      description: Paste relevant output or screenshots. Remove secrets first.
+      label: 日志或截图
+      description: 粘贴相关输出或截图。请先移除敏感信息。
       render: text
   - type: checkboxes
     id: checks
     attributes:
-      label: Checklist
+      label: 检查项
       options:
-        - label: I removed secrets, passwords, private keys, and private server details.
+        - label: 我已经移除密钥、密码、私钥和私有服务器信息。
           required: true
-        - label: I searched existing issues before opening this one.
+        - label: 我已经搜索过现有 Issue。
           required: true

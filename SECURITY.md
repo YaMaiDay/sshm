@@ -1,52 +1,52 @@
-# Security Policy
+# 安全策略
 
-sshm is a local terminal SSH manager. It does not run a cloud service and does not include telemetry or runtime update checks.
+sshm 是本地运行的终端 SSH 管理器。它不运行云服务，不包含遥测，也不会在运行时自动检查更新。
 
-## Supported Versions
+## 支持版本
 
-Security fixes are applied to the latest release.
+安全修复会应用到最新 Release。
 
-## Security Design
+## 安全设计
 
-- Local only: server configuration, command history, and transfer history are stored on the user's machine.
-- No telemetry: sshm does not collect analytics, crash reports, or usage data.
-- No automatic update checks: running sshm does not contact GitHub or any project-owned server to check for updates.
-- Native delegation: SSH login uses the system `ssh` command, and file transfer uses `rsync`.
-- No agent installation: sshm does not install a background agent on remote servers.
-- No SSH key upload: sshm does not upload private keys to remote servers or project infrastructure.
-- Explicit network actions only: network access happens when the user connects to configured servers, runs commands, transfers files, runs the install script, or confirms remote `rsync` installation.
+- 本地优先：服务器配置、命令历史、传输历史都保存在用户机器上。
+- 无遥测：sshm 不收集分析数据、崩溃报告或使用数据。
+- 无自动更新检查：运行 sshm 不会访问 GitHub 或项目方服务器检查更新。
+- 调用系统工具：SSH 登录使用系统 `ssh`，文件传输使用 `rsync`。
+- 不安装远程 agent：sshm 不会在远程服务器安装后台代理。
+- 不上传 SSH 密钥：sshm 不会把私钥上传到远程服务器或项目基础设施。
+- 显式联网：只有用户连接服务器、执行命令、传输文件、运行安装脚本或确认远程安装 `rsync` 时才会发生联网行为。
 
-## Local Data
+## 本地数据
 
-Typical local files:
+常见本地文件：
 
-| File | Purpose |
+| 文件 | 用途 |
 | --- | --- |
-| `~/.config/sshm/servers.toml` | Server configuration |
-| `~/.config/sshm/commands.toml` | Command templates |
-| `~/.config/sshm/history.toml` | Command history |
-| `~/.config/sshm/transfers.toml` | Transfer tasks and history |
-| `~/.config/sshm/config.toml` | App configuration |
+| `~/.config/sshm/servers.toml` | 服务器配置 |
+| `~/.config/sshm/commands.toml` | 命令模板 |
+| `~/.config/sshm/history.toml` | 命令历史 |
+| `~/.config/sshm/transfers.toml` | 传输任务和历史 |
+| `~/.config/sshm/config.toml` | 应用配置 |
 
-Sensitive local files are written with restrictive permissions where applicable.
+涉及敏感信息的本地文件会尽量使用更严格的权限写入。
 
-## Reporting a Vulnerability
+## 报告漏洞
 
-Please report security issues through GitHub's private vulnerability reporting or Security Advisories for this repository when available.
+请优先通过 GitHub 私密漏洞报告或本仓库的 Security Advisories 报告安全问题。
 
-If private reporting is not available, open a GitHub issue with a minimal description and avoid posting secrets, private keys, server IPs, passwords, or exploit details publicly. The maintainer will follow up and coordinate a fix.
+如果私密报告不可用，可以创建 GitHub Issue，但请只写最小必要描述，不要公开密码、私钥、服务器 IP、生产主机名或可直接利用的细节。维护者会跟进并协调修复。
 
-## Scope
+## 范围
 
-In scope:
+范围内：
 
-- Leaks of local server configuration, command history, or transfer history.
-- Unintended network requests made by sshm at runtime.
-- Command construction bugs that could execute unintended local or remote commands.
-- Unsafe handling of passwords, private keys, or temporary files.
+- 本地服务器配置、命令历史或传输历史泄露。
+- sshm 运行时出现非预期联网请求。
+- 命令构造问题导致执行非预期的本地或远程命令。
+- 密码、私钥或临时文件处理不安全。
 
-Out of scope:
+范围外：
 
-- Vulnerabilities in a user's own SSH server, shell, package manager, or remote system configuration.
-- Issues caused by intentionally running untrusted commands through sshm.
-- Social engineering or physical access to the user's machine.
+- 用户自己的 SSH 服务器、shell、包管理器或远程系统配置漏洞。
+- 用户主动通过 sshm 运行不可信命令导致的问题。
+- 社会工程或物理访问用户机器。

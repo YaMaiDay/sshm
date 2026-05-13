@@ -1,75 +1,75 @@
-# Contributing to sshm
+# 贡献指南
 
-Thank you for taking the time to improve sshm.
+感谢你愿意改进 sshm。
 
-sshm is a local-first terminal SSH manager. Contributions should preserve these project principles:
+sshm 是一个本地优先的终端 SSH 管理器。贡献时请保留这些原则：
 
-- Keep runtime behavior local by default.
-- Do not add telemetry, background update checks, or project-owned network calls.
-- Do not upload SSH keys, passwords, server lists, command history, or transfer history.
-- Prefer system `ssh` and `rsync` behavior over custom protocol implementations.
-- Keep the TUI Chinese-first and terminal-friendly.
+- 默认行为保持本地运行。
+- 不添加遥测、后台更新检查或项目方运行时联网请求。
+- 不上传 SSH 密钥、密码、服务器列表、命令历史或传输历史。
+- 优先复用系统 `ssh` 和 `rsync`，避免自己实现协议细节。
+- TUI 保持中文优先，并适配终端使用习惯。
 
-## Development Setup
+## 开发环境
 
-Requirements:
+需要：
 
-- Go 1.24 or newer.
-- `ssh` for login and monitor collection.
-- `rsync` for file transfer.
-- `sshpass` is optional and only needed for password-based automation.
+- Go 1.24 或更新版本。
+- `ssh`，用于登录和监控采集。
+- `rsync`，用于文件传输。
+- `sshpass` 可选，只用于密码登录自动化。
 
-Run tests:
+运行测试：
 
 ```sh
 go test ./...
 ```
 
-Build locally:
+本地构建：
 
 ```sh
 go build -o sshm ./cmd/sshm
 ```
 
-Run:
+运行：
 
 ```sh
 ./sshm
 ```
 
-## Pull Requests
+## Pull Request
 
-Before opening a pull request:
+提交 PR 前请确认：
 
-1. Keep the change focused.
-2. Run `go test ./...`.
-3. Update README or Wiki text when behavior changes.
-4. Avoid unrelated formatting churn.
-5. Include a clear explanation of user-facing impact.
+1. 变更范围清晰，不混入无关修改。
+2. 已运行 `go test ./...`。
+3. 行为变化同步更新 README 或 Wiki。
+4. 避免无关格式化。
+5. 说明用户可感知的影响。
 
-## Bug Reports
+## Bug 反馈
 
-Good bug reports include:
+建议提供：
 
-- sshm version.
-- Operating system and CPU architecture.
-- Terminal app.
-- Reproduction steps.
-- Expected behavior.
-- Actual behavior.
-- Relevant logs or screenshots with secrets removed.
+- sshm 版本。
+- 操作系统和 CPU 架构。
+- 终端程序。
+- 复现步骤。
+- 期望行为。
+- 实际行为。
+- 已脱敏的日志或截图。
 
-Do not post passwords, private keys, private server IPs, or production hostnames publicly.
+不要公开发布密码、私钥、私有服务器 IP 或生产主机名。
 
-## Feature Requests
+## 功能建议
 
-Feature requests should explain:
+建议说明：
 
-- The workflow you are trying to improve.
-- Why current behavior is insufficient.
-- How the proposed behavior should work.
-- Whether it affects SSH login, remote commands, file transfer, or local config.
+- 你想改进的工作流。
+- 当前行为为什么不够用。
+- 你希望 sshm 如何工作。
+- 是否影响 SSH 登录、远程命令、文件传输或本地配置。
 
-## Security Issues
+## 安全问题
 
-Please do not disclose sensitive security details in public issues. Use GitHub private vulnerability reporting or Security Advisories when available. See `SECURITY.md`.
+请不要在公开 Issue 中披露敏感安全细节。可以使用 GitHub 私密漏洞报告或 Security Advisories。更多说明见 `SECURITY.md`。

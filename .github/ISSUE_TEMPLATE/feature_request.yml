@@ -1,5 +1,5 @@
-name: Feature request
-description: Suggest an improvement for sshm.
+name: 功能建议
+description: 建议改进 sshm 的功能或体验。
 title: "[Feature]: "
 labels:
   - enhancement
@@ -7,48 +7,48 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please describe the workflow and the practical problem. Avoid including private server details.
+        请说明具体工作流和实际问题。不要包含私有服务器信息。
   - type: textarea
     id: problem
     attributes:
-      label: Problem
-      description: What are you trying to do, and what is difficult today?
+      label: 问题
+      description: 你想完成什么？当前哪里不方便？
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed solution
-      description: What should sshm do differently?
+      label: 建议方案
+      description: 你希望 sshm 如何改进？
     validations:
       required: true
   - type: dropdown
     id: area
     attributes:
-      label: Area
+      label: 影响范围
       options:
         - TUI
-        - SSH login
-        - Monitoring
-        - Commands
-        - File transfer
-        - Configuration
-        - Install or release
-        - Documentation
-        - Other
+        - SSH 登录
+        - 监控
+        - 命令
+        - 文件传输
+        - 配置
+        - 安装或发布
+        - 文档
+        - 其他
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives considered
-      description: Optional. Describe other approaches you considered.
+      label: 其他方案
+      description: 可选。描述你考虑过的其他方案。
   - type: checkboxes
     id: checks
     attributes:
-      label: Checklist
+      label: 检查项
       options:
-        - label: This request fits sshm's local-first design.
+        - label: 这个建议符合 sshm 本地优先的设计。
           required: true
-        - label: I searched existing issues before opening this one.
+        - label: 我已经搜索过现有 Issue。
           required: true

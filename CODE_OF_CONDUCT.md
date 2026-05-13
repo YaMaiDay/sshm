@@ -1,43 +1,35 @@
-# Contributor Covenant Code of Conduct
+# 行为准则
 
-## Our Pledge
+## 我们的承诺
 
-We pledge to make participation in this project a harassment-free experience for everyone, regardless of age, body size, visible or invisible disability, ethnicity, sex characteristics, gender identity and expression, level of experience, education, socio-economic status, nationality, personal appearance, race, caste, color, religion, or sexual identity and orientation.
+我们承诺让参与本项目的过程保持友好、尊重和无骚扰。
 
-We pledge to act and interact in ways that contribute to an open, welcoming, diverse, inclusive, and healthy community.
+我们希望所有参与者都能以开放、包容、专业的方式交流，专注于项目本身和实际问题。
 
-## Our Standards
+## 行为标准
 
-Examples of behavior that contributes to a positive environment include:
+鼓励的行为包括：
 
-- Demonstrating empathy and kindness toward other people.
-- Being respectful of differing opinions, viewpoints, and experiences.
-- Giving and gracefully accepting constructive feedback.
-- Accepting responsibility and apologizing to those affected by our mistakes.
-- Focusing on what is best for the overall community.
+- 尊重不同观点、经验和使用场景。
+- 给出具体、可操作的反馈。
+- 接受合理的技术讨论和修改建议。
+- 出现误解或错误时及时修正。
+- 优先考虑项目和用户的长期利益。
 
-Examples of unacceptable behavior include:
+不可接受的行为包括：
 
-- The use of sexualized language or imagery, and sexual attention or advances.
-- Trolling, insulting or derogatory comments, and personal or political attacks.
-- Public or private harassment.
-- Publishing others' private information without explicit permission.
-- Other conduct which could reasonably be considered inappropriate in a professional setting.
+- 人身攻击、侮辱、嘲讽或骚扰。
+- 发布他人的私人信息。
+- 在 Issue、PR、Wiki 或讨论区发布无关内容。
+- 公开传播密码、私钥、服务器 IP 或其他敏感信息。
+- 其他不适合专业协作环境的行为。
 
-## Enforcement Responsibilities
+## 执行
 
-Project maintainers are responsible for clarifying and enforcing standards of acceptable behavior. Maintainers may remove, edit, or reject comments, commits, code, wiki edits, issues, and other contributions that are not aligned with this Code of Conduct.
+维护者可以移除、编辑或关闭不符合本行为准则的评论、提交、Issue、PR、Wiki 编辑和其他贡献。
 
-## Scope
+如果你遇到不当行为，可以通过 GitHub Issue 联系维护者；如果报告内容包含敏感安全信息，请使用私密漏洞报告。
 
-This Code of Conduct applies within all project spaces, and also applies when an individual is officially representing the project in public spaces.
+## 适用范围
 
-## Enforcement
-
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported through GitHub issues or private vulnerability reporting when the report involves security-sensitive details.
-
-All complaints will be reviewed and investigated promptly and fairly.
-
-## Attribution
-
-This Code of Conduct is adapted from the Contributor Covenant, version 2.1, available at https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.
+本行为准则适用于本项目的所有公开协作空间，包括 Issue、PR、Discussions、Wiki 和相关代码提交。

@@ -34,14 +34,28 @@ if (-not $Version) {
 $Arch = Detect-Arch
 $Asset = "sshm_${Version}_windows_${Arch}.zip"
 $Url = "https://github.com/$Repo/releases/download/$Version/$Asset"
+$ChecksumsUrl = "https://github.com/$Repo/releases/download/$Version/checksums.txt"
 $TempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("sshm-install-" + [System.Guid]::NewGuid().ToString("N"))
 $ZipPath = Join-Path $TempDir $Asset
+$ChecksumsPath = Join-Path $TempDir "checksums.txt"
 
 New-Item -ItemType Directory -Path $TempDir | Out-Null
 
 try {
     Write-Info "正在下载 sshm $Version (windows/$Arch)..."
     Invoke-WebRequest -Uri $Url -OutFile $ZipPath
+    Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $ChecksumsPath
+
+    $ExpectedLine = Get-Content $ChecksumsPath | Where-Object { $_ -match "\s$([regex]::Escape($Asset))$" } | Select-Object -First 1
+    if (-not $ExpectedLine) {
+        Fail "校验清单中没有找到 $Asset"
+    }
+    $Expected = ($ExpectedLine -split "\s+")[0].Trim()
+    $Actual = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($Expected.ToLowerInvariant() -ne $Actual) {
+        Fail "SHA256 校验失败：期望 $Expected，实际 $Actual"
+    }
+    Write-Info "SHA256 校验通过"
 
     Expand-Archive -Path $ZipPath -DestinationPath $TempDir -Force
 

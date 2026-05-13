@@ -18,6 +18,7 @@
 <p align="center">
   <a href="#-安装">安装</a> ·
   <a href="#-功能">功能</a> ·
+  <a href="https://github.com/YaMaiDay/sshm/wiki">文档</a> ·
   <a href="https://github.com/YaMaiDay/sshm/releases">下载</a>
 </p>
 
@@ -46,6 +47,8 @@ irm https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.ps1 | iex
 ```sh
 sshm
 ```
+
+安装脚本会从 GitHub Releases 下载对应系统和架构的安装包，并自动使用同版本 `checksums.txt` 校验 SHA256。
 
 ### 手动下载与校验
 

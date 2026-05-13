@@ -1,14 +1,14 @@
-## Summary
+## 变更摘要
 
 - 
 
-## Testing
+## 验证
 
 - [ ] `go test ./...`
 
-## Checklist
+## 检查项
 
-- [ ] I kept the change focused.
-- [ ] I updated documentation when behavior changed.
-- [ ] I did not add telemetry, background update checks, or project-owned runtime network calls.
-- [ ] I did not include secrets, private keys, server IPs, or credentials.
+- [ ] 变更范围清晰，没有混入无关修改。
+- [ ] 行为变化已同步更新文档。
+- [ ] 没有添加遥测、后台更新检查或项目方运行时联网请求。
+- [ ] 没有包含密钥、私钥、服务器 IP 或凭据。

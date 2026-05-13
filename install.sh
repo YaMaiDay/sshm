@@ -54,10 +54,24 @@ default_install_dir() {
 
 need_cmd curl
 need_cmd tar
+need_cmd sed
+
+checksum_cmd() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "shasum -a 256"
+    return
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "sha256sum"
+    return
+  fi
+  fail "缺少 SHA256 校验命令：shasum 或 sha256sum"
+}
 
 OS="$(detect_os)"
 ARCH="$(detect_arch)"
 INSTALL_DIR="$(default_install_dir)"
+SHA256_CMD="$(checksum_cmd)"
 
 if [ "$VERSION" = "latest" ]; then
   VERSION="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" | sed 's#.*/##')"
@@ -67,11 +81,19 @@ fi
 
 ASSET="sshm_${VERSION}_${OS}_${ARCH}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
+CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
 info "正在下载 ${BINARY} ${VERSION} (${OS}/${ARCH})..."
 curl -fL "$URL" -o "$TMP_DIR/$ASSET" || fail "下载失败：$URL"
+curl -fL "$CHECKSUMS_URL" -o "$TMP_DIR/checksums.txt" || fail "下载校验清单失败：$CHECKSUMS_URL"
+
+EXPECTED="$(sed -n "s/[[:space:]][[:space:]]*${ASSET}\$//p" "$TMP_DIR/checksums.txt" | head -n 1)"
+[ -n "$EXPECTED" ] || fail "校验清单中没有找到 $ASSET"
+ACTUAL="$(cd "$TMP_DIR" && $SHA256_CMD "$ASSET" | sed 's/[[:space:]].*//')"
+[ "$EXPECTED" = "$ACTUAL" ] || fail "SHA256 校验失败：期望 $EXPECTED，实际 $ACTUAL"
+info "SHA256 校验通过"
 
 tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR" || fail "解压失败"
 [ -f "$TMP_DIR/$BINARY" ] || fail "压缩包中没有找到 $BINARY"
