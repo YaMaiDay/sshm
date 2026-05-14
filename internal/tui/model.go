@@ -597,16 +597,19 @@ const (
 	confirmDeleteCategory
 	confirmDeleteCommand
 	confirmDeleteHistory
+	confirmDeleteDeployment
 )
 
 type confirmAction struct {
-	Kind    confirmKind
-	Title   string
-	Lines   []string
-	Back    viewMode
-	Command commandItem
-	History config.CommandHistoryEntry
-	Value   string
+	Kind       confirmKind
+	Title      string
+	Lines      []string
+	Back       viewMode
+	Command    commandItem
+	History    config.CommandHistoryEntry
+	Deployment config.DeploymentApp
+	Index      int
+	Value      string
 }
 
 func (f addForm) fields() []formField {
@@ -1395,6 +1398,10 @@ func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			entry := m.confirm.History
 			m.mode = modeCommandHistory
 			return m.deleteCommandHistoryEntry(entry)
+		case confirmDeleteDeployment:
+			index := m.confirm.Index
+			m.mode = modeDeploymentList
+			return m.deleteDeploymentApp(index)
 		}
 		m.confirm = confirmAction{}
 	}
@@ -2890,15 +2897,18 @@ func (m Model) updateDeploymentList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		item, ok := m.selectedDeploymentItem()
 		if ok {
-			file := m.deploymentFile
-			if item.Index >= 0 && item.Index < len(file.Apps) {
-				file.Apps = append(file.Apps[:item.Index], file.Apps[item.Index+1:]...)
-				if err := config.SaveDeployments(m.home, file); err != nil {
-					m.status = "删除部署应用失败：" + err.Error()
-					return m, nil
+			if item.Index >= 0 && item.Index < len(m.deploymentFile.Apps) {
+				m.confirm = confirmAction{
+					Kind:       confirmDeleteDeployment,
+					Title:      "确认删除部署应用",
+					Lines:      []string{"将删除该部署应用。", "应用：" + item.App.Name, "服务器：" + item.App.Server},
+					Back:       modeDeploymentList,
+					Deployment: item.App,
+					Index:      item.Index,
 				}
-				m.deploymentSelected = removeDeploymentSelection(m.deploymentSelected, item.Index)
-				return m.startDeploymentList(m.activeDeployment.HostIndex), nil
+				m.mode = modeConfirmAction
+				m.status = "确认删除部署应用"
+				return m, nil
 			}
 		}
 		m.status = "没有可删除的部署应用。"
@@ -3082,6 +3092,24 @@ func removeDeploymentSelection(selection []int, removed int) []int {
 		out = append(out, index)
 	}
 	return out
+}
+
+func (m Model) deleteDeploymentApp(index int) (tea.Model, tea.Cmd) {
+	file := m.deploymentFile
+	if index < 0 || index >= len(file.Apps) {
+		m.status = "没有可删除的部署应用。"
+		return m, nil
+	}
+	file.Apps = append(file.Apps[:index], file.Apps[index+1:]...)
+	if err := config.SaveDeployments(m.home, file); err != nil {
+		m.status = "删除部署应用失败：" + err.Error()
+		return m, nil
+	}
+	m.confirm = confirmAction{}
+	m.deploymentSelected = removeDeploymentSelection(m.deploymentSelected, index)
+	m = m.startDeploymentList(m.activeDeployment.HostIndex)
+	m.status = "部署应用已删除。"
+	return m, nil
 }
 
 func (m *Model) toggleDeploymentSelection(index int) {
