@@ -7674,17 +7674,17 @@ func (m Model) renderDeploymentEdit() string {
 func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
 	if deploymentFieldIsCommand(m.deploymentField) {
 		lines := []string{
-			detailSubTitle("部署流程"),
+			sectionTitle("部署流程"),
 			deploymentCommandSummaryLine(m, 13, "更新前", m.deploymentForm.BeforeCommands, innerWidth),
 			deploymentCommandSummaryLine(m, 14, "获取资源", m.deploymentForm.ResourceCommands, innerWidth),
 			deploymentCommandSummaryLine(m, 15, "更新命令", m.deploymentForm.UpdateCommands, innerWidth),
 			deploymentCommandSummaryLine(m, 16, "更新后", m.deploymentForm.AfterCommands, innerWidth),
 			deploymentCommandSummaryLine(m, 17, "健康检查", m.deploymentForm.HealthCommands, innerWidth),
 			"",
-			detailSubTitle("回滚流程"),
+			sectionTitle("回滚流程"),
 			deploymentCommandSummaryLine(m, 18, "回滚命令", m.deploymentForm.RollbackCommands, innerWidth),
 			"",
-			detailSubTitle(deploymentFieldName(m.deploymentField)),
+			sectionTitle(deploymentFieldName(m.deploymentField)),
 		}
 		textAreaHeight := contentHeight - len(lines) - 2
 		if textAreaHeight < 4 {
@@ -7694,7 +7694,7 @@ func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
 		return lines
 	}
 	lines := []string{
-		detailSubTitle("资源来源"),
+		sectionTitle("资源来源"),
 		deploymentFieldLine(m, 0, "来源", deploySourceText(m.deploymentForm.Source)+"  ←/→", innerWidth),
 		deploymentFieldLine(m, 1, "获取方式", deployFetchModeText(m.deploymentForm.FetchMode)+"  ←/→", innerWidth),
 		deploymentFieldLine(m, 2, "服务器", m.deploymentServerText(innerWidth), innerWidth),
@@ -7716,22 +7716,22 @@ func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
 	}
 	lines = append(lines,
 		"",
-		detailSubTitle("GitHub 凭证"),
+		sectionTitle("GitHub 凭证"),
 		deploymentFieldLine(m, 10, "凭证类型", deployCredentialText(m.deploymentForm.Credential)+"  ←/→", innerWidth),
 		deploymentFieldLine(m, 11, "凭证参数", m.deploymentInputText(11, 28), innerWidth),
 		"",
-		detailSubTitle("串行部署"),
+		sectionTitle("串行部署"),
 		deploymentFieldLine(m, 12, "等待时间", m.deploymentInputText(12, 12)+"  秒", innerWidth),
 		mutedStyle.Render(fit("说明：多选部署时，此应用完成后等待该秒数再执行下一个。", innerWidth)),
 		"",
-		detailSubTitle("部署流程"),
+		sectionTitle("部署流程"),
 		deploymentCommandSummaryLine(m, 13, "更新前", m.deploymentForm.BeforeCommands, innerWidth),
 		deploymentCommandSummaryLine(m, 14, "获取资源", m.deploymentForm.ResourceCommands, innerWidth),
 		deploymentCommandSummaryLine(m, 15, "更新命令", m.deploymentForm.UpdateCommands, innerWidth),
 		deploymentCommandSummaryLine(m, 16, "更新后", m.deploymentForm.AfterCommands, innerWidth),
 		deploymentCommandSummaryLine(m, 17, "健康检查", m.deploymentForm.HealthCommands, innerWidth),
 		"",
-		detailSubTitle("回滚流程"),
+		sectionTitle("回滚流程"),
 		deploymentCommandSummaryLine(m, 18, "回滚命令", m.deploymentForm.RollbackCommands, innerWidth),
 	)
 	return lines
