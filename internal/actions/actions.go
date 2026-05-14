@@ -19,14 +19,14 @@ type CommandResult struct {
 }
 
 func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
-	cleanup := func() {}
-	args := sshArgs(h)
-	args = append(args, "-tt", h.Target())
+	args, target, cleanup := sshArgs(h)
+	args = append(args, "-tt", target)
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
 			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
-				cleanup = func() { _ = os.Remove(file) }
+				baseCleanup := cleanup
+				cleanup = func() { _ = os.Remove(file); baseCleanup() }
 				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
 				fullArgs = append(fullArgs, args...)
 				return interactiveCommand("sshpass", fullArgs...), cleanup
@@ -41,12 +41,12 @@ func SCPUploadCommand(h host.Host, localPath, remoteDir string, recursive bool) 
 }
 
 func SCPUploadCommandContext(ctx context.Context, h host.Host, localPath, remoteDir string, recursive bool) (*exec.Cmd, Cleanup) {
-	args := scpArgs(h)
+	args, target, cleanup := scpArgs(h)
 	if recursive {
 		args = append(args, "-r")
 	}
-	args = append(args, localPath, h.Target()+":"+remoteDir+"/")
-	return scpCommand(ctx, h, args)
+	args = append(args, localPath, target+":"+remoteDir+"/")
+	return scpCommand(ctx, h, args, cleanup)
 }
 
 func SCPDownloadCommand(h host.Host, remotePath, localDir string, recursive bool) (*exec.Cmd, Cleanup) {
@@ -54,24 +54,24 @@ func SCPDownloadCommand(h host.Host, remotePath, localDir string, recursive bool
 }
 
 func SCPDownloadCommandContext(ctx context.Context, h host.Host, remotePath, localDir string, recursive bool) (*exec.Cmd, Cleanup) {
-	args := scpArgs(h)
+	args, target, cleanup := scpArgs(h)
 	if recursive {
 		args = append(args, "-r")
 	}
-	args = append(args, h.Target()+":"+remotePath, localDir+"/")
-	return scpCommand(ctx, h, args)
+	args = append(args, target+":"+remotePath, localDir+"/")
+	return scpCommand(ctx, h, args, cleanup)
 }
 
 func RsyncUploadCommandContext(ctx context.Context, h host.Host, localPath, remoteDir string) (*exec.Cmd, Cleanup) {
-	args := rsyncArgs(h)
-	args = append(args, ensureRsyncSource(localPath), h.Target()+":"+ensureRemoteDir(remoteDir))
-	return rsyncCommand(ctx, h, args)
+	args, target, cleanup := rsyncArgs(h)
+	args = append(args, ensureRsyncSource(localPath), target+":"+ensureRemoteDir(remoteDir))
+	return rsyncCommand(ctx, h, args, cleanup)
 }
 
 func RsyncDownloadCommandContext(ctx context.Context, h host.Host, remotePath, localDir string) (*exec.Cmd, Cleanup) {
-	args := rsyncArgs(h)
-	args = append(args, h.Target()+":"+remotePath, ensureLocalDir(localDir))
-	return rsyncCommand(ctx, h, args)
+	args, target, cleanup := rsyncArgs(h)
+	args = append(args, target+":"+remotePath, ensureLocalDir(localDir))
+	return rsyncCommand(ctx, h, args, cleanup)
 }
 
 func RemoteRsyncCheckCommand(ctx context.Context, h host.Host) (*exec.Cmd, Cleanup) {
@@ -99,19 +99,20 @@ fi`
 }
 
 func RemoteSizeCommand(h host.Host, remotePath string) (*exec.Cmd, Cleanup) {
-	cleanup := func() {}
 	script := `p=$1
 if [ -d "$p" ]; then
   du -sk "$p" 2>/dev/null | awk '{print $1 * 1024}'
 elif [ -f "$p" ]; then
   wc -c < "$p" 2>/dev/null
 fi`
-	args := append(sshArgs(h), "-o", "LogLevel=ERROR", h.Target(), "sh", "-s", "--", remotePath)
+	args, target, cleanup := sshArgs(h)
+	args = append(args, "-o", "LogLevel=ERROR", target, "sh", "-s", "--", remotePath)
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
 			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
-				cleanup = func() { _ = os.Remove(file) }
+				baseCleanup := cleanup
+				cleanup = func() { _ = os.Remove(file); baseCleanup() }
 				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
 				fullArgs = append(fullArgs, args...)
 				cmd := exec.Command("sshpass", fullArgs...)
@@ -140,13 +141,14 @@ func RemoteCommandContext(ctx context.Context, h host.Host, script string) (Comm
 }
 
 func remoteShellCommand(ctx context.Context, h host.Host, script string) (*exec.Cmd, Cleanup) {
-	cleanup := func() {}
-	args := append(sshArgs(h), "-o", "LogLevel=ERROR", h.Target(), "sh", "-s")
+	args, target, cleanup := sshArgs(h)
+	args = append(args, "-o", "LogLevel=ERROR", target, "sh", "-s")
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
 			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
-				cleanup = func() { _ = os.Remove(file) }
+				baseCleanup := cleanup
+				cleanup = func() { _ = os.Remove(file); baseCleanup() }
 				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
 				fullArgs = append(fullArgs, args...)
 				cmd := exec.CommandContext(ctx, "sshpass", fullArgs...)
@@ -160,13 +162,13 @@ func remoteShellCommand(ctx context.Context, h host.Host, script string) (*exec.
 	return cmd, cleanup
 }
 
-func scpCommand(ctx context.Context, h host.Host, args []string) (*exec.Cmd, Cleanup) {
-	cleanup := func() {}
+func scpCommand(ctx context.Context, h host.Host, args []string, cleanup Cleanup) (*exec.Cmd, Cleanup) {
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
 			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
-				cleanup = func() { _ = os.Remove(file) }
+				baseCleanup := cleanup
+				cleanup = func() { _ = os.Remove(file); baseCleanup() }
 				fullArgs := append([]string{"-f", file, "scp"}, passwordSSHOptions(h)...)
 				fullArgs = append(fullArgs, args...)
 				return exec.CommandContext(ctx, "sshpass", fullArgs...), cleanup
@@ -176,13 +178,13 @@ func scpCommand(ctx context.Context, h host.Host, args []string) (*exec.Cmd, Cle
 	return exec.CommandContext(ctx, "scp", args...), cleanup
 }
 
-func rsyncCommand(ctx context.Context, h host.Host, args []string) (*exec.Cmd, Cleanup) {
-	cleanup := func() {}
+func rsyncCommand(ctx context.Context, h host.Host, args []string, cleanup Cleanup) (*exec.Cmd, Cleanup) {
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
 			file, err := sshconfig.TempPasswordFile(h.Password)
 			if err == nil {
-				cleanup = func() { _ = os.Remove(file) }
+				baseCleanup := cleanup
+				cleanup = func() { _ = os.Remove(file); baseCleanup() }
 				fullArgs := append([]string{"-f", file, "rsync"}, args...)
 				return exec.CommandContext(ctx, "sshpass", fullArgs...), cleanup
 			}
@@ -197,54 +199,25 @@ func interactiveCommand(name string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-func sshArgs(h host.Host) []string {
-	args := []string{
-		"-o", "StrictHostKeyChecking=accept-new",
-	}
-	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
-	args = append(args, sshconfig.StrictSSHArgs(h)...)
-	if h.Port != "" {
-		args = append(args, "-p", h.Port)
-	}
-	if h.ProxyJump != "" {
-		args = append(args, "-J", h.ProxyJump)
-	}
-	if h.IdentityFile != "" {
-		args = append(args, "-i", h.IdentityFile)
-	}
-	return args
+func sshArgs(h host.Host) ([]string, string, Cleanup) {
+	return sshconfig.SSHArgs(h)
 }
 
-func scpArgs(h host.Host) []string {
-	args := []string{
-		"-q",
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "LogLevel=ERROR",
-	}
-	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
-	args = append(args, sshconfig.StrictSSHArgs(h)...)
-	if h.Port != "" {
-		args = append(args, "-P", h.Port)
-	}
-	if h.ProxyJump != "" {
-		args = append(args, "-o", "ProxyJump="+h.ProxyJump)
-	}
-	if h.IdentityFile != "" {
-		args = append(args, "-i", h.IdentityFile)
-	}
-	return args
+func scpArgs(h host.Host) ([]string, string, Cleanup) {
+	return sshconfig.SCPArgs(h)
 }
 
-func rsyncArgs(h host.Host) []string {
+func rsyncArgs(h host.Host) ([]string, string, Cleanup) {
 	args := []string{"-az", "--partial", "--append", "--progress"}
-	args = append(args, "-e", "ssh "+strings.Join(shellQuoteArgs(sshArgsForRsync(h)), " "))
-	return args
+	sshArgs, target, cleanup := sshArgs(h)
+	args = append(args, "-e", "ssh "+strings.Join(shellQuoteArgs(sshArgs), " "))
+	return args, target, cleanup
 }
 
-func sshArgsForRsync(h host.Host) []string {
-	args := sshArgs(h)
-	if h.Port != "" {
-		// sshArgs already includes -p, but keep this function separate for clarity.
+func passwordSSHOptions(h host.Host) []string {
+	args := sshconfig.PasswordAuthArgs(h)
+	if h.JumpEnabled {
+		args = append(args, "-o", "BatchMode=no")
 	}
 	return args
 }
@@ -280,8 +253,4 @@ func ensureRemoteDir(path string) string {
 
 func ensureLocalDir(path string) string {
 	return strings.TrimRight(path, string(os.PathSeparator)) + string(os.PathSeparator)
-}
-
-func passwordSSHOptions(h host.Host) []string {
-	return sshconfig.PasswordAuthArgs(h)
 }

@@ -29,7 +29,7 @@ func StrictSSHArgs(h host.Host) []string {
 		"-o", "ControlMaster=no",
 		"-o", "ControlPath=none",
 	}
-	if strings.TrimSpace(h.IdentityFile) != "" {
+	if strings.TrimSpace(h.IdentityFile) != "" || strings.TrimSpace(h.JumpKeyPath) != "" {
 		args = append(args,
 			"-o", "IdentitiesOnly=yes",
 			"-o", "IdentityAgent=none",
@@ -40,7 +40,7 @@ func StrictSSHArgs(h host.Host) []string {
 
 func PasswordAuthArgs(h host.Host) []string {
 	authMethods := "password,keyboard-interactive"
-	if strings.TrimSpace(h.IdentityFile) != "" {
+	if strings.TrimSpace(h.IdentityFile) != "" || strings.TrimSpace(h.JumpKeyPath) != "" {
 		authMethods = "publickey,password,keyboard-interactive"
 	}
 	args := []string{
@@ -48,7 +48,7 @@ func PasswordAuthArgs(h host.Host) []string {
 		"-o", "PasswordAuthentication=yes",
 		"-o", "KbdInteractiveAuthentication=yes",
 	}
-	if strings.TrimSpace(h.IdentityFile) == "" {
+	if strings.TrimSpace(h.IdentityFile) == "" && strings.TrimSpace(h.JumpKeyPath) == "" {
 		args = append(args, "-o", "PubkeyAuthentication=no")
 	}
 	return args

@@ -29,23 +29,12 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 
-	args := []string{
-		"-o", "ConnectTimeout=" + sshSeconds(c.ConnectTimeout),
+	args, target, cleanup := sshconfig.SSHArgs(h,
+		"-o", "ConnectTimeout="+sshSeconds(c.ConnectTimeout),
 		"-o", "LogLevel=ERROR",
-		"-o", "StrictHostKeyChecking=accept-new",
-	}
-	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
-	args = append(args, sshconfig.StrictSSHArgs(h)...)
-	if h.Port != "" {
-		args = append(args, "-p", h.Port)
-	}
-	if h.ProxyJump != "" {
-		args = append(args, "-J", h.ProxyJump)
-	}
-	if h.IdentityFile != "" {
-		args = append(args, "-i", h.IdentityFile)
-	}
-	args = append(args, h.Target(), remoteScript)
+	)
+	defer cleanup()
+	args = append(args, target, remoteScript)
 
 	var cmd *exec.Cmd
 	var tempFile string
@@ -158,6 +147,22 @@ func parseMetrics(output string) (Metrics, error) {
 	}
 	m.DiskFilesystem = values["DISK_FS"]
 	m.DiskMountpoint = values["DISK_MOUNT"]
+	m.Disks = parseDisks(values["DISKS"])
+	if len(m.Disks) > 0 {
+		primary := m.Disks[0]
+		for _, disk := range m.Disks[1:] {
+			if disk.Percent() > primary.Percent() {
+				primary = disk
+			}
+		}
+		m.DiskTotal = primary.Total
+		m.DiskUsed = primary.Used
+		m.DiskAvailable = primary.Available
+		m.DiskAvailKnown = primary.AvailKnown
+		m.DiskFilesystem = primary.Filesystem
+		m.DiskType = primary.Type
+		m.DiskMountpoint = primary.Mountpoint
+	}
 	inode := strings.Fields(values["INODE"])
 	if len(inode) >= 3 {
 		m.InodeTotal, _ = strconv.ParseUint(inode[0], 10, 64)
@@ -198,6 +203,54 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+func parseDisks(value string) []DiskMetric {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	out := []DiskMetric{}
+	for _, row := range strings.Split(value, "|") {
+		fields := strings.Split(row, "\t")
+		if len(fields) < 6 {
+			continue
+		}
+		diskType := strings.TrimSpace(fields[1])
+		filesystem := strings.TrimSpace(fields[0])
+		if !realDiskFilesystem(filesystem, diskType) {
+			continue
+		}
+		total, _ := strconv.ParseUint(fields[2], 10, 64)
+		used, _ := strconv.ParseUint(fields[3], 10, 64)
+		available, _ := strconv.ParseUint(fields[4], 10, 64)
+		mountpoint := strings.TrimSpace(fields[5])
+		if total == 0 || mountpoint == "" {
+			continue
+		}
+		out = append(out, DiskMetric{
+			Filesystem: filesystem,
+			Type:       diskType,
+			Mountpoint: mountpoint,
+			Total:      total,
+			Used:       used,
+			Available:  available,
+			AvailKnown: true,
+		})
+	}
+	return out
+}
+
+func realDiskFilesystem(filesystem, diskType string) bool {
+	diskType = strings.ToLower(strings.TrimSpace(diskType))
+	switch diskType {
+	case "ext2", "ext3", "ext4", "xfs", "btrfs", "zfs", "f2fs", "jfs", "reiserfs":
+		return true
+	case "tmpfs", "devtmpfs", "proc", "sysfs", "cgroup", "cgroup2", "overlay", "squashfs", "ramfs", "debugfs", "tracefs", "fusectl", "nsfs", "autofs", "binfmt_misc", "securityfs", "pstore", "efivarfs", "configfs", "hugetlbfs", "mqueue":
+		return false
+	}
+	filesystem = strings.TrimSpace(filesystem)
+	return strings.HasPrefix(filesystem, "/dev/") || strings.HasPrefix(filesystem, "UUID=")
 }
 
 func healthPorts(ports []int, listening string) []HealthPort {
@@ -279,6 +332,7 @@ echo SWAP="$(free -b 2>/dev/null | awk '"'"'/^Swap:/{print $2" "$3" "$4}'"'"')"
 echo DISK="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $2" "$3" "$4}'"'"')"
 echo DISK_FS="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $1}'"'"')"
 echo DISK_MOUNT="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $6}'"'"')"
+echo DISKS="$(df -PT -B1 2>/dev/null | awk '"'"'NR>1{printf "%s%s\t%s\t%s\t%s\t%s\t%s", sep, $1, $2, $3, $4, $5, $7; sep="|"}'"'"')"
 echo INODE="$(df -Pi / 2>/dev/null | awk '"'"'NR==2{print $2" "$3" "$4}'"'"')"
 echo UPTIME="$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
 echo DOCKER="$(docker ps -q 2>/dev/null | wc -l | tr -d '"'"' '"'"')"

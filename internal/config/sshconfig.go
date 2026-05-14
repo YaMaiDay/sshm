@@ -142,8 +142,6 @@ func (l *Loader) parseFile(path, category string) ([]host.Host, error) {
 			current.Port = value
 		case "identityfile":
 			current.IdentityFile = value
-		case "proxyjump":
-			current.ProxyJump = value
 		}
 	}
 	if current != nil {

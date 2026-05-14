@@ -18,13 +18,23 @@ func TestAddAndDeleteHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := AddHost(home, HostInput{
-		Category:  "test",
-		Name:      "test-host",
-		HostName:  "127.0.0.1",
-		User:      "root",
-		Port:      "22",
-		ProxyJump: "jump-host",
-		Password:  "secret",
+		Category:     BastionCategory,
+		Name:         "jump-host",
+		HostName:     "203.0.113.10",
+		User:         "jump",
+		Port:         "22",
+		IdentityFile: "~/.ssh/bastion_key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddHost(home, HostInput{
+		Category:    "test",
+		Name:        "test-host",
+		HostName:    "127.0.0.1",
+		User:        "root",
+		Port:        "22",
+		Password:    "secret",
+		JumpHostRef: "jump-host",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -40,8 +50,8 @@ func TestAddAndDeleteHost(t *testing.T) {
 	if !strings.Contains(string(data), `password = 'secret'`) && !strings.Contains(string(data), `password = "secret"`) {
 		t.Fatalf("password not written: %s", data)
 	}
-	if !strings.Contains(string(data), `proxy_jump = 'jump-host'`) && !strings.Contains(string(data), `proxy_jump = "jump-host"`) {
-		t.Fatalf("proxy jump not written: %s", data)
+	if !strings.Contains(string(data), `jump_host_ref = 'jump-host'`) && !strings.Contains(string(data), `jump_host_ref = "jump-host"`) {
+		t.Fatalf("jump host ref not written: %s", data)
 	}
 
 	if err := DeleteHost(home, host.Host{Category: "test", Name: "test-host", File: configPath}, true); err != nil {
@@ -133,6 +143,83 @@ func TestDeleteCategoryRules(t *testing.T) {
 	}
 	if err := DeleteCategory(home, "default"); err == nil {
 		t.Fatal("expected deleting final category to fail")
+	}
+}
+
+func TestRenameCategoryRules(t *testing.T) {
+	home := t.TempDir()
+	if err := AddCategory(home, "prod"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddHost(home, HostInput{
+		Category: "prod",
+		Name:     "prod-host",
+		HostName: "127.0.0.1",
+		User:     "root",
+		Port:     "22",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RenameCategory(home, "prod", "online"); err != nil {
+		t.Fatal(err)
+	}
+	hosts, _, err := LoadServerHosts(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 || hosts[0].Category != "online" {
+		t.Fatalf("host category not renamed: %+v", hosts)
+	}
+	if err := RenameCategory(home, BastionCategory, "jump"); err == nil {
+		t.Fatal("expected bastion category rename to fail")
+	}
+	if err := RenameCategory(home, "online", "default"); err == nil {
+		t.Fatal("expected duplicate category rename to fail")
+	}
+}
+
+func TestBastionReferenceIsResolvedAndProtected(t *testing.T) {
+	home := t.TempDir()
+	if err := AddCategory(home, "prod"); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddHost(home, HostInput{
+		Category:     BastionCategory,
+		Name:         "bastion-prod",
+		HostName:     "203.0.113.10",
+		User:         "deploy",
+		Port:         "2222",
+		IdentityFile: "~/.ssh/bastion_key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddHost(home, HostInput{
+		Category:     "prod",
+		Name:         "app-01",
+		HostName:     "10.0.2.21",
+		User:         "deploy",
+		Port:         "22",
+		IdentityFile: "~/.ssh/app_key",
+		JumpHostRef:  "bastion-prod",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hosts, _, err := LoadServerHosts(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var app host.Host
+	for _, h := range hosts {
+		if h.Name == "app-01" {
+			app = h
+			break
+		}
+	}
+	if !app.JumpEnabled || app.JumpHost != "203.0.113.10" || app.JumpPort != "2222" || app.JumpKeyPath != "~/.ssh/bastion_key" {
+		t.Fatalf("bastion reference not resolved: %+v", app)
+	}
+	if err := DeleteHost(home, host.Host{Category: BastionCategory, Name: "bastion-prod"}, true); err == nil {
+		t.Fatal("expected referenced bastion delete to fail")
 	}
 }
 

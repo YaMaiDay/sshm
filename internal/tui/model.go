@@ -240,6 +240,7 @@ type Model struct {
 	categories           []string
 	categoryIndex        int
 	addingCategory       bool
+	renamingCategory     bool
 	categoryDraft        string
 	editing              bool
 	copying              bool
@@ -354,14 +355,33 @@ type addForm struct {
 	User         string
 	Port         string
 	IdentityFile string
-	ProxyJump    string
 	Password     string
+	JumpHostRef  string
 	HealthPorts  string
 	ExpireAt     string
 	Note         string
 }
 
-const expireAtFormIndex = 10
+const (
+	categoryFormIndex    = 0
+	nameFormIndex        = 1
+	hostFormIndex        = 2
+	userFormIndex        = 3
+	portFormIndex        = 4
+	identityFormIndex    = 5
+	passwordFormIndex    = 6
+	jumpHostRefFormIndex = 7
+	healthPortsFormIndex = 8
+	noteFormIndex        = 9
+	expireAtFormIndex    = 10
+)
+
+type formField struct {
+	ID      int
+	Label   string
+	Value   string
+	Section bool
+}
 
 type commandItem struct {
 	Scope     commandScope
@@ -433,26 +453,31 @@ type confirmAction struct {
 	Value   string
 }
 
-func (f addForm) fields() []struct {
-	label string
-	value string
-} {
-	return []struct {
-		label string
-		value string
-	}{
-		{"分类", f.Category},
-		{"服务器名称", f.Name},
-		{"服务器地址", f.HostName},
-		{"用户名", f.User},
-		{"端口", f.Port},
-		{"密钥文件", f.IdentityFile},
-		{"密码", f.Password},
-		{"跳板机", f.ProxyJump},
-		{"健康端口", f.HealthPorts},
-		{"备注", f.Note},
-		{"到期时间", f.ExpireAt},
+func (f addForm) fields() []formField {
+	fields := []formField{
+		{Label: "基础信息", Section: true},
+		{ID: categoryFormIndex, Label: "分类", Value: f.Category},
+		{ID: nameFormIndex, Label: "服务器名称", Value: f.Name},
+		{Label: "目标服务器", Section: true},
+		{ID: hostFormIndex, Label: "服务器地址", Value: f.HostName},
+		{ID: userFormIndex, Label: "用户名", Value: f.User},
+		{ID: portFormIndex, Label: "端口", Value: f.Port},
+		{ID: identityFormIndex, Label: "服务器本地密钥文件", Value: f.IdentityFile},
+		{ID: passwordFormIndex, Label: "密码", Value: f.Password},
 	}
+	if f.Category != config.BastionCategory {
+		fields = append(fields,
+			formField{Label: "跳板机", Section: true},
+			formField{ID: jumpHostRefFormIndex, Label: "使用跳板机", Value: emptyChoice(f.JumpHostRef, "无")},
+		)
+	}
+	fields = append(fields,
+		formField{Label: "辅助信息", Section: true},
+		formField{ID: healthPortsFormIndex, Label: "健康端口", Value: f.HealthPorts},
+		formField{ID: noteFormIndex, Label: "备注", Value: f.Note},
+		formField{ID: expireAtFormIndex, Label: "到期时间", Value: f.ExpireAt},
+	)
+	return fields
 }
 
 func New(hosts []host.Host, passwords config.PasswordStore) Model {
@@ -820,7 +845,6 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.formPane == 1 {
 		return m.updateCategoryPane(msg)
 	}
-	fieldCount := len(m.form.fields())
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "q", "ctrl+c":
@@ -830,25 +854,26 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		m.formPane = 1
 	case "down":
-		m.formIndex = (m.formIndex + 1) % fieldCount
+		m.formIndex = m.nextFormIndex()
 		m.formCursor = m.formValueLen()
 	case "shift+tab":
 		m.formPane = 1
 	case "up":
-		m.formIndex--
-		if m.formIndex < 0 {
-			m.formIndex = fieldCount - 1
-		}
+		m.formIndex = m.prevFormIndex()
 		m.formCursor = m.formValueLen()
 	case "left":
 		if m.formIndex == 0 {
 			m.moveCategory(-1)
+		} else if m.formIndex == jumpHostRefFormIndex {
+			m.moveJumpHostRef(-1)
 		} else {
 			m.moveFormCursor(-1)
 		}
 	case "right":
 		if m.formIndex == 0 {
 			m.moveCategory(1)
+		} else if m.formIndex == jumpHostRefFormIndex {
+			m.moveJumpHostRef(1)
 		} else {
 			m.moveFormCursor(1)
 		}
@@ -882,8 +907,8 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			User:         m.form.User,
 			Port:         m.form.Port,
 			IdentityFile: m.form.IdentityFile,
-			ProxyJump:    m.form.ProxyJump,
 			Password:     m.form.Password,
+			JumpHostRef:  m.form.JumpHostRef,
 			Note:         m.form.Note,
 			ExpireAt:     expireAt,
 			Favorite:     favorite,
@@ -939,21 +964,47 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.addingCategory {
+	if m.addingCategory || m.renamingCategory {
 		key := shortcutKey(msg)
 		switch key {
 		case "esc", "q", "ctrl+c":
 			m.addingCategory = false
+			m.renamingCategory = false
 			m.categoryDraft = ""
 		case "enter":
-			if err := config.AddCategory(m.home, m.categoryDraft); err != nil {
-				m.status = "添加分类失败：" + categoryErrorText(err)
+			if m.renamingCategory {
+				oldName := ""
+				if len(m.categories) > 0 {
+					oldName = m.categories[m.categoryIndex]
+				}
+				if err := config.RenameCategory(m.home, oldName, m.categoryDraft); err != nil {
+					m.status = "重命名分类失败：" + categoryErrorText(err)
+				} else {
+					newName := strings.TrimSpace(m.categoryDraft)
+					hosts, err := config.LoadHosts(m.home)
+					if err != nil {
+						m.status = "重命名后重新读取失败：" + err.Error()
+					} else {
+						m.reloadHosts(hosts)
+					}
+					m.reloadCategories(newName)
+					m.form.Category = m.categories[m.categoryIndex]
+					if m.category == oldName {
+						m.category = newName
+					}
+					m.status = "分类已重命名。"
+				}
 			} else {
-				m.reloadCategories(m.categoryDraft)
-				m.form.Category = m.categories[m.categoryIndex]
-				m.status = "分类已添加。"
+				if err := config.AddCategory(m.home, m.categoryDraft); err != nil {
+					m.status = "添加分类失败：" + categoryErrorText(err)
+				} else {
+					m.reloadCategories(m.categoryDraft)
+					m.form.Category = m.categories[m.categoryIndex]
+					m.status = "分类已添加。"
+				}
 			}
 			m.addingCategory = false
+			m.renamingCategory = false
 			m.categoryDraft = ""
 		case "backspace":
 			m.categoryDraft = removeLastRune(m.categoryDraft)
@@ -977,8 +1028,22 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveCategory(-1)
 	case "n", "a":
 		m.addingCategory = true
+		m.renamingCategory = false
 		m.categoryDraft = ""
 		m.status = "输入新分类名称。"
+	case "r":
+		if len(m.categories) == 0 {
+			return m, nil
+		}
+		name := m.categories[m.categoryIndex]
+		if name == config.BastionCategory {
+			m.status = "跳板机分类不能重命名。"
+			return m, nil
+		}
+		m.renamingCategory = true
+		m.addingCategory = false
+		m.categoryDraft = name
+		m.status = "输入新的分类名称。"
 	case "x":
 		if len(m.categories) == 0 {
 			return m, nil
@@ -1016,6 +1081,46 @@ func (m *Model) moveCategory(delta int) {
 	m.form.Category = m.categories[m.categoryIndex]
 }
 
+func (m *Model) moveJumpHostRef(delta int) {
+	choices := append([]string{""}, m.bastionNames()...)
+	if len(choices) == 0 {
+		m.form.JumpHostRef = ""
+		return
+	}
+	current := strings.TrimSpace(m.form.JumpHostRef)
+	index := 0
+	for i, choice := range choices {
+		if choice == current {
+			index = i
+			break
+		}
+	}
+	index = (index + delta) % len(choices)
+	if index < 0 {
+		index += len(choices)
+	}
+	m.form.JumpHostRef = choices[index]
+}
+
+func (m Model) bastionNames() []string {
+	names := []string{}
+	for _, state := range m.states {
+		h := state.Host
+		if h.Category != config.BastionCategory {
+			continue
+		}
+		if m.editing && m.editIndex >= 0 && m.editIndex < len(m.states) {
+			current := m.states[m.editIndex].Host
+			if current.Category == h.Category && current.Name == h.Name {
+				continue
+			}
+		}
+		names = append(names, h.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func (m *Model) reloadCategories(prefer string) {
 	categories, _, err := config.LoadCategories(m.home)
 	if err != nil || len(categories) == 0 {
@@ -1023,6 +1128,9 @@ func (m *Model) reloadCategories(prefer string) {
 	}
 	m.categories = categories
 	m.categoryIndex = 0
+	if strings.TrimSpace(prefer) == "" {
+		prefer = "default"
+	}
 	for i, category := range categories {
 		if category == prefer {
 			m.categoryIndex = i
@@ -1036,7 +1144,11 @@ func categoryErrorText(err error) string {
 	case errors.Is(err, os.ErrInvalid):
 		return "至少需要保留一个分类，或分类名称不能为空"
 	case errors.Is(err, os.ErrPermission):
-		return "分类下面还有服务器，不能删除"
+		return "跳板机分类不能重命名或删除，分类下面还有服务器时也不能删除"
+	case errors.Is(err, os.ErrExist):
+		return "分类名称已存在"
+	case errors.Is(err, os.ErrNotExist):
+		return "分类不存在"
 	default:
 		return err.Error()
 	}
@@ -1119,6 +1231,7 @@ func (m Model) startAddForm() Model {
 	m.copying = false
 	m.editIndex = -1
 	m.addingCategory = false
+	m.renamingCategory = false
 	m.categoryDraft = ""
 	m.form = addForm{Category: m.categories[m.categoryIndex], User: "root", Port: "22"}
 	m.status = "添加服务器"
@@ -1167,6 +1280,7 @@ func (m Model) startCopyForm(idx int) Model {
 	m.copying = true
 	m.editIndex = -1
 	m.addingCategory = false
+	m.renamingCategory = false
 	m.categoryDraft = ""
 	name := m.copyHostName(input.Category, input.Name)
 	m.form = addForm{
@@ -1176,8 +1290,8 @@ func (m Model) startCopyForm(idx int) Model {
 		User:         input.User,
 		Port:         input.Port,
 		IdentityFile: input.IdentityFile,
-		ProxyJump:    input.ProxyJump,
 		Password:     input.Password,
+		JumpHostRef:  input.JumpHostRef,
 		HealthPorts:  config.FormatHealthPorts(input.HealthPorts),
 		ExpireAt:     input.ExpireAt,
 		Note:         input.Note,
@@ -1200,6 +1314,7 @@ func (m Model) startEditForm(idx int) Model {
 	m.copying = false
 	m.editIndex = idx
 	m.addingCategory = false
+	m.renamingCategory = false
 	m.categoryDraft = ""
 	m.form = addForm{
 		Category:     m.categories[m.categoryIndex],
@@ -1208,8 +1323,8 @@ func (m Model) startEditForm(idx int) Model {
 		User:         input.User,
 		Port:         input.Port,
 		IdentityFile: input.IdentityFile,
-		ProxyJump:    input.ProxyJump,
 		Password:     input.Password,
+		JumpHostRef:  input.JumpHostRef,
 		HealthPorts:  config.FormatHealthPorts(input.HealthPorts),
 		ExpireAt:     input.ExpireAt,
 		Note:         input.Note,
@@ -2656,6 +2771,51 @@ func (m Model) formValueLen() int {
 	return len([]rune(m.formValue()))
 }
 
+func (m Model) nextFormIndex() int {
+	ids := editableFormIDs(m.form.fields())
+	for i, id := range ids {
+		if id == m.formIndex {
+			return ids[(i+1)%len(ids)]
+		}
+	}
+	return ids[0]
+}
+
+func (m Model) prevFormIndex() int {
+	ids := editableFormIDs(m.form.fields())
+	for i, id := range ids {
+		if id == m.formIndex {
+			if i == 0 {
+				return ids[len(ids)-1]
+			}
+			return ids[i-1]
+		}
+	}
+	return ids[0]
+}
+
+func editableFormIDs(fields []formField) []int {
+	ids := make([]int, 0, len(fields))
+	for _, field := range fields {
+		if !field.Section {
+			ids = append(ids, field.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return []int{categoryFormIndex}
+	}
+	return ids
+}
+
+func selectedFieldRow(fields []formField, id int) int {
+	for i, field := range fields {
+		if !field.Section && field.ID == id {
+			return i
+		}
+	}
+	return 0
+}
+
 func dateCursorEnd(value string) int {
 	mask := []rune(dateMask(value))
 	positions := dateInputPositions()
@@ -2683,7 +2843,7 @@ func (m Model) formValue() string {
 	case 6:
 		return m.form.Password
 	case 7:
-		return m.form.ProxyJump
+		return emptyChoice(m.form.JumpHostRef, "无")
 	case 8:
 		return m.form.HealthPorts
 	case 9:
@@ -2710,7 +2870,7 @@ func (m *Model) setFormValue(value string) {
 	case 6:
 		m.form.Password = value
 	case 7:
-		m.form.ProxyJump = value
+		m.form.JumpHostRef = strings.TrimSpace(value)
 	case 8:
 		m.form.HealthPorts = value
 	case 9:
@@ -2718,6 +2878,13 @@ func (m *Model) setFormValue(value string) {
 	case 10:
 		m.form.ExpireAt = value
 	}
+}
+
+func emptyChoice(value, empty string) string {
+	if strings.TrimSpace(value) == "" {
+		return empty
+	}
+	return value
 }
 
 func removeLastRune(s string) string {
@@ -4976,9 +5143,11 @@ func (m Model) renderAddForm() string {
 	}
 	help := "切换 Tab  选择 ↑↓  分类 ←→  保存 Enter  返回 Esc"
 	if m.formPane == 1 {
-		help = "切回 Tab  选择 ↑↓  新增 n  删除 x  返回 Esc"
+		help = "切回 Tab  选择 ↑↓  新增 n  重命名 r  删除 x  返回 Esc"
 		if m.addingCategory {
 			help = "添加 Enter  返回 Esc"
+		} else if m.renamingCategory {
+			help = "重命名 Enter  返回 Esc"
 		}
 	}
 	header := titleStyle.Render(title)
@@ -6208,7 +6377,7 @@ func anomalyResourceText(state hostState) string {
 	return strings.Join([]string{
 		"CPU " + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%.0f%%", metrics.CPUPercent)),
 		"内存 " + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%.0f%%", metrics.MemPercent())),
-		"磁盘 " + metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%.0f%%", metrics.DiskPercent())),
+		"磁盘 " + diskMountPercentText(metrics),
 	}, "  ")
 }
 
@@ -6291,33 +6460,46 @@ func (m Model) renderServerFormPane(title string, width int, height int) string 
 	if contentHeight < 4 {
 		contentHeight = 4
 	}
-	fieldHeight := contentHeight - 1
+	if m.formIndex == jumpHostRefFormIndex || strings.TrimSpace(m.form.JumpHostRef) != "" {
+		lines = append(lines, mutedStyle.Render("跳板机只转发连接，密钥文件都在本地。"))
+	}
+	fieldHeight := contentHeight - len(lines)
 	if fieldHeight < 1 {
 		fieldHeight = 1
 	}
-	start, end := visibleRange(len(fields), m.formIndex, fieldHeight)
+	selectedRow := selectedFieldRow(fields, m.formIndex)
+	start, end := visibleRange(len(fields), selectedRow, fieldHeight)
 	for i := start; i < end; i++ {
 		field := fields[i]
+		if field.Section {
+			if len(lines) > 1 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, sectionTitle(field.Label))
+			continue
+		}
 		prefix := " "
 		style := lipgloss.NewStyle()
-		value := field.value
-		if i == 0 {
+		value := field.Value
+		if field.ID == categoryFormIndex {
 			value = m.form.Category
 			if value == "" && len(m.categories) > 0 {
 				value = m.categories[m.categoryIndex]
 			}
 			value += mutedStyle.Render("  ←/→")
-		} else if i == expireAtFormIndex {
-			value = dateInputText(m.form.ExpireAt, m.formCursor, m.formPane == 0 && i == m.formIndex)
+		} else if field.ID == expireAtFormIndex {
+			value = dateInputText(m.form.ExpireAt, m.formCursor, m.formPane == 0 && field.ID == m.formIndex)
+		} else if field.ID == jumpHostRefFormIndex {
+			value += mutedStyle.Render("  ←/→")
 		}
-		if m.formPane == 0 && i == m.formIndex {
+		if m.formPane == 0 && field.ID == m.formIndex {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
-		if i == expireAtFormIndex {
-			lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, false, false, m.formCursor)))
+		if field.ID == expireAtFormIndex || field.ID == jumpHostRefFormIndex {
+			lines = append(lines, style.Render(formFieldLine(prefix, field.Label, value, innerWidth, false, false, m.formCursor)))
 		} else {
-			lines = append(lines, style.Render(formFieldLine(prefix, field.label, value, innerWidth, i != 0, m.formPane == 0 && i == m.formIndex, m.formCursor)))
+			lines = append(lines, style.Render(formFieldLine(prefix, field.Label, value, innerWidth, field.ID != categoryFormIndex, m.formPane == 0 && field.ID == m.formIndex, m.formCursor)))
 		}
 	}
 	for len(lines) < contentHeight {
@@ -6370,8 +6552,12 @@ func (m Model) renderCategoryPane(width int, height int) string {
 	for len(lines) < 1+listHeight {
 		lines = append(lines, "")
 	}
-	if m.addingCategory {
-		lines = append(lines, blueStyle.Bold(true).Render(prefixedCursorText("新分类 ", m.categoryDraft, innerWidth)))
+	if m.addingCategory || m.renamingCategory {
+		label := "新分类 "
+		if m.renamingCategory {
+			label = "重命名 "
+		}
+		lines = append(lines, blueStyle.Bold(true).Render(prefixedCursorText(label, m.categoryDraft, innerWidth)))
 	}
 	for len(lines) < contentHeight {
 		lines = append(lines, "")
@@ -6706,6 +6892,8 @@ func (m Model) detailLines() ([]string, bool) {
 		m.detailRow("收藏", yesNo(h.Favorite)),
 		m.detailRow("置顶", yesNo(h.Pinned)),
 		m.detailRow("认证方式", authText(h)),
+		m.detailRow("跳板机", jumpDetailText(h)),
+		m.detailRow("跳板机密钥", jumpKeyText(h)),
 		m.detailRow("主机名", emptyDash(metrics.RemoteHostname)),
 		m.detailRow("系统", emptyDash(metrics.OS)),
 		m.detailRow("内核", emptyDash(metrics.Kernel)),
@@ -6734,10 +6922,12 @@ func (m Model) detailLines() ([]string, bool) {
 		detailSubTitle("磁盘"),
 		m.detailRow("挂载点", emptyDash(metrics.DiskMountpoint)),
 		m.detailRow("文件系统", emptyDash(metrics.DiskFilesystem)),
+		m.detailRow("类型", emptyDash(metrics.DiskType)),
 		m.detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.DiskPercent(), 80, 90), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
 		m.detailRow("可用", bytesHuman(metrics.DiskAvailable)),
-		m.detailRow("inode", inodeUsageText(metrics)),
-		m.detailRow("inode可用", countHuman(metrics.InodeAvailable)),
+		m.diskListText(metrics),
+		m.detailRow("索引节点", inodeUsageText(metrics)),
+		m.detailRow("可用节点", countHuman(metrics.InodeAvailable)),
 		"",
 		detailSubTitle("系统"),
 		m.detailRow("负载", fmt.Sprintf("%s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))),
@@ -8024,7 +8214,7 @@ func (m Model) renderGroupedCard(index int, selected bool, width int) string {
 	barWidth := 8
 	cpuLine := groupedMetricText("CPU", metrics.CPUPercent, cpuCoresText(metrics), barWidth, 70, 85)
 	memLine := groupedMetricText("内存", metrics.MemPercent(), bytesPair(metrics.MemUsed, metrics.MemTotal), barWidth, 70, 85)
-	diskLine := groupedMetricText("磁盘", metrics.DiskPercent(), bytesPair(metrics.DiskUsed, metrics.DiskTotal), barWidth, 80, 90)
+	diskLine := groupedMetricText("磁盘", metrics.DiskPercent(), diskSummaryText(metrics), barWidth, 80, 90)
 	loadLine := fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))
 	serviceLine := serviceCardText(metrics)
 	if riskText := cardRiskText(buildChecks(state), innerWidth); riskText != "" {
@@ -8203,8 +8393,8 @@ func dashboardListResourceColumns(state hostState) (string, string, string) {
 	}
 	cpu := "CPU " + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%3.0f%%", metrics.CPUPercent))
 	mem := "内存 " + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%3.0f%%", metrics.MemPercent()))
-	disk := "磁盘 " + metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%3.0f%%", metrics.DiskPercent()))
-	return padVisible(cpu, 7), padVisible(mem, 8), padVisible(disk, 8)
+	disk := "磁盘 " + diskMountPercentText(metrics)
+	return padVisible(cpu, 7), padVisible(mem, 8), padVisible(disk, 14)
 }
 
 func dashboardListServiceColumns(metrics monitor.Metrics) (string, string) {
@@ -8977,7 +9167,7 @@ func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine b
 
 	cpuLine := cardMetricLine("CPU", cpu, cpuCoresText(metrics), innerWidth)
 	memLine := cardMetricLine("内存", mem, bytesPair(metrics.MemUsed, metrics.MemTotal), innerWidth)
-	diskLine := cardMetricLine("磁盘", disk, bytesPair(metrics.DiskUsed, metrics.DiskTotal), innerWidth)
+	diskLine := cardMetricLine(diskMetricLabel(metrics), disk, bytesPair(metrics.DiskUsed, metrics.DiskTotal), innerWidth)
 	uptimeLabel := cardHeaderMeta(h, metrics)
 	loadLine := fit(fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15)), innerWidth)
 	serviceLine := ansi.Truncate(serviceCardText(metrics), innerWidth, "…")
@@ -9094,7 +9284,7 @@ func threeMetricLine(width int, metrics monitor.Metrics) string {
 	}
 	cpu := compactMetric("CPU", metrics.CPUPercent, colWidth, barWidth)
 	mem := compactMetric("内存", metrics.MemPercent(), colWidth, barWidth)
-	disk := compactMetricWithThreshold("磁盘", metrics.DiskPercent(), colWidth, barWidth, 80, 90)
+	disk := compactDiskMetric(metrics, colWidth, barWidth)
 	line := padVisible(cpu, colWidth) + strings.Repeat(" ", gap) + padVisible(mem, colWidth) + strings.Repeat(" ", gap) + padVisible(disk, colWidth)
 	return fit(line, width)
 }
@@ -9111,6 +9301,15 @@ func compactMetricWithThreshold(label string, value float64, width int, barWidth
 		padding = 1
 	}
 	return fit(label+strings.Repeat(" ", padding)+bar, width)
+}
+
+func compactDiskMetric(metrics monitor.Metrics, width int, barWidth int) string {
+	label := diskMountLabel(metrics)
+	if label == "-" {
+		label = "磁盘"
+	}
+	bar := compactPercentBarWithThreshold(metrics.DiskPercent(), barWidth, 80, 90)
+	return fit(label+" "+bar, width)
 }
 
 func compactPercentBar(value float64, total int) string {
@@ -9419,6 +9618,34 @@ func authText(h host.Host) string {
 	default:
 		return "系统 SSH 默认"
 	}
+}
+
+func jumpDetailText(h host.Host) string {
+	if !h.JumpEnabled {
+		return "未启用"
+	}
+	if strings.TrimSpace(h.JumpHostRef) != "" {
+		return h.JumpHostRef + "，仅转发，本地密钥认证"
+	}
+	port := strings.TrimSpace(h.JumpPort)
+	if port == "" {
+		port = "22"
+	}
+	target := h.JumpHost
+	if strings.TrimSpace(h.JumpUser) != "" {
+		target = h.JumpUser + "@" + target
+	}
+	return target + ":" + port + "，仅转发，本地密钥认证"
+}
+
+func jumpKeyText(h host.Host) string {
+	if !h.JumpEnabled {
+		return "-"
+	}
+	if strings.TrimSpace(h.JumpKeyPath) == "" {
+		return "系统 SSH 默认"
+	}
+	return filepath.Base(h.JumpKeyPath) + "（本地）"
 }
 
 func transferErrorText(err error, output string) string {
@@ -10946,6 +11173,125 @@ func bytesPair(used uint64, total uint64) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s", bytesHuman(used), bytesHuman(total))
+}
+
+func diskMountLabel(metrics monitor.Metrics) string {
+	mountpoint := strings.TrimSpace(metrics.DiskMountpoint)
+	if mountpoint == "" {
+		return "-"
+	}
+	return mountpoint
+}
+
+func diskMetricLabel(metrics monitor.Metrics) string {
+	mountpoint := diskMountLabel(metrics)
+	if mountpoint == "-" || mountpoint == "/" {
+		return "磁盘"
+	}
+	return "磁盘" + mountpoint
+}
+
+func diskMountPercentText(metrics monitor.Metrics) string {
+	label := diskMountLabel(metrics)
+	percent := metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%.0f%%", metrics.DiskPercent()))
+	if label == "-" {
+		return percent
+	}
+	return fit(label+" "+percent, 18)
+}
+
+func diskSummaryText(metrics monitor.Metrics) string {
+	label := diskMountLabel(metrics)
+	size := bytesPair(metrics.DiskUsed, metrics.DiskTotal)
+	if label == "-" {
+		return size
+	}
+	if size == "" {
+		return label
+	}
+	return label + " " + size
+}
+
+func (m Model) diskListText(metrics monitor.Metrics) string {
+	if len(metrics.Disks) == 0 {
+		return ""
+	}
+	disks := append([]monitor.DiskMetric(nil), metrics.Disks...)
+	sort.Slice(disks, func(i, j int) bool {
+		return disks[i].Percent() > disks[j].Percent()
+	})
+	mountWidth := 8
+	for _, disk := range disks {
+		if width := ansi.StringWidth(emptyDash(disk.Mountpoint)); width > mountWidth {
+			mountWidth = width
+		}
+	}
+	rows := []string{"", "分区"}
+	for i, disk := range disks {
+		if i > 0 {
+			rows = append(rows, "")
+		}
+		rows = append(rows, m.diskPartitionInfoLine(i+1, disk, mountWidth))
+		rows = append(rows, m.diskPartitionUsageLine(disk))
+	}
+	rows = append(rows, "")
+	return strings.Join(rows, "\n")
+}
+
+func (m Model) diskPartitionInfoLine(index int, disk monitor.DiskMetric, mountWidth int) string {
+	width := m.detailContentWidth()
+	indexText := detailLabelStyle.Render(fmt.Sprintf("%02d", index))
+	mount := emptyDash(disk.Mountpoint)
+	filesystem := strings.TrimSpace(disk.Filesystem)
+	diskType := strings.TrimSpace(disk.Type)
+	if filesystem == "" {
+		filesystem = "-"
+	}
+	if diskType == "" {
+		diskType = "-"
+	}
+	suffixRaw := "  类型 " + diskType
+	if mountWidth > 24 {
+		mountWidth = 24
+	}
+	prefixRaw := fmt.Sprintf("%02d  %s  设备 ", index, padVisible(fit(mount, mountWidth), mountWidth))
+	filesystemWidth := width - ansi.StringWidth(prefixRaw) - ansi.StringWidth(suffixRaw)
+	if filesystemWidth < 12 {
+		mountWidth = width - ansi.StringWidth(fmt.Sprintf("%02d  ", index)) - ansi.StringWidth("  设备 ") - ansi.StringWidth(suffixRaw) - 12
+		if mountWidth < 8 {
+			mountWidth = 8
+		}
+		mount = fit(mount, mountWidth)
+		prefixRaw = fmt.Sprintf("%02d  %s  设备 ", index, padVisible(mount, mountWidth))
+		filesystemWidth = width - ansi.StringWidth(prefixRaw) - ansi.StringWidth(suffixRaw)
+	}
+	if filesystemWidth < 8 {
+		filesystemWidth = 8
+	}
+	mount = padVisible(fit(mount, mountWidth), mountWidth)
+	line := indexText +
+		"  " + detailValueStyle.Render(mount) +
+		"  " + mutedStyle.Render("设备") + " " + detailValueStyle.Render(fit(filesystem, filesystemWidth)) +
+		"  " + mutedStyle.Render("类型") + " " + detailValueStyle.Render(diskType)
+	if ansi.StringWidth(line) > width {
+		return fitANSI(line, width)
+	}
+	return line
+}
+
+func (m Model) diskPartitionUsageLine(disk monitor.DiskMetric) string {
+	parts := []string{percentBarWithThreshold(disk.Percent(), 80, 90)}
+	if size := bytesPair(disk.Used, disk.Total); size != "" {
+		parts = append(parts, detailValueStyle.Render(size))
+	}
+	if disk.AvailKnown {
+		parts = append(parts, mutedStyle.Render("可用")+" "+detailValueStyle.Render(bytesHuman(disk.Available)))
+	}
+	line := strings.Repeat(" ", 10) + strings.Join(parts, "  ")
+	if ansi.StringWidth(line) > m.detailContentWidth() {
+		return fitANSI(line, m.detailContentWidth())
+	}
+	return line
 }
 
 func swapUsageText(metrics monitor.Metrics) string {

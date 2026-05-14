@@ -136,23 +136,12 @@ func parseRemoteItems(out string) []Item {
 }
 
 func runSSH(h host.Host, script string) (string, error) {
-	args := []string{
+	args, target, cleanup := sshconfig.SSHArgs(h,
 		"-o", "ConnectTimeout=3",
 		"-o", "LogLevel=ERROR",
-		"-o", "StrictHostKeyChecking=accept-new",
-	}
-	args = append(args, sshconfig.WarnWeakCryptoNoPQKexArgs()...)
-	args = append(args, sshconfig.StrictSSHArgs(h)...)
-	if h.Port != "" {
-		args = append(args, "-p", h.Port)
-	}
-	if h.ProxyJump != "" {
-		args = append(args, "-J", h.ProxyJump)
-	}
-	if h.IdentityFile != "" {
-		args = append(args, "-i", h.IdentityFile)
-	}
-	args = append(args, h.Target(), "sh", "-s")
+	)
+	defer cleanup()
+	args = append(args, target, "sh", "-s")
 	if strings.TrimSpace(h.Password) != "" {
 		if _, err := exec.LookPath("sshpass"); err == nil {
 			file, err := sshconfig.TempPasswordFile(h.Password)

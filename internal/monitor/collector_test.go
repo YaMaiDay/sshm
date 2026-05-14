@@ -41,6 +41,28 @@ func TestDiskPercentUsesDfUsableSpaceWhenFull(t *testing.T) {
 	}
 }
 
+func TestParseMetricsDisksSelectsHighestRealDisk(t *testing.T) {
+	metrics, err := parseMetrics(strings.Join([]string{
+		"DISK=1000 100 900",
+		"DISK_FS=/dev/sda1",
+		"DISK_MOUNT=/",
+		"DISKS=tmpfs\ttmpfs\t1000\t990\t10\t/run|/dev/sda1\text4\t1000\t400\t600\t/|/dev/sdb1\txfs\t1000\t910\t90\t/data|overlay\toverlay\t1000\t990\t10\t/var/lib/docker/overlay2/x",
+	}, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(metrics.Disks) != 2 {
+		t.Fatalf("len(Disks) = %d, want 2: %+v", len(metrics.Disks), metrics.Disks)
+	}
+	if metrics.DiskFilesystem != "/dev/sdb1" || metrics.DiskMountpoint != "/data" {
+		t.Fatalf("primary disk = %q %q, want /dev/sdb1 /data", metrics.DiskFilesystem, metrics.DiskMountpoint)
+	}
+	if got := metrics.DiskPercent(); got != 91 {
+		t.Fatalf("DiskPercent = %v, want 91", got)
+	}
+}
+
 func TestParseMetricsCPUInfo(t *testing.T) {
 	metrics, err := parseMetrics("CPU_CORES=4\nCPU_MODEL=Intel Xeon Test\n")
 	if err != nil {

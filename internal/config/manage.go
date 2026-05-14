@@ -16,8 +16,8 @@ type HostInput struct {
 	User         string
 	Port         string
 	IdentityFile string
-	ProxyJump    string
 	Password     string
+	JumpHostRef  string
 	Note         string
 	ExpireAt     string
 	Favorite     bool
@@ -41,6 +41,11 @@ func AddHost(home string, input HostInput) error {
 	if !categoryExists(categories, strings.TrimSpace(input.Category)) {
 		return fmt.Errorf("分类不存在：%s", input.Category)
 	}
+	if strings.TrimSpace(input.Category) != BastionCategory {
+		if err := validateJumpHostRef(hosts, input.JumpHostRef); err != nil {
+			return err
+		}
+	}
 	for _, h := range hosts {
 		if sameHostNameInCategory(h, input.Category, input.Name) {
 			return fmt.Errorf("分类 %s 中服务器名称已存在：%s", strings.TrimSpace(input.Category), strings.TrimSpace(input.Name))
@@ -61,8 +66,8 @@ func InputFromHost(h host.Host, password string) HostInput {
 		User:         h.User,
 		Port:         h.Port,
 		IdentityFile: h.IdentityFile,
-		ProxyJump:    h.ProxyJump,
 		Password:     password,
+		JumpHostRef:  h.JumpHostRef,
 		Note:         h.Note,
 		ExpireAt:     h.ExpireAt,
 		Favorite:     h.Favorite,
@@ -87,9 +92,21 @@ func EditHost(home string, original host.Host, input HostInput) error {
 	if !categoryExists(categories, strings.TrimSpace(input.Category)) {
 		return fmt.Errorf("分类不存在：%s", input.Category)
 	}
+	if strings.TrimSpace(input.Category) != BastionCategory {
+		if err := validateJumpHostRef(hosts, input.JumpHostRef); err != nil {
+			return err
+		}
+	}
 	found := false
 	for i, h := range hosts {
 		if sameHostIdentity(h, original) {
+			if original.Category == BastionCategory && (strings.TrimSpace(input.Category) != BastionCategory || strings.TrimSpace(input.Name) != original.Name) {
+				for _, current := range hosts {
+					if strings.TrimSpace(current.JumpHostRef) == original.Name {
+						return fmt.Errorf("无法修改跳板机 %s 的名称或分类，还有服务器正在使用它", original.Name)
+					}
+				}
+			}
 			hosts[i] = hostFromInput(home, input)
 			found = true
 			continue
@@ -113,10 +130,30 @@ func categoryExists(categories []string, name string) bool {
 	return false
 }
 
+func validateJumpHostRef(hosts []host.Host, ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	for _, h := range hosts {
+		if h.Category == BastionCategory && h.Name == ref {
+			return nil
+		}
+	}
+	return fmt.Errorf("跳板机不存在：%s", ref)
+}
+
 func DeleteHost(home string, h host.Host, removePassword bool) error {
 	hosts, err := managedHosts(home)
 	if err != nil {
 		return err
+	}
+	if h.Category == BastionCategory {
+		for _, current := range hosts {
+			if strings.TrimSpace(current.JumpHostRef) == h.Name {
+				return fmt.Errorf("无法删除跳板机 %s，还有服务器正在使用它", h.Name)
+			}
+		}
 	}
 	next := make([]host.Host, 0, len(hosts))
 	found := false
@@ -150,15 +187,20 @@ func managedHosts(home string) ([]host.Host, error) {
 
 func hostFromInput(home string, input HostInput) host.Host {
 	password := strings.TrimSpace(input.Password)
+	category := strings.TrimSpace(input.Category)
+	jumpHostRef := strings.TrimSpace(input.JumpHostRef)
+	if category == BastionCategory {
+		jumpHostRef = ""
+	}
 	return host.Host{
 		Name:         strings.TrimSpace(input.Name),
 		HostName:     strings.TrimSpace(input.HostName),
 		User:         strings.TrimSpace(input.User),
 		Port:         strings.TrimSpace(input.Port),
 		IdentityFile: strings.TrimSpace(input.IdentityFile),
-		ProxyJump:    strings.TrimSpace(input.ProxyJump),
 		Password:     password,
-		Category:     strings.TrimSpace(input.Category),
+		JumpHostRef:  jumpHostRef,
+		Category:     category,
 		Note:         strings.TrimSpace(input.Note),
 		ExpireAt:     strings.TrimSpace(input.ExpireAt),
 		Favorite:     input.Favorite,

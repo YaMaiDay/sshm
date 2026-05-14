@@ -6,8 +6,13 @@ type Host struct {
 	User         string
 	Port         string
 	IdentityFile string
-	ProxyJump    string
 	Password     string
+	JumpHostRef  string
+	JumpEnabled  bool
+	JumpHost     string
+	JumpUser     string
+	JumpPort     string
+	JumpKeyPath  string
 	Category     string
 	Note         string
 	ExpireAt     string
@@ -32,4 +37,14 @@ func (h Host) Target() string {
 		return address
 	}
 	return h.User + "@" + address
+}
+
+func (h Host) JumpTarget() string {
+	if h.JumpHost == "" {
+		return ""
+	}
+	if h.JumpUser == "" {
+		return h.JumpHost
+	}
+	return h.JumpUser + "@" + h.JumpHost
 }

@@ -7,6 +7,30 @@ type HealthPort struct {
 	Healthy bool
 }
 
+type DiskMetric struct {
+	Filesystem string
+	Type       string
+	Mountpoint string
+	Used       uint64
+	Total      uint64
+	Available  uint64
+	AvailKnown bool
+}
+
+func (d DiskMetric) Percent() float64 {
+	if d.AvailKnown {
+		usable := d.Used + d.Available
+		if usable == 0 {
+			return 0
+		}
+		return float64(d.Used) * 100 / float64(usable)
+	}
+	if d.Total == 0 {
+		return 0
+	}
+	return float64(d.Used) * 100 / float64(d.Total)
+}
+
 type Metrics struct {
 	Online             bool
 	OS                 string
@@ -27,7 +51,9 @@ type Metrics struct {
 	DiskAvailable      uint64
 	DiskAvailKnown     bool
 	DiskFilesystem     string
+	DiskType           string
 	DiskMountpoint     string
+	Disks              []DiskMetric
 	InodeUsed          uint64
 	InodeTotal         uint64
 	InodeAvailable     uint64
