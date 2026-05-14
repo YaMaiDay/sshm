@@ -7077,7 +7077,18 @@ func (m Model) renderDeploymentList() string {
 	help := "移动 ↑↓←→/hjkl  详情 Space  选择 s  分类 Tab  视图 z  置顶 t  收藏 f  只看收藏 v  部署 Enter  新增 a  编辑 e  删除 x  返回 Esc"
 	header := titleStyle.Render(fit(strings.Join(m.deploymentHeaderParts(), "  "), pageWidth))
 	if m.deploymentView == deploymentViewCards {
-		return strings.Join([]string{header, "", m.renderDeploymentCards(pageWidth), renderHelp(pageWidth, help)}, "\n")
+		bodyHeight := deploymentCardsHeight(m.height, false)
+		pageDots := m.deploymentPageDots(pageWidth, bodyHeight)
+		if pageDots != "" {
+			bodyHeight = deploymentCardsHeight(m.height, true)
+			pageDots = m.deploymentPageDots(pageWidth, bodyHeight)
+		}
+		lines := []string{header, "", m.renderDeploymentCards(pageWidth, bodyHeight)}
+		if pageDots != "" {
+			lines = append(lines, pageDots)
+		}
+		lines = append(lines, renderHelp(pageWidth, help))
+		return strings.Join(lines, "\n")
 	}
 	contentHeight := m.height - 4
 	if contentHeight < 1 {
@@ -7129,11 +7140,18 @@ func deploymentViewName(view deploymentViewMode) string {
 	return "卡片"
 }
 
-func (m Model) renderDeploymentCards(width int) string {
-	bodyHeight := m.height - 3
+func deploymentCardsHeight(totalHeight int, withDots bool) int {
+	bodyHeight := totalHeight - 3
+	if withDots {
+		bodyHeight--
+	}
 	if bodyHeight < 8 {
 		bodyHeight = 8
 	}
+	return bodyHeight
+}
+
+func (m Model) renderDeploymentCards(width int, bodyHeight int) string {
 	lines := []string{}
 	if len(m.deploymentItems) == 0 {
 		lines = append(lines, mutedStyle.Render("没有部署应用。按 a 添加。"))
@@ -7153,6 +7171,14 @@ func (m Model) renderDeploymentCards(width int) string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) deploymentPageDots(width int, bodyHeight int) string {
+	if len(m.deploymentItems) == 0 || bodyHeight <= 0 {
+		return ""
+	}
+	lines, selectedTop, selectedBottom := m.deploymentCardLines(width)
+	return dashboardLineDots(len(lines), selectedTop, selectedBottom, bodyHeight, width)
 }
 
 func (m Model) deploymentCardLines(width int) ([]string, int, int) {
