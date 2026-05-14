@@ -2,9 +2,11 @@ package actions
 
 import (
 	"context"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/YaMaiDay/sshm/internal/host"
 	"github.com/YaMaiDay/sshm/internal/sshconfig"
@@ -138,6 +140,66 @@ func RemoteCommandContext(ctx context.Context, h host.Host, script string) (Comm
 		}
 	}
 	return result, cleanup
+}
+
+func RemoteCommandStreamContext(ctx context.Context, h host.Host, script string, onOutput func(string)) (CommandResult, Cleanup) {
+	cmd, cleanup := remoteShellCommand(ctx, h, script)
+	return RunCommandStream(cmd, onOutput), cleanup
+}
+
+func RunCommandStream(cmd *exec.Cmd, onOutput func(string)) CommandResult {
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return CommandResult{Err: err, ExitCode: -1}
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return CommandResult{Err: err, ExitCode: -1}
+	}
+	if err := cmd.Start(); err != nil {
+		return CommandResult{Err: err, ExitCode: -1}
+	}
+	var mu sync.Mutex
+	var output strings.Builder
+	collect := func(r io.Reader) {
+		buf := make([]byte, 4096)
+		for {
+			n, readErr := r.Read(buf)
+			if n > 0 {
+				text := string(buf[:n])
+				mu.Lock()
+				output.WriteString(text)
+				mu.Unlock()
+				if onOutput != nil {
+					onOutput(text)
+				}
+			}
+			if readErr != nil {
+				return
+			}
+		}
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		collect(stdout)
+	}()
+	go func() {
+		defer wg.Done()
+		collect(stderr)
+	}()
+	err = cmd.Wait()
+	wg.Wait()
+	result := CommandResult{Output: output.String(), Err: err}
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+		} else {
+			result.ExitCode = -1
+		}
+	}
+	return result
 }
 
 func remoteShellCommand(ctx context.Context, h host.Host, script string) (*exec.Cmd, Cleanup) {

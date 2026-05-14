@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,6 +57,12 @@ const (
 	modeCommandHistory
 	modeCommandHistoryDetail
 	modeAnomalyOverview
+	modeDeploymentList
+	modeDeploymentDetail
+	modeDeploymentEdit
+	modeDeploymentConfirm
+	modeDeploymentRollbackConfirm
+	modeDeploymentOutput
 	modeHelp
 )
 
@@ -100,6 +107,13 @@ const (
 	dashboardGrouped
 )
 
+type deploymentViewMode int
+
+const (
+	deploymentViewCards deploymentViewMode = iota
+	deploymentViewList
+)
+
 type anomalyFilterMode int
 
 const (
@@ -114,8 +128,9 @@ const (
 )
 
 const (
-	dashboardCardInnerHeight = 7
-	dashboardCardTotalHeight = dashboardCardInnerHeight + 2
+	dashboardCardInnerHeight  = 7
+	dashboardCardTotalHeight  = dashboardCardInnerHeight + 2
+	deploymentCardInnerHeight = 6
 )
 
 type hostState struct {
@@ -198,6 +213,21 @@ type batchCommandDoneMsg struct {
 	Result actions.CommandResult
 }
 
+type deploymentDoneMsg struct {
+	ID              string
+	Result          actions.CommandResult
+	PreviousVersion string
+	CurrentVersion  string
+}
+
+type deploymentQueueNextMsg struct{}
+
+type deploymentProgressMsg struct {
+	ID     string
+	Output string
+	Done   bool
+}
+
 type activeTransfer struct {
 	ID         string
 	Kind       string
@@ -212,89 +242,106 @@ type activeTransfer struct {
 }
 
 type Model struct {
-	states               []hostState
-	selected             int
-	width                int
-	height               int
-	searching            bool
-	query                string
-	status               string
-	refreshStatus        string
-	collector            monitor.Collector
-	passwords            config.PasswordStore
-	appConfig            config.AppConfig
-	appState             config.AppState
-	home                 string
-	mode                 viewMode
-	transfer             transferMode
-	pickIndex            int
-	pickTitle            string
-	choices              []choice
-	remoteTree           remoteTree
-	pending              pendingTransfer
-	panel                transferPanel
-	form                 addForm
-	formIndex            int
-	formCursor           int
-	formPane             int
-	categories           []string
-	categoryIndex        int
-	addingCategory       bool
-	renamingCategory     bool
-	categoryDraft        string
-	editing              bool
-	copying              bool
-	editIndex            int
-	deleteIndex          int
-	confirm              confirmAction
-	filter               filterMode
-	sortBy               sortMode
-	dashboardMode        dashboardMode
-	dashboardFocus       int
-	category             string
-	favoriteOnly         bool
-	detailScroll         int
-	detailSectionIndex   int
-	activeTransfer       activeTransfer
-	transferHistory      config.TransferHistoryFile
-	transferIndex        int
-	transferStatusFilter int
-	transferRunAll       bool
-	commandFile          config.CommandsFile
-	commandItems         []commandItem
-	commandIndex         int
-	commandForm          commandEditForm
-	commandField         int
-	commandCursor        int
-	commandEditing       bool
-	commandEditItem      commandItem
-	commandConfirm       commandItem
-	commandOutputScroll  int
-	commandOutputBack    viewMode
-	activeCommand        activeCommand
-	batchIndexes         []int
-	batchSelected        map[int]bool
-	batchCursor          int
-	batchCommandItems    []commandItem
-	batchCommandIndex    int
-	batchCommand         commandItem
-	batchJobs            []batchJob
-	batchCurrent         int
-	batchOutputIndex     int
-	batchOutputScroll    int
-	batchOutputBack      viewMode
-	commandHistory       config.CommandHistoryFile
-	historyIndex         int
-	historyScroll        int
-	historySearch        bool
-	historyQuery         string
-	anomalyIndex         int
-	anomalyFilter        anomalyFilterMode
-	transferJobsBack     viewMode
-	helpBackMode         viewMode
-	collectRound         int
-	manualRound          int
-	pendingByRound       map[int]int
+	states                 []hostState
+	selected               int
+	width                  int
+	height                 int
+	searching              bool
+	query                  string
+	status                 string
+	refreshStatus          string
+	collector              monitor.Collector
+	passwords              config.PasswordStore
+	appConfig              config.AppConfig
+	appState               config.AppState
+	home                   string
+	mode                   viewMode
+	transfer               transferMode
+	pickIndex              int
+	pickTitle              string
+	choices                []choice
+	remoteTree             remoteTree
+	pending                pendingTransfer
+	panel                  transferPanel
+	form                   addForm
+	formIndex              int
+	formCursor             int
+	formPane               int
+	categories             []string
+	categoryIndex          int
+	addingCategory         bool
+	renamingCategory       bool
+	categoryDraft          string
+	editing                bool
+	copying                bool
+	editIndex              int
+	deleteIndex            int
+	confirm                confirmAction
+	filter                 filterMode
+	sortBy                 sortMode
+	dashboardMode          dashboardMode
+	dashboardFocus         int
+	category               string
+	favoriteOnly           bool
+	detailScroll           int
+	detailSectionIndex     int
+	activeTransfer         activeTransfer
+	transferHistory        config.TransferHistoryFile
+	transferIndex          int
+	transferStatusFilter   int
+	transferRunAll         bool
+	commandFile            config.CommandsFile
+	commandItems           []commandItem
+	commandIndex           int
+	commandForm            commandEditForm
+	commandField           int
+	commandCursor          int
+	commandEditing         bool
+	commandEditItem        commandItem
+	commandConfirm         commandItem
+	commandOutputScroll    int
+	commandOutputBack      viewMode
+	activeCommand          activeCommand
+	batchIndexes           []int
+	batchSelected          map[int]bool
+	batchCursor            int
+	batchCommandItems      []commandItem
+	batchCommandIndex      int
+	batchCommand           commandItem
+	batchJobs              []batchJob
+	batchCurrent           int
+	batchOutputIndex       int
+	batchOutputScroll      int
+	batchOutputBack        viewMode
+	commandHistory         config.CommandHistoryFile
+	historyIndex           int
+	historyScroll          int
+	historySearch          bool
+	historyQuery           string
+	deploymentFile         config.DeploymentsFile
+	deploymentItems        []deploymentItem
+	deploymentIndex        int
+	deploymentForm         deploymentForm
+	deploymentField        int
+	deploymentCursor       int
+	deploymentEditing      bool
+	deploymentEditIndex    int
+	deploymentDetail       config.DeploymentApp
+	deploymentConfirm      config.DeploymentApp
+	deploymentConfirmQueue []config.DeploymentApp
+	deploymentSelected     []int
+	deploymentCategory     string
+	deploymentView         deploymentViewMode
+	deploymentFavoriteOnly bool
+	activeDeployment       activeDeployment
+	deploymentOutputScroll int
+	anomalyIndex           int
+	anomalyFilter          anomalyFilterMode
+	transferJobsBack       viewMode
+	helpBackMode           viewMode
+	collectRound           int
+	manualRound            int
+	pendingByRound         map[int]int
 }
 
 type choice struct {
@@ -400,6 +447,115 @@ type commandEditForm struct {
 	Command string
 }
 
+type deploymentItem struct {
+	Index  int
+	App    config.DeploymentApp
+	Header bool
+	Spacer bool
+}
+
+type deploymentForm struct {
+	Name             string
+	Server           string
+	Source           string
+	FetchMode        string
+	Repo             string
+	Branch           string
+	Version          string
+	Asset            string
+	Path             string
+	ReleaseURL       string
+	Credential       string
+	CredentialName   string
+	WaitSeconds      string
+	BeforeCommands   string
+	ResourceCommands string
+	UpdateCommands   string
+	AfterCommands    string
+	HealthCommands   string
+	RollbackCommands string
+}
+
+type activeDeployment struct {
+	HostIndex       int
+	App             config.DeploymentApp
+	Action          string
+	ProgressID      string
+	Output          string
+	ExitCode        int
+	Running         bool
+	PreviousVersion string
+	CurrentVersion  string
+	Queue           []config.DeploymentApp
+	QueueIndex      int
+	QueueFailed     int
+}
+
+type deploymentProgressState struct {
+	Output string
+	Done   bool
+}
+
+var deploymentProgressStore = struct {
+	sync.Mutex
+	items map[string]deploymentProgressState
+}{items: map[string]deploymentProgressState{}}
+
+func deploymentProgressStart(id string) {
+	if id == "" {
+		return
+	}
+	deploymentProgressStore.Lock()
+	deploymentProgressStore.items[id] = deploymentProgressState{}
+	deploymentProgressStore.Unlock()
+}
+
+func deploymentProgressAppend(id string, text string) {
+	if id == "" || text == "" {
+		return
+	}
+	deploymentProgressStore.Lock()
+	state := deploymentProgressStore.items[id]
+	state.Output += text
+	deploymentProgressStore.items[id] = state
+	deploymentProgressStore.Unlock()
+}
+
+func deploymentProgressFinish(id string, output string) {
+	if id == "" {
+		return
+	}
+	deploymentProgressStore.Lock()
+	state := deploymentProgressStore.items[id]
+	state.Output = output
+	state.Done = true
+	deploymentProgressStore.items[id] = state
+	deploymentProgressStore.Unlock()
+}
+
+func deploymentProgressSnapshot(id string) deploymentProgressState {
+	deploymentProgressStore.Lock()
+	defer deploymentProgressStore.Unlock()
+	return deploymentProgressStore.items[id]
+}
+
+func deploymentProgressClear(id string) {
+	if id == "" {
+		return
+	}
+	deploymentProgressStore.Lock()
+	delete(deploymentProgressStore.items, id)
+	deploymentProgressStore.Unlock()
+}
+
+func deploymentProgressAfter(id string, delay time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		time.Sleep(delay)
+		state := deploymentProgressSnapshot(id)
+		return deploymentProgressMsg{ID: id, Output: state.Output, Done: state.Done}
+	}
+}
+
 type activeCommand struct {
 	HostIndex int
 	Name      string
@@ -486,6 +642,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	appState := config.LoadState(home)
 	categories, _, _ := config.LoadCategories(home)
 	commandFile, _, _ := config.LoadCommands(home)
+	deploymentFile, _, _ := config.LoadDeployments(home)
 	_ = config.MarkRunningTransfersInterrupted(home)
 	transferHistory, _, _ := config.LoadTransfers(home)
 	states := make([]hostState, len(hosts))
@@ -504,6 +661,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 		appState:        appState,
 		home:            home,
 		commandFile:     commandFile,
+		deploymentFile:  deploymentFile,
 		transferHistory: transferHistory,
 		categories:      categories,
 		status:          "正在采集服务器状态...",
@@ -648,6 +806,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case batchCommandDoneMsg:
 		return m.handleBatchCommandDone(msg)
+	case deploymentDoneMsg:
+		return m.handleDeploymentDone(msg)
+	case deploymentQueueNextMsg:
+		return m.startNextQueuedDeployment()
+	case deploymentProgressMsg:
+		return m.handleDeploymentProgress(msg)
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeCommandList:
@@ -674,6 +838,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCommandHistoryDetail(msg)
 		case modeAnomalyOverview:
 			return m.updateAnomalyOverview(msg)
+		case modeDeploymentList:
+			return m.updateDeploymentList(msg)
+		case modeDeploymentDetail:
+			return m.updateDeploymentDetail(msg)
+		case modeDeploymentEdit:
+			return m.updateDeploymentEdit(msg)
+		case modeDeploymentConfirm:
+			return m.updateDeploymentConfirm(msg)
+		case modeDeploymentRollbackConfirm:
+			return m.updateDeploymentRollbackConfirm(msg)
+		case modeDeploymentOutput:
+			return m.updateDeploymentOutput(msg)
 		case modeTransferJobs:
 			return m.updateTransferJobs(msg)
 		case modeTransferDetail:
@@ -754,6 +930,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.transferJobsBack = modeDashboard
 			m.mode = modeTransferJobs
 			m.reloadTransfers()
+		case "g":
+			if idx, ok := m.selectedRealIndex(); ok {
+				return m.startDeploymentList(idx), nil
+			}
 		case "v":
 			m.favoriteOnly = !m.favoriteOnly
 			m.selected = 0
@@ -2598,6 +2778,1651 @@ func commandHistoryStatus(err error) string {
 		return "failed"
 	}
 	return "success"
+}
+
+func (m Model) startDeploymentList(index int) Model {
+	file, _, err := config.LoadDeployments(m.home)
+	if err != nil {
+		m.status = "读取部署配置失败：" + err.Error()
+		return m
+	}
+	m.deploymentFile = file
+	if m.deploymentCategory == "" && index >= 0 && index < len(m.states) && m.category != "" {
+		m.deploymentCategory = m.category
+	}
+	m.deploymentItems = m.deploymentListItems()
+	m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
+	m.activeDeployment = activeDeployment{HostIndex: index}
+	m.deploymentSelected = filterDeploymentSelection(m.deploymentSelected, file.Apps)
+	m.deploymentOutputScroll = 0
+	m.mode = modeDeploymentList
+	m.status = "应用部署"
+	return m
+}
+
+func (m Model) deploymentListItems() []deploymentItem {
+	items := []deploymentItem{}
+	for i, app := range m.deploymentFile.Apps {
+		if m.deploymentCategory != "" && deploymentAppCategory(app) != m.deploymentCategory {
+			continue
+		}
+		if m.deploymentFavoriteOnly && !app.Favorite {
+			continue
+		}
+		items = append(items, deploymentItem{Index: i, App: app})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		a := items[i].App
+		b := items[j].App
+		if a.Pinned != b.Pinned {
+			return a.Pinned
+		}
+		if a.Pinned && b.Pinned && a.PinnedOrder != b.PinnedOrder {
+			return a.PinnedOrder > b.PinnedOrder
+		}
+		return items[i].Index < items[j].Index
+	})
+	return items
+}
+
+func deploymentAppCategory(app config.DeploymentApp) string {
+	server := strings.TrimSpace(app.Server)
+	if idx := strings.Index(server, "/"); idx >= 0 {
+		return server[:idx]
+	}
+	return ""
+}
+
+func firstDeploymentItem(items []deploymentItem) int {
+	for i, item := range items {
+		if !item.Header && !item.Spacer {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m Model) updateDeploymentList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeDashboard
+		m.status = ""
+	case "j", "down":
+		m.moveDeploymentIndex(m.deploymentMoveStep(1, false))
+	case "k", "up":
+		m.moveDeploymentIndex(m.deploymentMoveStep(-1, false))
+	case "h", "left":
+		m.moveDeploymentIndex(-1)
+	case "l", "right":
+		m.moveDeploymentIndex(1)
+	case " ":
+		item, ok := m.selectedDeploymentItem()
+		if ok {
+			m.deploymentDetail = item.App
+			m.deploymentOutputScroll = 0
+			m.mode = modeDeploymentDetail
+			m.status = "部署详情"
+		}
+	case "s":
+		item, ok := m.selectedDeploymentItem()
+		if ok {
+			m.toggleDeploymentSelection(item.Index)
+		}
+	case "tab":
+		m.cycleDeploymentCategory(1)
+	case "z":
+		m.toggleDeploymentView()
+	case "f":
+		return m.toggleDeploymentFavorite()
+	case "v":
+		m.toggleDeploymentFavoriteFilter()
+	case "t":
+		return m.toggleDeploymentPinned()
+	case "a":
+		return m.startDeploymentEdit(config.DeploymentApp{}, false), nil
+	case "e":
+		item, ok := m.selectedDeploymentItem()
+		if ok {
+			return m.startDeploymentEdit(item.App, true), nil
+		}
+		m.status = "没有可编辑的部署应用。按 a 新增。"
+	case "x":
+		item, ok := m.selectedDeploymentItem()
+		if ok {
+			file := m.deploymentFile
+			if item.Index >= 0 && item.Index < len(file.Apps) {
+				file.Apps = append(file.Apps[:item.Index], file.Apps[item.Index+1:]...)
+				if err := config.SaveDeployments(m.home, file); err != nil {
+					m.status = "删除部署应用失败：" + err.Error()
+					return m, nil
+				}
+				m.deploymentSelected = removeDeploymentSelection(m.deploymentSelected, item.Index)
+				return m.startDeploymentList(m.activeDeployment.HostIndex), nil
+			}
+		}
+		m.status = "没有可删除的部署应用。"
+	case "enter":
+		item, ok := m.selectedDeploymentItem()
+		if !ok {
+			m.status = "没有可部署的应用。按 a 新增，保存后再按 Enter。"
+			return m, nil
+		}
+		queue := m.selectedDeploymentQueue()
+		if len(queue) == 0 {
+			queue = []config.DeploymentApp{item.App}
+		}
+		for i := range queue {
+			queue[i] = deploymentAppWithResourceDefaults(queue[i])
+		}
+		m.deploymentConfirmQueue = queue
+		m.deploymentConfirm = queue[0]
+		m.activeDeployment = activeDeployment{HostIndex: m.activeDeployment.HostIndex}
+		m.deploymentOutputScroll = 0
+		m.mode = modeDeploymentConfirm
+		m.status = "确认部署"
+	}
+	return m, nil
+}
+
+func (m Model) deploymentMoveStep(delta int, horizontal bool) int {
+	if m.deploymentView != deploymentViewCards || horizontal {
+		return delta
+	}
+	return delta * m.dashboardColumns()
+}
+
+func (m *Model) toggleDeploymentView() {
+	if m.deploymentView == deploymentViewCards {
+		m.deploymentView = deploymentViewList
+		m.status = ""
+		return
+	}
+	m.deploymentView = deploymentViewCards
+	m.status = ""
+}
+
+func (m *Model) toggleDeploymentFavoriteFilter() {
+	m.deploymentFavoriteOnly = !m.deploymentFavoriteOnly
+	m.deploymentItems = m.deploymentListItems()
+	m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
+	if m.deploymentFavoriteOnly {
+		m.status = "筛选：收藏部署"
+	} else {
+		m.status = "已取消收藏筛选"
+	}
+}
+
+func (m Model) toggleDeploymentFavorite() (tea.Model, tea.Cmd) {
+	item, ok := m.selectedDeploymentItem()
+	if !ok {
+		m.status = "没有可收藏的部署应用"
+		return m, nil
+	}
+	file := m.deploymentFile
+	if item.Index < 0 || item.Index >= len(file.Apps) {
+		m.status = "部署应用不存在"
+		return m, nil
+	}
+	file.Apps[item.Index].Favorite = !file.Apps[item.Index].Favorite
+	if err := config.SaveDeployments(m.home, file); err != nil {
+		m.status = "收藏更新失败：" + err.Error()
+		return m, nil
+	}
+	m.deploymentFile = file
+	m.deploymentItems = m.deploymentListItems()
+	m.deploymentIndex = m.deploymentVisibleIndex(item.Index)
+	if file.Apps[item.Index].Favorite {
+		m.status = "已收藏：" + file.Apps[item.Index].Name
+	} else {
+		m.status = "已取消收藏：" + file.Apps[item.Index].Name
+	}
+	if m.deploymentFavoriteOnly && !file.Apps[item.Index].Favorite {
+		m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
+	}
+	return m, nil
+}
+
+func (m Model) toggleDeploymentPinned() (tea.Model, tea.Cmd) {
+	item, ok := m.selectedDeploymentItem()
+	if !ok {
+		m.status = "没有可置顶的部署应用"
+		return m, nil
+	}
+	file := m.deploymentFile
+	if item.Index < 0 || item.Index >= len(file.Apps) {
+		m.status = "部署应用不存在"
+		return m, nil
+	}
+	if file.Apps[item.Index].Pinned {
+		file.Apps[item.Index].Pinned = false
+		file.Apps[item.Index].PinnedOrder = 0
+	} else {
+		file.Apps[item.Index].Pinned = true
+		file.Apps[item.Index].PinnedOrder = nextDeploymentPinnedOrder(file.Apps)
+	}
+	if err := config.SaveDeployments(m.home, file); err != nil {
+		m.status = "置顶更新失败：" + err.Error()
+		return m, nil
+	}
+	m.deploymentFile = file
+	m.deploymentItems = m.deploymentListItems()
+	m.deploymentIndex = m.deploymentVisibleIndex(item.Index)
+	if file.Apps[item.Index].Pinned {
+		m.status = "已置顶：" + file.Apps[item.Index].Name
+	} else {
+		m.status = "已取消置顶：" + file.Apps[item.Index].Name
+	}
+	return m, nil
+}
+
+func nextDeploymentPinnedOrder(apps []config.DeploymentApp) int64 {
+	var maxOrder int64
+	for _, app := range apps {
+		if app.PinnedOrder > maxOrder {
+			maxOrder = app.PinnedOrder
+		}
+	}
+	return maxOrder + 1
+}
+
+func (m Model) deploymentVisibleIndex(appIndex int) int {
+	for i, item := range m.deploymentItems {
+		if item.Index == appIndex {
+			return i
+		}
+	}
+	return firstDeploymentItem(m.deploymentItems)
+}
+
+func (m Model) updateDeploymentDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeDeploymentList
+	case "j", "down":
+		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll+1, 0, m.deploymentDetailMaxScroll())
+	case "k", "up":
+		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentDetailMaxScroll())
+	case "e":
+		return m.startDeploymentEdit(m.deploymentDetail, true), nil
+	case "enter":
+		app := deploymentAppWithResourceDefaults(m.deploymentDetail)
+		m.deploymentConfirmQueue = []config.DeploymentApp{app}
+		m.deploymentConfirm = app
+		m.activeDeployment = activeDeployment{HostIndex: m.activeDeployment.HostIndex}
+		m.deploymentOutputScroll = 0
+		m.mode = modeDeploymentConfirm
+		m.status = "确认部署"
+	}
+	return m, nil
+}
+
+func filterDeploymentSelection(selection []int, apps []config.DeploymentApp) []int {
+	out := []int{}
+	seen := map[int]bool{}
+	for _, index := range selection {
+		if index >= 0 && index < len(apps) && !seen[index] {
+			seen[index] = true
+			out = append(out, index)
+		}
+	}
+	return out
+}
+
+func removeDeploymentSelection(selection []int, removed int) []int {
+	out := []int{}
+	for _, index := range selection {
+		if index == removed {
+			continue
+		}
+		if index > removed {
+			index--
+		}
+		out = append(out, index)
+	}
+	return out
+}
+
+func (m *Model) toggleDeploymentSelection(index int) {
+	for i, selected := range m.deploymentSelected {
+		if selected == index {
+			m.deploymentSelected = append(m.deploymentSelected[:i], m.deploymentSelected[i+1:]...)
+			m.status = "已取消选择"
+			return
+		}
+	}
+	m.deploymentSelected = append(m.deploymentSelected, index)
+	m.status = fmt.Sprintf("已选择第 %d 个部署应用", len(m.deploymentSelected))
+}
+
+func (m Model) deploymentSelectionOrder(index int) int {
+	for i, selected := range m.deploymentSelected {
+		if selected == index {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func (m Model) selectedDeploymentQueue() []config.DeploymentApp {
+	queue := []config.DeploymentApp{}
+	for _, index := range m.deploymentSelected {
+		if index >= 0 && index < len(m.deploymentFile.Apps) {
+			app := m.deploymentFile.Apps[index]
+			if m.deploymentCategory == "" || deploymentAppCategory(app) == m.deploymentCategory {
+				queue = append(queue, app)
+			}
+		}
+	}
+	return queue
+}
+
+func (m *Model) cycleDeploymentCategory(delta int) {
+	categories := []string{""}
+	seen := map[string]bool{}
+	for _, app := range m.deploymentFile.Apps {
+		cat := deploymentAppCategory(app)
+		if cat != "" && !seen[cat] {
+			seen[cat] = true
+			categories = append(categories, cat)
+		}
+	}
+	sort.Strings(categories[1:])
+	if len(categories) <= 1 {
+		m.deploymentCategory = ""
+		m.deploymentItems = m.deploymentListItems()
+		m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
+		m.status = "没有可切换的部署分类"
+		return
+	}
+	current := 0
+	for i, category := range categories {
+		if category == m.deploymentCategory {
+			current = i
+			break
+		}
+	}
+	current = moveIndex(current, len(categories), delta)
+	m.deploymentCategory = categories[current]
+	m.deploymentItems = m.deploymentListItems()
+	m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
+	if m.deploymentCategory == "" {
+		m.status = "部署分类：全部"
+	} else {
+		m.status = "部署分类：" + m.deploymentCategory
+	}
+}
+
+func (m *Model) moveDeploymentIndex(delta int) {
+	if len(m.deploymentItems) == 0 {
+		m.deploymentIndex = 0
+		return
+	}
+	for i := 0; i < len(m.deploymentItems); i++ {
+		m.deploymentIndex = moveIndex(m.deploymentIndex, len(m.deploymentItems), delta)
+		item := m.deploymentItems[m.deploymentIndex]
+		if !item.Header && !item.Spacer {
+			return
+		}
+	}
+}
+
+func (m Model) selectedDeploymentItem() (deploymentItem, bool) {
+	if m.deploymentIndex < 0 || m.deploymentIndex >= len(m.deploymentItems) {
+		return deploymentItem{}, false
+	}
+	item := m.deploymentItems[m.deploymentIndex]
+	if item.Header || item.Spacer {
+		return deploymentItem{}, false
+	}
+	return item, true
+}
+
+func (m Model) defaultDeploymentServer() string {
+	if m.activeDeployment.HostIndex >= 0 && m.activeDeployment.HostIndex < len(m.states) {
+		h := m.states[m.activeDeployment.HostIndex].Host
+		return config.ServerCommandKey(h.Category, h.Name)
+	}
+	if len(m.states) > 0 {
+		h := m.states[0].Host
+		return config.ServerCommandKey(h.Category, h.Name)
+	}
+	return ""
+}
+
+func (m Model) deploymentServerIndex(server string) int {
+	server = strings.TrimSpace(server)
+	for i, state := range m.states {
+		if config.ServerCommandKey(state.Host.Category, state.Host.Name) == server {
+			return i
+		}
+	}
+	return -1
+}
+
+func (m *Model) cycleDeploymentServer(delta int) {
+	if len(m.states) == 0 {
+		m.deploymentForm.Server = ""
+		return
+	}
+	index := m.deploymentServerIndex(m.deploymentForm.Server)
+	if index < 0 {
+		index = 0
+	} else {
+		index = moveIndex(index, len(m.states), delta)
+	}
+	h := m.states[index].Host
+	m.deploymentForm.Server = config.ServerCommandKey(h.Category, h.Name)
+}
+
+func (m Model) startDeploymentEdit(app config.DeploymentApp, editing bool) Model {
+	if !editing {
+		app.Source = config.DeploySourceGit
+		app.FetchMode = config.DeployFetchLocal
+		app.Credential = config.DeployCredentialSSH
+		app.Branch = "main"
+		app.Server = m.defaultDeploymentServer()
+	}
+	m.deploymentForm = deploymentFormFromApp(app)
+	m.deploymentField = 0
+	m.deploymentCursor = len([]rune(m.deploymentForm.Name))
+	m.deploymentEditing = editing
+	m.deploymentEditIndex = -1
+	if editing {
+		if item, ok := m.selectedDeploymentItem(); ok {
+			m.deploymentEditIndex = item.Index
+		}
+	}
+	m.mode = modeDeploymentEdit
+	if editing {
+		m.status = "编辑部署应用"
+	} else {
+		m.status = "添加部署应用"
+	}
+	return m
+}
+
+func deploymentFormFromApp(app config.DeploymentApp) deploymentForm {
+	return deploymentForm{
+		Name:             app.Name,
+		Server:           app.Server,
+		Source:           emptyChoice(app.Source, config.DeploySourceGit),
+		FetchMode:        emptyChoice(app.FetchMode, config.DeployFetchLocal),
+		Repo:             app.Repo,
+		Branch:           app.Branch,
+		Version:          app.Version,
+		Asset:            app.Asset,
+		Path:             app.Path,
+		ReleaseURL:       app.ReleaseURL,
+		Credential:       emptyChoice(app.Credential, config.DeployCredentialNone),
+		CredentialName:   app.CredentialName,
+		WaitSeconds:      strconv.Itoa(maxInt(0, app.WaitSeconds)),
+		BeforeCommands:   strings.Join(app.BeforeCommands, "\n"),
+		ResourceCommands: deploymentResourceCommandsText(app),
+		UpdateCommands:   strings.Join(app.UpdateCommands, "\n"),
+		AfterCommands:    strings.Join(app.AfterCommands, "\n"),
+		HealthCommands:   strings.Join(app.HealthCommands, "\n"),
+		RollbackCommands: strings.Join(app.RollbackCommands, "\n"),
+	}
+}
+
+func deploymentResourceCommandsText(app config.DeploymentApp) string {
+	if len(app.ResourceCommands) > 0 {
+		return strings.Join(app.ResourceCommands, "\n")
+	}
+	return strings.Join(deploymentResourceDefaultCommands(app), "\n")
+}
+
+func deploymentAppWithResourceDefaults(app config.DeploymentApp) config.DeploymentApp {
+	if len(app.ResourceCommands) == 0 {
+		app.ResourceCommands = deploymentResourceDefaultCommands(app)
+	}
+	return app
+}
+
+func (m Model) deploymentAppFromForm() config.DeploymentApp {
+	return config.DeploymentApp{
+		Name:             strings.TrimSpace(m.deploymentForm.Name),
+		Server:           strings.TrimSpace(m.deploymentForm.Server),
+		Source:           strings.TrimSpace(m.deploymentForm.Source),
+		FetchMode:        strings.TrimSpace(m.deploymentForm.FetchMode),
+		Repo:             strings.TrimSpace(m.deploymentForm.Repo),
+		Branch:           strings.TrimSpace(m.deploymentForm.Branch),
+		Version:          strings.TrimSpace(m.deploymentForm.Version),
+		Asset:            strings.TrimSpace(m.deploymentForm.Asset),
+		Path:             strings.TrimSpace(m.deploymentForm.Path),
+		ReleaseURL:       strings.TrimSpace(m.deploymentForm.ReleaseURL),
+		Credential:       strings.TrimSpace(m.deploymentForm.Credential),
+		CredentialName:   strings.TrimSpace(m.deploymentForm.CredentialName),
+		WaitSeconds:      parseNonNegativeInt(m.deploymentForm.WaitSeconds),
+		BeforeCommands:   splitCommandBlock(m.deploymentForm.BeforeCommands),
+		ResourceCommands: splitCommandBlock(m.deploymentForm.ResourceCommands),
+		UpdateCommands:   splitCommandBlock(m.deploymentForm.UpdateCommands),
+		AfterCommands:    splitCommandBlock(m.deploymentForm.AfterCommands),
+		HealthCommands:   splitCommandBlock(m.deploymentForm.HealthCommands),
+		RollbackCommands: splitCommandBlock(m.deploymentForm.RollbackCommands),
+	}
+}
+
+func splitCommandBlock(value string) []string {
+	lines := []string{}
+	for _, line := range strings.Split(value, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func parseNonNegativeInt(value string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+func (m Model) updateDeploymentEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		return m.startDeploymentList(m.activeDeployment.HostIndex), nil
+	case "tab", "down":
+		m.deploymentField = deploymentNextField(m.deploymentField, 1, m.deploymentForm.Source)
+		m.deploymentCursor = m.deploymentValueLen()
+	case "shift+tab", "up":
+		m.deploymentField = deploymentNextField(m.deploymentField, -1, m.deploymentForm.Source)
+		m.deploymentCursor = m.deploymentValueLen()
+	case "left":
+		if m.deploymentField == 0 {
+			m.toggleDeploymentSource()
+		} else if m.deploymentField == 1 {
+			m.toggleDeploymentFetchMode()
+		} else if m.deploymentField == 2 {
+			m.cycleDeploymentServer(-1)
+		} else if m.deploymentField == 10 {
+			m.toggleDeploymentCredential()
+		} else {
+			m.moveDeploymentCursor(-1)
+		}
+	case "right":
+		if m.deploymentField == 0 {
+			m.toggleDeploymentSource()
+		} else if m.deploymentField == 1 {
+			m.toggleDeploymentFetchMode()
+		} else if m.deploymentField == 2 {
+			m.cycleDeploymentServer(1)
+		} else if m.deploymentField == 10 {
+			m.toggleDeploymentCredential()
+		} else {
+			m.moveDeploymentCursor(1)
+		}
+	case "ctrl+j":
+		if deploymentFieldIsCommand(m.deploymentField) {
+			m.deploymentAppend("\n")
+		}
+	case "enter":
+		app := m.deploymentAppFromForm()
+		if strings.TrimSpace(app.Server) == "" {
+			m.status = "保存失败：部署服务器不能为空"
+			return m, nil
+		}
+		if err := config.ValidateDeploymentApp(app); err != nil {
+			m.status = "保存失败：" + err.Error()
+			return m, nil
+		}
+		file := m.deploymentFile
+		if m.deploymentEditing && m.deploymentEditIndex >= 0 && m.deploymentEditIndex < len(file.Apps) {
+			file.Apps[m.deploymentEditIndex] = app
+		} else {
+			file.Apps = append(file.Apps, app)
+		}
+		if err := config.SaveDeployments(m.home, file); err != nil {
+			m.status = "保存失败：" + err.Error()
+			return m, nil
+		}
+		m.deploymentFile = file
+		m = m.startDeploymentList(m.activeDeployment.HostIndex)
+		m.status = "部署应用已保存。"
+		return m, nil
+	case "backspace":
+		m.deploymentBackspace()
+	default:
+		if len(msg.Runes) > 0 && m.deploymentField != 0 && m.deploymentField != 1 && m.deploymentField != 2 && m.deploymentField != 10 {
+			m.deploymentAppend(string(msg.Runes))
+		}
+	}
+	return m, nil
+}
+
+func deploymentFieldCount() int { return 19 }
+
+func deploymentFieldIsCommand(field int) bool { return field >= 13 }
+
+func deploymentVisibleFields(source string) []int {
+	if source == config.DeploySourceRelease {
+		return []int{0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+	}
+	return []int{0, 1, 2, 3, 4, 5, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18}
+}
+
+func deploymentNextField(current int, delta int, source string) int {
+	fields := deploymentVisibleFields(source)
+	if len(fields) == 0 {
+		return 0
+	}
+	pos := 0
+	for i, field := range fields {
+		if field == current {
+			pos = i
+			break
+		}
+	}
+	return fields[moveIndex(pos, len(fields), delta)]
+}
+
+func (m *Model) toggleDeploymentSource() {
+	if m.deploymentForm.Source == config.DeploySourceGit {
+		m.deploymentForm.Source = config.DeploySourceRelease
+	} else {
+		m.deploymentForm.Source = config.DeploySourceGit
+	}
+}
+
+func (m *Model) toggleDeploymentFetchMode() {
+	if m.deploymentForm.FetchMode == config.DeployFetchRemote {
+		m.deploymentForm.FetchMode = config.DeployFetchLocal
+	} else {
+		m.deploymentForm.FetchMode = config.DeployFetchRemote
+	}
+}
+
+func (m *Model) toggleDeploymentCredential() {
+	switch m.deploymentForm.Credential {
+	case config.DeployCredentialNone:
+		m.deploymentForm.Credential = config.DeployCredentialSSH
+	case config.DeployCredentialSSH:
+		m.deploymentForm.Credential = config.DeployCredentialToken
+	default:
+		m.deploymentForm.Credential = config.DeployCredentialNone
+	}
+}
+
+func (m Model) deploymentValue() string {
+	switch m.deploymentField {
+	case 1:
+		return ""
+	case 2:
+		return m.deploymentForm.Server
+	case 3:
+		return m.deploymentForm.Name
+	case 4:
+		return m.deploymentForm.Repo
+	case 5:
+		return m.deploymentForm.Branch
+	case 6:
+		return m.deploymentForm.Version
+	case 7:
+		return m.deploymentForm.Asset
+	case 8:
+		return m.deploymentForm.Path
+	case 9:
+		return m.deploymentForm.ReleaseURL
+	case 11:
+		return m.deploymentForm.CredentialName
+	case 12:
+		return m.deploymentForm.WaitSeconds
+	case 13:
+		return m.deploymentForm.BeforeCommands
+	case 14:
+		return m.deploymentForm.ResourceCommands
+	case 15:
+		return m.deploymentForm.UpdateCommands
+	case 16:
+		return m.deploymentForm.AfterCommands
+	case 17:
+		return m.deploymentForm.HealthCommands
+	case 18:
+		return m.deploymentForm.RollbackCommands
+	default:
+		return ""
+	}
+}
+
+func (m Model) deploymentValueLen() int {
+	return len([]rune(m.deploymentValue()))
+}
+
+func (m *Model) setDeploymentValue(value string) {
+	switch m.deploymentField {
+	case 2:
+		m.deploymentForm.Server = value
+	case 3:
+		m.deploymentForm.Name = value
+	case 4:
+		m.deploymentForm.Repo = value
+	case 5:
+		m.deploymentForm.Branch = value
+	case 6:
+		m.deploymentForm.Version = value
+	case 7:
+		m.deploymentForm.Asset = value
+	case 8:
+		m.deploymentForm.Path = value
+	case 9:
+		m.deploymentForm.ReleaseURL = value
+	case 11:
+		m.deploymentForm.CredentialName = value
+	case 12:
+		m.deploymentForm.WaitSeconds = value
+	case 13:
+		m.deploymentForm.BeforeCommands = value
+	case 14:
+		m.deploymentForm.ResourceCommands = value
+	case 15:
+		m.deploymentForm.UpdateCommands = value
+	case 16:
+		m.deploymentForm.AfterCommands = value
+	case 17:
+		m.deploymentForm.HealthCommands = value
+	case 18:
+		m.deploymentForm.RollbackCommands = value
+	}
+}
+
+func (m *Model) deploymentAppend(s string) {
+	value := []rune(m.deploymentValue())
+	m.deploymentCursor = clampInt(m.deploymentCursor, 0, len(value))
+	insert := []rune(s)
+	next := append([]rune{}, value[:m.deploymentCursor]...)
+	next = append(next, insert...)
+	next = append(next, value[m.deploymentCursor:]...)
+	m.setDeploymentValue(string(next))
+	m.deploymentCursor += len(insert)
+}
+
+func (m *Model) deploymentBackspace() {
+	if m.deploymentField == 0 || m.deploymentField == 1 || m.deploymentField == 2 || m.deploymentField == 10 {
+		return
+	}
+	value := []rune(m.deploymentValue())
+	if m.deploymentCursor <= 0 || len(value) == 0 {
+		return
+	}
+	m.deploymentCursor = clampInt(m.deploymentCursor, 0, len(value))
+	next := append([]rune{}, value[:m.deploymentCursor-1]...)
+	next = append(next, value[m.deploymentCursor:]...)
+	m.setDeploymentValue(string(next))
+	m.deploymentCursor--
+}
+
+func (m *Model) moveDeploymentCursor(delta int) {
+	m.deploymentCursor = clampInt(m.deploymentCursor+delta, 0, m.deploymentValueLen())
+}
+
+func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		if m.activeDeployment.Running {
+			m.status = "部署执行中，完成或失败后再返回"
+			return m, nil
+		}
+		m.mode = modeDeploymentList
+	case "j", "down":
+		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll+1, 0, m.deploymentConfirmMaxScroll())
+	case "k", "up":
+		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentConfirmMaxScroll())
+	case "enter":
+		if m.activeDeployment.Running {
+			m.status = "部署执行中"
+			return m, nil
+		}
+		if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.Output != "" {
+			m.status = "当前部署已执行，按 r 重试，或按 a 重新部署"
+			return m, nil
+		}
+		queue := m.deploymentConfirmQueue
+		if len(queue) == 0 {
+			queue = []config.DeploymentApp{m.deploymentConfirm}
+		}
+		for _, app := range queue {
+			if m.deploymentServerIndex(app.Server) < 0 {
+				m.status = "部署服务器不存在：" + emptyDash(app.Server)
+				return m, nil
+			}
+		}
+		m.activeDeployment.Queue = queue
+		m.activeDeployment.QueueIndex = 0
+		m.activeDeployment.QueueFailed = -1
+		return m.startQueuedDeployment(0)
+	case "r":
+		if m.activeDeployment.Running {
+			m.status = "部署执行中，不能重试"
+			return m, nil
+		}
+		if len(m.activeDeployment.Queue) == 0 || m.activeDeployment.QueueFailed < 0 || m.activeDeployment.QueueFailed >= len(m.activeDeployment.Queue) {
+			m.status = "没有失败项可重试"
+			return m, nil
+		}
+		return m.startQueuedDeployment(m.activeDeployment.QueueFailed)
+	case "a":
+		if m.activeDeployment.Running {
+			m.status = "部署执行中，不能重新部署"
+			return m, nil
+		}
+		queue := m.activeDeployment.Queue
+		if len(queue) == 0 {
+			queue = m.deploymentConfirmQueue
+		}
+		if len(queue) == 0 {
+			queue = []config.DeploymentApp{m.deploymentConfirm}
+		}
+		m.activeDeployment.Queue = queue
+		m.activeDeployment.QueueFailed = -1
+		return m.startQueuedDeployment(0)
+	}
+	return m, nil
+}
+
+func (m Model) startQueuedDeployment(index int) (tea.Model, tea.Cmd) {
+	if index < 0 || index >= len(m.activeDeployment.Queue) {
+		m.activeDeployment.Running = false
+		m.status = "部署队列完成。"
+		return m, nil
+	}
+	app := m.activeDeployment.Queue[index]
+	hostIndex := m.deploymentServerIndex(app.Server)
+	if hostIndex < 0 {
+		m.status = "部署服务器不存在：" + emptyDash(app.Server)
+		return m, nil
+	}
+	m.activeDeployment.HostIndex = hostIndex
+	m.activeDeployment.App = app
+	m.activeDeployment.Action = config.DeployActionDeploy
+	m.activeDeployment.ProgressID = config.NewDeploymentID(time.Now())
+	m.activeDeployment.Output = ""
+	m.activeDeployment.ExitCode = 0
+	m.activeDeployment.Running = true
+	m.activeDeployment.PreviousVersion = ""
+	m.activeDeployment.CurrentVersion = ""
+	m.activeDeployment.QueueIndex = index
+	m.activeDeployment.QueueFailed = -1
+	m.deploymentOutputScroll = 0
+	m.mode = modeDeploymentConfirm
+	if len(m.activeDeployment.Queue) > 1 {
+		m.status = fmt.Sprintf("正在部署 %d/%d：%s", index+1, len(m.activeDeployment.Queue), app.Name)
+	} else {
+		m.status = "正在部署..."
+	}
+	deploymentProgressStart(m.activeDeployment.ProgressID)
+	return m, tea.Batch(m.runDeployment(), deploymentProgressAfter(m.activeDeployment.ProgressID, 200*time.Millisecond))
+}
+
+func (m Model) startNextQueuedDeployment() (tea.Model, tea.Cmd) {
+	next := m.activeDeployment.QueueIndex + 1
+	return m.startQueuedDeployment(next)
+}
+
+func deploymentQueueNextAfter(delay time.Duration) tea.Cmd {
+	return func() tea.Msg {
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		return deploymentQueueNextMsg{}
+	}
+}
+
+func (m Model) updateDeploymentOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		if m.activeDeployment.Running {
+			m.status = "部署执行中，完成后再返回"
+			return m, nil
+		}
+		m.mode = modeDeploymentList
+	case "j", "down":
+		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll+1, 0, m.deploymentOutputMaxScroll())
+	case "k", "up":
+		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentOutputMaxScroll())
+	case "r":
+		if m.activeDeployment.Running {
+			m.status = "部署执行中，完成后再回滚"
+			return m, nil
+		}
+		if len(m.activeDeployment.App.RollbackCommands) == 0 {
+			m.status = "没有配置回滚命令"
+			return m, nil
+		}
+		m.deploymentOutputScroll = 0
+		m.mode = modeDeploymentRollbackConfirm
+		m.status = "确认回滚"
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) updateDeploymentRollbackConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc", "q", "ctrl+c":
+		m.mode = modeDeploymentOutput
+	case "j", "down":
+		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll+1, 0, m.deploymentRollbackConfirmMaxScroll())
+	case "k", "up":
+		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentRollbackConfirmMaxScroll())
+	case "enter":
+		m.activeDeployment.Running = true
+		m.activeDeployment.Action = config.DeployActionRollback
+		m.activeDeployment.ProgressID = config.NewDeploymentID(time.Now())
+		m.activeDeployment.Output = ""
+		m.activeDeployment.ExitCode = 0
+		m.deploymentOutputScroll = 0
+		m.mode = modeDeploymentOutput
+		m.status = "正在执行回滚..."
+		deploymentProgressStart(m.activeDeployment.ProgressID)
+		return m, tea.Batch(m.runDeploymentRollback(), deploymentProgressAfter(m.activeDeployment.ProgressID, 200*time.Millisecond))
+	}
+	return m, nil
+}
+
+func (m Model) runDeployment() tea.Cmd {
+	index := m.activeDeployment.HostIndex
+	app := m.activeDeployment.App
+	progressID := m.activeDeployment.ProgressID
+	if index < 0 || index >= len(m.states) {
+		return func() tea.Msg {
+			result := actions.CommandResult{Err: fmt.Errorf("部署服务器不存在：%s", emptyDash(app.Server)), ExitCode: -1}
+			deploymentProgressFinish(progressID, result.Output)
+			return deploymentDoneMsg{ID: progressID, Result: result}
+		}
+	}
+	h := m.states[index].Host
+	onOutput := func(text string) { deploymentProgressAppend(progressID, text) }
+	if app.FetchMode == config.DeployFetchLocal {
+		return func() tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			defer cancel()
+			result := runLocalFetchDeployment(ctx, h, app, onOutput)
+			prev, curr := parseDeploymentVersions(result.Output)
+			deploymentProgressFinish(progressID, result.Output)
+			return deploymentDoneMsg{ID: progressID, Result: result, PreviousVersion: prev, CurrentVersion: curr}
+		}
+	}
+	script := buildDeploymentScript(app, false)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		result, cleanup := actions.RemoteCommandStreamContext(ctx, h, script, onOutput)
+		cleanup()
+		prev, curr := parseDeploymentVersions(result.Output)
+		deploymentProgressFinish(progressID, result.Output)
+		return deploymentDoneMsg{ID: progressID, Result: result, PreviousVersion: prev, CurrentVersion: curr}
+	}
+}
+
+func (m Model) runDeploymentRollback() tea.Cmd {
+	index := m.activeDeployment.HostIndex
+	app := m.activeDeployment.App
+	progressID := m.activeDeployment.ProgressID
+	if index < 0 || index >= len(m.states) {
+		return func() tea.Msg {
+			result := actions.CommandResult{Err: fmt.Errorf("部署服务器不存在：%s", emptyDash(app.Server)), ExitCode: -1}
+			deploymentProgressFinish(progressID, result.Output)
+			return deploymentDoneMsg{ID: progressID, Result: result}
+		}
+	}
+	h := m.states[index].Host
+	script := buildDeploymentScript(app, true)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		result, cleanup := actions.RemoteCommandStreamContext(ctx, h, script, func(text string) { deploymentProgressAppend(progressID, text) })
+		cleanup()
+		deploymentProgressFinish(progressID, result.Output)
+		return deploymentDoneMsg{ID: progressID, Result: result}
+	}
+}
+
+func (m Model) handleDeploymentDone(msg deploymentDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.ID != "" && msg.ID != m.activeDeployment.ProgressID {
+		return m, nil
+	}
+	m.activeDeployment.Running = false
+	m.activeDeployment.Output = msg.Result.Output
+	m.activeDeployment.ExitCode = msg.Result.ExitCode
+	m.activeDeployment.PreviousVersion = msg.PreviousVersion
+	m.activeDeployment.CurrentVersion = msg.CurrentVersion
+	failed := msg.Result.Err != nil
+	if failed {
+		m.status = fmt.Sprintf("部署失败：退出码 %d", msg.Result.ExitCode)
+	} else {
+		m.status = "部署完成。"
+	}
+	if err := m.recordDeployment(msg.Result); err != nil {
+		m.status += " 记录保存失败：" + err.Error()
+	}
+	if msg.ID != "" {
+		deploymentProgressClear(msg.ID)
+	}
+	if m.activeDeployment.Action == config.DeployActionDeploy && len(m.activeDeployment.Queue) > 0 {
+		if failed {
+			m.activeDeployment.QueueFailed = m.activeDeployment.QueueIndex
+			if len(m.activeDeployment.Queue) > 1 {
+				m.status = fmt.Sprintf("部署队列停止：第 %d 个应用失败，按 r 重试失败项，按 a 重新部署", m.activeDeployment.QueueIndex+1)
+			} else {
+				m.status = "部署失败，按 r 重试，按 a 重新部署"
+			}
+			return m, nil
+		}
+		next := m.activeDeployment.QueueIndex + 1
+		if next < len(m.activeDeployment.Queue) {
+			wait := maxInt(0, m.activeDeployment.App.WaitSeconds)
+			m.status = fmt.Sprintf("部署完成，等待 %d 秒后执行下一个：%s", wait, m.activeDeployment.Queue[next].Name)
+			return m, deploymentQueueNextAfter(time.Duration(wait) * time.Second)
+		}
+		if len(m.activeDeployment.Queue) > 1 {
+			m.status = "部署队列完成。"
+		}
+	}
+	return m, nil
+}
+
+func (m Model) handleDeploymentProgress(msg deploymentProgressMsg) (tea.Model, tea.Cmd) {
+	if msg.ID == "" || msg.ID != m.activeDeployment.ProgressID || !m.activeDeployment.Running {
+		return m, nil
+	}
+	m.activeDeployment.Output = msg.Output
+	if msg.Done {
+		return m, nil
+	}
+	return m, deploymentProgressAfter(msg.ID, 300*time.Millisecond)
+}
+
+func (m *Model) recordDeployment(result actions.CommandResult) error {
+	if m.activeDeployment.HostIndex < 0 || m.activeDeployment.HostIndex >= len(m.states) {
+		return nil
+	}
+	h := m.states[m.activeDeployment.HostIndex].Host
+	status := config.DeployStatusSuccess
+	errText := ""
+	if result.Err != nil {
+		status = config.DeployStatusFailed
+		errText = result.Err.Error()
+	}
+	record := config.DeploymentRecord{
+		ID:              config.NewDeploymentID(time.Now()),
+		Time:            time.Now().Format(time.RFC3339),
+		App:             m.activeDeployment.App.Name,
+		ServerCategory:  h.Category,
+		ServerName:      h.Name,
+		Action:          emptyChoice(m.activeDeployment.Action, config.DeployActionDeploy),
+		Source:          m.activeDeployment.App.Source,
+		Status:          status,
+		PreviousVersion: m.activeDeployment.PreviousVersion,
+		CurrentVersion:  m.activeDeployment.CurrentVersion,
+		ExitCode:        result.ExitCode,
+		Output:          result.Output,
+		Error:           errText,
+	}
+	if err := config.AppendDeploymentRecord(m.home, record); err != nil {
+		return err
+	}
+	file, _, err := config.LoadDeployments(m.home)
+	if err == nil {
+		m.deploymentFile = file
+	}
+	return nil
+}
+
+func buildDeploymentScript(app config.DeploymentApp, rollback bool) string {
+	return buildRemoteDeploymentScript(app, rollback, true)
+}
+
+func buildRemoteDeploymentScript(app config.DeploymentApp, rollback bool, includeResource bool) string {
+	var b strings.Builder
+	b.WriteString("set -eu\n")
+	b.WriteString("export SSHM_DEPLOY_APP=" + shellSingleQuote(app.Name) + "\n")
+	b.WriteString("export SSHM_DEPLOY_PATH=" + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("export SSHM_DEPLOY_SOURCE=" + shellSingleQuote(app.Source) + "\n")
+	appendDeploymentCredentialScript(&b, app)
+	b.WriteString("mkdir -p " + shellSingleQuote(app.Path) + "\n")
+	if rollback {
+		appendDeploymentCommands(&b, app.Path, "回滚", app.RollbackCommands)
+		return b.String()
+	}
+	appendDeploymentCommands(&b, app.Path, "更新前", app.BeforeCommands)
+	if includeResource && len(app.ResourceCommands) > 0 {
+		appendDeploymentCommands(&b, app.Path, "获取资源", app.ResourceCommands)
+	} else if includeResource {
+		appendDeploymentStageTitle(&b, "获取资源")
+		switch app.Source {
+		case config.DeploySourceRelease:
+			appendReleaseDeploymentScript(&b, app)
+		default:
+			appendGitDeploymentScript(&b, app)
+		}
+	}
+	appendDeploymentCommands(&b, app.Path, "更新", app.UpdateCommands)
+	appendDeploymentCommands(&b, app.Path, "更新后", app.AfterCommands)
+	appendDeploymentCommands(&b, app.Path, "健康检查", app.HealthCommands)
+	return b.String()
+}
+
+func runLocalFetchDeployment(ctx context.Context, h host.Host, app config.DeploymentApp, onOutput func(string)) actions.CommandResult {
+	var output strings.Builder
+	pre := buildLocalFetchPreScript(app)
+	preResult, cleanup := actions.RemoteCommandStreamContext(ctx, h, pre, onOutput)
+	cleanup()
+	output.WriteString(preResult.Output)
+	if preResult.Err != nil {
+		preResult.Output = output.String()
+		return preResult
+	}
+	tmp, err := os.MkdirTemp("", "sshm-deploy-*")
+	if err != nil {
+		return actions.CommandResult{Output: output.String(), Err: err, ExitCode: -1}
+	}
+	defer os.RemoveAll(tmp)
+	localResult := localFetchDeploymentResource(ctx, app, tmp, onOutput)
+	output.WriteString(localResult.Output)
+	if localResult.Err != nil {
+		localResult.Output = output.String()
+		return localResult
+	}
+	cmd, rsyncCleanup := actions.RsyncUploadCommandContext(ctx, h, localResultPath(tmp)+string(os.PathSeparator), app.Path)
+	uploadTitle := "== 上传资源 ==\n"
+	output.WriteString(uploadTitle)
+	if onOutput != nil {
+		onOutput(uploadTitle)
+	}
+	rsyncResult := actions.RunCommandStream(cmd, onOutput)
+	rsyncCleanup()
+	output.WriteString(rsyncResult.Output)
+	if rsyncResult.Err != nil {
+		return actions.CommandResult{Output: output.String(), Err: rsyncResult.Err, ExitCode: rsyncResult.ExitCode}
+	}
+	post := buildLocalFetchPostScript(app)
+	postResult, postCleanup := actions.RemoteCommandStreamContext(ctx, h, post, onOutput)
+	postCleanup()
+	output.WriteString(postResult.Output)
+	postResult.Output = output.String()
+	return postResult
+}
+
+func buildLocalFetchPreScript(app config.DeploymentApp) string {
+	var b strings.Builder
+	b.WriteString("set -eu\n")
+	b.WriteString("export SSHM_DEPLOY_APP=" + shellSingleQuote(app.Name) + "\n")
+	b.WriteString("export SSHM_DEPLOY_PATH=" + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("export SSHM_DEPLOY_SOURCE=" + shellSingleQuote(app.Source) + "\n")
+	b.WriteString("mkdir -p " + shellSingleQuote(app.Path) + "\n")
+	appendDeploymentCommands(&b, app.Path, "更新前", app.BeforeCommands)
+	if app.Source == config.DeploySourceGit {
+		b.WriteString("cd " + shellSingleQuote(app.Path) + "\n")
+		b.WriteString("SSHM_PREVIOUS_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)\n")
+		b.WriteString("echo SSHM_PREVIOUS_VERSION=$SSHM_PREVIOUS_VERSION\n")
+	} else {
+		b.WriteString("cd " + shellSingleQuote(app.Path) + "\n")
+		b.WriteString("SSHM_PREVIOUS_VERSION=$(readlink current 2>/dev/null || true)\n")
+		b.WriteString("echo SSHM_PREVIOUS_VERSION=$SSHM_PREVIOUS_VERSION\n")
+	}
+	return b.String()
+}
+
+func buildLocalFetchPostScript(app config.DeploymentApp) string {
+	var b strings.Builder
+	b.WriteString("set -eu\n")
+	b.WriteString("export SSHM_DEPLOY_APP=" + shellSingleQuote(app.Name) + "\n")
+	b.WriteString("export SSHM_DEPLOY_PATH=" + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("export SSHM_DEPLOY_SOURCE=" + shellSingleQuote(app.Source) + "\n")
+	appendDeploymentCommands(&b, app.Path, "更新", app.UpdateCommands)
+	appendDeploymentCommands(&b, app.Path, "更新后", app.AfterCommands)
+	appendDeploymentCommands(&b, app.Path, "健康检查", app.HealthCommands)
+	return b.String()
+}
+
+func localResultPath(tmp string) string {
+	return filepath.Join(tmp, "payload")
+}
+
+func localFetchDeploymentResource(ctx context.Context, app config.DeploymentApp, tmp string, onOutput func(string)) actions.CommandResult {
+	payload := localResultPath(tmp)
+	if err := os.MkdirAll(payload, 0700); err != nil {
+		return actions.CommandResult{Err: err, ExitCode: -1}
+	}
+	if len(app.ResourceCommands) > 0 {
+		return localFetchCustomResource(ctx, app, payload, onOutput)
+	}
+	if app.Source == config.DeploySourceRelease {
+		return localFetchReleaseResource(ctx, app, payload, onOutput)
+	}
+	return localFetchGitResource(ctx, app, payload, onOutput)
+}
+
+func localFetchCustomResource(ctx context.Context, app config.DeploymentApp, payload string, onOutput func(string)) actions.CommandResult {
+	var b strings.Builder
+	b.WriteString("set -eu\n")
+	b.WriteString("export SSHM_DEPLOY_APP=" + shellSingleQuote(app.Name) + "\n")
+	b.WriteString("export SSHM_DEPLOY_PATH=" + shellSingleQuote(payload) + "\n")
+	b.WriteString("export SSHM_DEPLOY_SOURCE=" + shellSingleQuote(app.Source) + "\n")
+	appendDeploymentStageTitle(&b, "获取资源")
+	b.WriteString("cd " + shellSingleQuote(payload) + "\n")
+	for _, command := range app.ResourceCommands {
+		if strings.TrimSpace(command) != "" {
+			b.WriteString(command + "\n")
+		}
+	}
+	cmd := localShellCommand(ctx, b.String())
+	cmd.Env = deploymentLocalEnv(app)
+	return actions.RunCommandStream(cmd, onOutput)
+}
+
+func localFetchGitResource(ctx context.Context, app config.DeploymentApp, payload string, onOutput func(string)) actions.CommandResult {
+	branch := strings.TrimSpace(app.Branch)
+	if branch == "" {
+		branch = "main"
+	}
+	args := []string{"clone", "--branch", branch, app.Repo, payload}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Env = deploymentLocalEnv(app)
+	var output strings.Builder
+	stage := "== 获取资源 ==\n"
+	output.WriteString(stage)
+	if onOutput != nil {
+		onOutput(stage)
+	}
+	result := actions.RunCommandStream(cmd, onOutput)
+	output.WriteString(result.Output)
+	result.Output = output.String()
+	if result.Err != nil {
+		return result
+	}
+	versionCmd := exec.CommandContext(ctx, "git", "-C", payload, "rev-parse", "--short", "HEAD")
+	versionOutput, versionErr := versionCmd.CombinedOutput()
+	if versionErr == nil {
+		result.Output += "SSHM_CURRENT_VERSION=" + strings.TrimSpace(string(versionOutput)) + "\n"
+	}
+	return result
+}
+
+func localFetchReleaseResource(ctx context.Context, app config.DeploymentApp, payload string, onOutput func(string)) actions.CommandResult {
+	script := buildLocalReleaseScript(app, payload)
+	cmd := localShellCommand(ctx, script)
+	cmd.Env = deploymentLocalEnv(app)
+	return actions.RunCommandStream(cmd, onOutput)
+}
+
+func buildLocalReleaseScript(app config.DeploymentApp, payload string) string {
+	var b strings.Builder
+	url, version, asset := deploymentReleaseValues(app)
+	b.WriteString("set -eu\n")
+	appendDeploymentStageTitle(&b, "获取资源")
+	b.WriteString("cd " + shellSingleQuote(payload) + "\n")
+	b.WriteString("mkdir -p packages " + shellSingleQuote("releases/"+version) + "\n")
+	if deploymentAssetIsPattern(asset) && strings.TrimSpace(app.ReleaseURL) == "" {
+		apiURL := deploymentReleaseAPIURL(app.Repo, version)
+		b.WriteString("SSHM_RELEASE_JSON=$(curl -fsL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} " + shellSingleQuote(apiURL) + ")\n")
+		b.WriteString("SSHM_RELEASE_URL=$(printf '%s\\n' \"$SSHM_RELEASE_JSON\" | awk -F '\"' '/\"browser_download_url\":/ {print $4}' | while IFS= read -r url; do name=${url##*/}; case \"$name\" in " + shellCasePattern(asset) + ") printf '%s\\n' \"$url\"; break ;; esac; done)\n")
+		b.WriteString("if [ -z \"$SSHM_RELEASE_URL\" ]; then echo " + shellSingleQuote("未找到匹配的 Release 资源："+asset) + "; exit 1; fi\n")
+		b.WriteString("SSHM_RELEASE_ASSET=${SSHM_RELEASE_URL##*/}\n")
+		b.WriteString("curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} \"$SSHM_RELEASE_URL\" -o \"packages/$SSHM_RELEASE_ASSET\"\n")
+		b.WriteString("SSHM_RELEASE_PACKAGE=\"packages/$SSHM_RELEASE_ASSET\"\n")
+		b.WriteString("case \"$SSHM_RELEASE_ASSET\" in\n")
+		b.WriteString("  *.tar.gz|*.tgz) tar -xzf \"$SSHM_RELEASE_PACKAGE\" -C " + shellSingleQuote("releases/"+version) + " ;;\n")
+		b.WriteString("  *.zip) unzip -o \"$SSHM_RELEASE_PACKAGE\" -d " + shellSingleQuote("releases/"+version) + " ;;\n")
+		b.WriteString("  *) cp \"$SSHM_RELEASE_PACKAGE\" " + shellSingleQuote("releases/"+version+"/") + " ;;\n")
+		b.WriteString("esac\n")
+	} else {
+		b.WriteString("curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} " + shellSingleQuote(url) + " -o " + shellSingleQuote("packages/"+asset) + "\n")
+		appendReleaseUnpackShell(&b, asset, version)
+	}
+	b.WriteString("ln -sfn " + shellSingleQuote("releases/"+version) + " current\n")
+	b.WriteString("echo SSHM_CURRENT_VERSION=" + shellSingleQuote(version) + "\n")
+	return b.String()
+}
+
+func appendReleaseUnpackShell(b *strings.Builder, asset string, version string) {
+	b.WriteString("case " + shellSingleQuote(asset) + " in\n")
+	b.WriteString("  *.tar.gz|*.tgz) tar -xzf " + shellSingleQuote("packages/"+asset) + " -C " + shellSingleQuote("releases/"+version) + " ;;\n")
+	b.WriteString("  *.zip) unzip -o " + shellSingleQuote("packages/"+asset) + " -d " + shellSingleQuote("releases/"+version) + " ;;\n")
+	b.WriteString("  *) cp " + shellSingleQuote("packages/"+asset) + " " + shellSingleQuote("releases/"+version+"/") + " ;;\n")
+	b.WriteString("esac\n")
+}
+
+func localShellCommand(ctx context.Context, script string) *exec.Cmd {
+	name := "sh"
+	args := []string{"-s"}
+	if runtime.GOOS == "windows" {
+		name = "cmd"
+		args = []string{"/C", script}
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	if runtime.GOOS != "windows" {
+		cmd.Stdin = strings.NewReader(script)
+	}
+	return cmd
+}
+
+func deploymentLocalEnv(app config.DeploymentApp) []string {
+	env := os.Environ()
+	name := strings.TrimSpace(app.CredentialName)
+	switch app.Credential {
+	case config.DeployCredentialSSH:
+		if name != "" {
+			env = append(env, "GIT_SSH_COMMAND=ssh -i "+name+" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new")
+		}
+	case config.DeployCredentialToken:
+		tokenVar := shellEnvName(name)
+		if tokenVar == "" {
+			tokenVar = "GITHUB_TOKEN"
+		}
+		token := os.Getenv(tokenVar)
+		if token != "" {
+			env = append(env, "SSHM_GITHUB_AUTH_HEADER=Authorization: Bearer "+token)
+		}
+	}
+	return env
+}
+
+func commandExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
+func appendGitDeploymentScript(b *strings.Builder, app config.DeploymentApp) {
+	branch := strings.TrimSpace(app.Branch)
+	if branch == "" {
+		branch = "main"
+	}
+	parent := filepath.Dir(strings.TrimRight(app.Path, "/"))
+	b.WriteString("echo '== 获取 Git 代码 =='\n")
+	b.WriteString("if [ ! -d " + shellSingleQuote(app.Path+"/.git") + " ]; then\n")
+	b.WriteString("  mkdir -p " + shellSingleQuote(parent) + "\n")
+	b.WriteString("  git clone --branch " + shellSingleQuote(branch) + " " + shellSingleQuote(app.Repo) + " " + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("fi\n")
+	b.WriteString("cd " + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("SSHM_PREVIOUS_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)\n")
+	b.WriteString("echo SSHM_PREVIOUS_VERSION=$SSHM_PREVIOUS_VERSION\n")
+	b.WriteString("git fetch --all --prune\n")
+	b.WriteString("git checkout " + shellSingleQuote(branch) + "\n")
+	b.WriteString("git pull --ff-only\n")
+	b.WriteString("SSHM_CURRENT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)\n")
+	b.WriteString("echo SSHM_CURRENT_VERSION=$SSHM_CURRENT_VERSION\n")
+}
+
+func appendReleaseDeploymentScript(b *strings.Builder, app config.DeploymentApp) {
+	url, version, asset := deploymentReleaseValues(app)
+	assetIsPattern := deploymentAssetIsPattern(asset)
+	b.WriteString("echo '== 获取 Release 资源 =='\n")
+	b.WriteString("cd " + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("SSHM_PREVIOUS_VERSION=$(readlink current 2>/dev/null || true)\n")
+	b.WriteString("echo SSHM_PREVIOUS_VERSION=$SSHM_PREVIOUS_VERSION\n")
+	b.WriteString("mkdir -p packages " + shellSingleQuote("releases/"+version) + "\n")
+	if assetIsPattern && strings.TrimSpace(app.ReleaseURL) == "" {
+		apiURL := deploymentReleaseAPIURL(app.Repo, version)
+		b.WriteString("SSHM_RELEASE_API=" + shellSingleQuote(apiURL) + "\n")
+		b.WriteString("if [ -n \"${SSHM_GITHUB_AUTH_HEADER:-}\" ]; then\n")
+		b.WriteString("  SSHM_RELEASE_JSON=$(curl -fsL -H \"$SSHM_GITHUB_AUTH_HEADER\" \"$SSHM_RELEASE_API\")\n")
+		b.WriteString("else\n")
+		b.WriteString("  SSHM_RELEASE_JSON=$(curl -fsL \"$SSHM_RELEASE_API\")\n")
+		b.WriteString("fi\n")
+		b.WriteString("SSHM_RELEASE_URL=$(printf '%s\\n' \"$SSHM_RELEASE_JSON\" | awk -F '\"' '/\"browser_download_url\":/ {print $4}' | while IFS= read -r url; do name=${url##*/}; case \"$name\" in " + shellCasePattern(asset) + ") printf '%s\\n' \"$url\"; break ;; esac; done)\n")
+		b.WriteString("if [ -z \"$SSHM_RELEASE_URL\" ]; then echo " + shellSingleQuote("未找到匹配的 Release 资源："+asset) + "; exit 1; fi\n")
+		b.WriteString("SSHM_RELEASE_ASSET=${SSHM_RELEASE_URL##*/}\n")
+		b.WriteString("curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} \"$SSHM_RELEASE_URL\" -o \"packages/$SSHM_RELEASE_ASSET\"\n")
+		b.WriteString("SSHM_RELEASE_PACKAGE=\"packages/$SSHM_RELEASE_ASSET\"\n")
+		b.WriteString("SSHM_RELEASE_TARGET=" + shellSingleQuote("releases/"+version) + "\n")
+		b.WriteString("case \"$SSHM_RELEASE_ASSET\" in\n")
+		b.WriteString("  *.tar.gz|*.tgz) tar -xzf \"$SSHM_RELEASE_PACKAGE\" -C \"$SSHM_RELEASE_TARGET\" ;;\n")
+		b.WriteString("  *.zip) unzip -o \"$SSHM_RELEASE_PACKAGE\" -d \"$SSHM_RELEASE_TARGET\" ;;\n")
+		b.WriteString("  *) cp \"$SSHM_RELEASE_PACKAGE\" \"$SSHM_RELEASE_TARGET/\" ;;\n")
+		b.WriteString("esac\n")
+		b.WriteString("ln -sfn " + shellSingleQuote("releases/"+version) + " current\n")
+		b.WriteString("SSHM_CURRENT_VERSION=" + shellSingleQuote(version) + "\n")
+		b.WriteString("echo SSHM_CURRENT_VERSION=$SSHM_CURRENT_VERSION\n")
+		return
+	}
+	b.WriteString("if [ -n \"${SSHM_GITHUB_AUTH_HEADER:-}\" ]; then\n")
+	b.WriteString("  curl -fL -H \"$SSHM_GITHUB_AUTH_HEADER\" " + shellSingleQuote(url) + " -o " + shellSingleQuote("packages/"+asset) + "\n")
+	b.WriteString("else\n")
+	b.WriteString("  curl -fL " + shellSingleQuote(url) + " -o " + shellSingleQuote("packages/"+asset) + "\n")
+	b.WriteString("fi\n")
+	b.WriteString("case " + shellSingleQuote(asset) + " in\n")
+	b.WriteString("  *.tar.gz|*.tgz) tar -xzf " + shellSingleQuote("packages/"+asset) + " -C " + shellSingleQuote("releases/"+version) + " ;;\n")
+	b.WriteString("  *.zip) unzip -o " + shellSingleQuote("packages/"+asset) + " -d " + shellSingleQuote("releases/"+version) + " ;;\n")
+	b.WriteString("  *) cp " + shellSingleQuote("packages/"+asset) + " " + shellSingleQuote("releases/"+version+"/") + " ;;\n")
+	b.WriteString("esac\n")
+	b.WriteString("ln -sfn " + shellSingleQuote("releases/"+version) + " current\n")
+	b.WriteString("SSHM_CURRENT_VERSION=" + shellSingleQuote(version) + "\n")
+	b.WriteString("echo SSHM_CURRENT_VERSION=$SSHM_CURRENT_VERSION\n")
+}
+
+func deploymentReleaseValues(app config.DeploymentApp) (string, string, string) {
+	url := strings.TrimSpace(app.ReleaseURL)
+	version := strings.TrimSpace(app.Version)
+	if version == "" {
+		version = "latest"
+	}
+	asset := strings.TrimSpace(app.Asset)
+	if asset == "" {
+		asset = filepath.Base(url)
+	}
+	if url == "" {
+		repo := strings.Trim(strings.TrimSpace(app.Repo), "/")
+		if version == "latest" {
+			url = "https://github.com/" + repo + "/releases/latest/download/" + asset
+		} else {
+			url = "https://github.com/" + repo + "/releases/download/" + version + "/" + asset
+		}
+	}
+	return url, version, asset
+}
+
+func deploymentReleaseAPIURL(repo string, version string) string {
+	repo = strings.Trim(strings.TrimSpace(repo), "/")
+	if strings.TrimSpace(version) == "" || version == "latest" {
+		return "https://api.github.com/repos/" + repo + "/releases/latest"
+	}
+	return "https://api.github.com/repos/" + repo + "/releases/tags/" + version
+}
+
+func deploymentAssetIsPattern(asset string) bool {
+	return strings.Contains(asset, "*")
+}
+
+func shellCasePattern(value string) string {
+	if value == "" {
+		return "''"
+	}
+	var b strings.Builder
+	var literal strings.Builder
+	flushLiteral := func() {
+		if literal.Len() == 0 {
+			return
+		}
+		b.WriteString(shellSingleQuote(literal.String()))
+		literal.Reset()
+	}
+	for _, r := range value {
+		if r == '*' {
+			flushLiteral()
+			b.WriteRune('*')
+			continue
+		}
+		literal.WriteRune(r)
+	}
+	flushLiteral()
+	if b.Len() == 0 {
+		return "''"
+	}
+	return b.String()
+}
+
+func deploymentResourcePreviewCommands(app config.DeploymentApp) []string {
+	return deploymentResourceDefaultCommands(app)
+}
+
+func deploymentResourceDefaultCommands(app config.DeploymentApp) []string {
+	localFetch := app.FetchMode == config.DeployFetchLocal
+	if app.Source == config.DeploySourceRelease {
+		url, version, asset := deploymentReleaseValues(app)
+		commands := []string{}
+		if !localFetch {
+			commands = append(commands, "cd "+shellSingleQuote(app.Path))
+		}
+		commands = append(commands, "mkdir -p packages "+shellSingleQuote("releases/"+version))
+		if deploymentAssetIsPattern(asset) && strings.TrimSpace(app.ReleaseURL) == "" {
+			commands = append(commands,
+				"SSHM_RELEASE_JSON=$(curl -fsL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} "+shellSingleQuote(deploymentReleaseAPIURL(app.Repo, version))+")",
+				"SSHM_RELEASE_URL=$(printf '%s\\n' \"$SSHM_RELEASE_JSON\" | awk -F '\"' '/\"browser_download_url\":/ {print $4}' | while IFS= read -r url; do name=${url##*/}; case \"$name\" in "+shellCasePattern(asset)+") printf '%s\\n' \"$url\"; break ;; esac; done)",
+				"if [ -z \"$SSHM_RELEASE_URL\" ]; then echo "+shellSingleQuote("未找到匹配的 Release 资源："+asset)+"; exit 1; fi",
+				"SSHM_RELEASE_ASSET=${SSHM_RELEASE_URL##*/}",
+				"curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} \"$SSHM_RELEASE_URL\" -o \"packages/$SSHM_RELEASE_ASSET\"",
+				"SSHM_RELEASE_PACKAGE=\"packages/$SSHM_RELEASE_ASSET\"",
+			)
+			commands = appendReleaseDynamicUnpackPreview(commands, version)
+			return append(commands, "ln -sfn "+shellSingleQuote("releases/"+version)+" current")
+		}
+		commands = append(commands, "curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} "+shellSingleQuote(url)+" -o "+shellSingleQuote("packages/"+asset))
+		commands = appendReleaseUnpackPreview(commands, asset, version)
+		commands = append(commands, "ln -sfn "+shellSingleQuote("releases/"+version)+" current")
+		return commands
+	}
+	branch := strings.TrimSpace(app.Branch)
+	if branch == "" {
+		branch = "main"
+	}
+	if localFetch {
+		return []string{
+			"git clone --branch " + shellSingleQuote(branch) + " " + shellSingleQuote(app.Repo) + " .",
+			"SSHM_CURRENT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)",
+			"echo SSHM_CURRENT_VERSION=$SSHM_CURRENT_VERSION",
+		}
+	}
+	parent := filepath.Dir(strings.TrimRight(app.Path, "/"))
+	return []string{
+		"if [ ! -d " + shellSingleQuote(app.Path+"/.git") + " ]; then mkdir -p " + shellSingleQuote(parent) + " && git clone --branch " + shellSingleQuote(branch) + " " + shellSingleQuote(app.Repo) + " " + shellSingleQuote(app.Path) + "; fi",
+		"cd " + shellSingleQuote(app.Path),
+		"SSHM_PREVIOUS_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)",
+		"git fetch --all --prune",
+		"git checkout " + shellSingleQuote(branch),
+		"git pull --ff-only",
+		"SSHM_CURRENT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)",
+	}
+}
+
+func appendReleaseDynamicUnpackPreview(commands []string, version string) []string {
+	return append(commands,
+		"case \"$SSHM_RELEASE_ASSET\" in",
+		"  *.tar.gz|*.tgz) tar -xzf \"$SSHM_RELEASE_PACKAGE\" -C "+shellSingleQuote("releases/"+version)+" ;;",
+		"  *.zip) unzip -o \"$SSHM_RELEASE_PACKAGE\" -d "+shellSingleQuote("releases/"+version)+" ;;",
+		"  *) cp \"$SSHM_RELEASE_PACKAGE\" "+shellSingleQuote("releases/"+version+"/")+" ;;",
+		"esac",
+	)
+}
+
+func appendReleaseUnpackPreview(commands []string, asset string, version string) []string {
+	switch {
+	case strings.HasSuffix(asset, ".tar.gz") || strings.HasSuffix(asset, ".tgz"):
+		return append(commands, "tar -xzf "+shellSingleQuote("packages/"+asset)+" -C "+shellSingleQuote("releases/"+version))
+	case strings.HasSuffix(asset, ".zip"):
+		return append(commands, "unzip -o "+shellSingleQuote("packages/"+asset)+" -d "+shellSingleQuote("releases/"+version))
+	default:
+		return append(commands, "cp "+shellSingleQuote("packages/"+asset)+" "+shellSingleQuote("releases/"+version+"/"))
+	}
+}
+
+func appendDeploymentCredentialScript(b *strings.Builder, app config.DeploymentApp) {
+	name := strings.TrimSpace(app.CredentialName)
+	switch app.Credential {
+	case config.DeployCredentialSSH:
+		if name == "" {
+			return
+		}
+		gitSSHCommand := "ssh -i " + shellSingleQuote(name) + " -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+		b.WriteString("export GIT_SSH_COMMAND=" + shellSingleQuote(gitSSHCommand) + "\n")
+	case config.DeployCredentialToken:
+		tokenVar := shellEnvName(name)
+		if tokenVar == "" {
+			tokenVar = "GITHUB_TOKEN"
+		}
+		b.WriteString("SSHM_GITHUB_AUTH_HEADER=\n")
+		b.WriteString("if [ -n \"${" + tokenVar + ":-}\" ]; then\n")
+		b.WriteString("  SSHM_GITHUB_AUTH_HEADER=\"Authorization: Bearer ${" + tokenVar + "}\"\n")
+		b.WriteString("fi\n")
+	}
+}
+
+func appendDeploymentCommands(b *strings.Builder, path string, title string, commands []string) {
+	if len(commands) == 0 {
+		return
+	}
+	appendDeploymentStageTitle(b, title)
+	b.WriteString("cd " + shellSingleQuote(path) + "\n")
+	for _, command := range commands {
+		command = strings.TrimSpace(command)
+		if command != "" {
+			b.WriteString(command + "\n")
+		}
+	}
+}
+
+func appendDeploymentStageTitle(b *strings.Builder, title string) {
+	b.WriteString("echo " + shellSingleQuote("== "+title+" ==") + "\n")
+}
+
+func deploymentStageOutput(title string, output string) string {
+	if strings.TrimSpace(output) == "" {
+		return "== " + title + " ==\n"
+	}
+	return "== " + title + " ==\n" + output
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func shellEnvName(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	for i, r := range value {
+		if i == 0 {
+			if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') {
+				return ""
+			}
+			continue
+		}
+		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
+			return ""
+		}
+	}
+	return value
+}
+
+func parseDeploymentVersions(output string) (string, string) {
+	prev := ""
+	curr := ""
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "SSHM_PREVIOUS_VERSION=") {
+			prev = strings.TrimPrefix(line, "SSHM_PREVIOUS_VERSION=")
+		}
+		if strings.HasPrefix(line, "SSHM_CURRENT_VERSION=") {
+			curr = strings.TrimPrefix(line, "SSHM_CURRENT_VERSION=")
+		}
+	}
+	return prev, curr
 }
 
 func (m Model) batchSuccessCount() int {
@@ -5005,6 +6830,24 @@ func (m Model) View() string {
 	if m.mode == modeAnomalyOverview {
 		return m.renderAnomalyOverview()
 	}
+	if m.mode == modeDeploymentList {
+		return m.renderDeploymentList()
+	}
+	if m.mode == modeDeploymentDetail {
+		return m.renderDeploymentDetail()
+	}
+	if m.mode == modeDeploymentEdit {
+		return m.renderDeploymentEdit()
+	}
+	if m.mode == modeDeploymentConfirm {
+		return m.renderDeploymentConfirm()
+	}
+	if m.mode == modeDeploymentRollbackConfirm {
+		return m.renderDeploymentRollbackConfirm()
+	}
+	if m.mode == modeDeploymentOutput {
+		return m.renderDeploymentOutput()
+	}
 	if m.mode == modeTransferJobs {
 		return m.renderTransferJobs()
 	}
@@ -5108,6 +6951,7 @@ func renderDashboardHelp(width int) string {
 		"批量 b",
 		"历史 i",
 		"传输 y",
+		"部署 g",
 		"总览 w",
 		"视图 z",
 		"置顶 t",
@@ -5187,6 +7031,1411 @@ func (m Model) renderAddForm() string {
 		renderHelp(width, help),
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) renderDeploymentList() string {
+	pageWidth := m.width
+	if pageWidth <= 0 {
+		pageWidth = contentWidth(m.width)
+	}
+	if pageWidth < 34 {
+		pageWidth = 34
+	}
+	frameWidth := detailFrameWidth(pageWidth)
+	bodyWidth := frameWidth - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	help := "移动 ↑↓←→/hjkl  详情 Space  选择 s  分类 Tab  视图 z  置顶 t  收藏 f  只看收藏 v  部署 Enter  新增 a  编辑 e  删除 x  返回 Esc"
+	header := titleStyle.Render(fit(strings.Join(m.deploymentHeaderParts(), "  "), pageWidth))
+	if m.deploymentView == deploymentViewCards {
+		return strings.Join([]string{header, "", m.renderDeploymentCards(pageWidth), renderHelp(pageWidth, help)}, "\n")
+	}
+	contentHeight := m.height - 4
+	if contentHeight < 1 {
+		contentHeight = 1
+	}
+	lines := []string{}
+	if len(m.deploymentItems) == 0 {
+		lines = append(lines, mutedStyle.Render("没有部署应用。按 a 添加。"))
+	} else {
+		start, end := visibleRange(len(m.deploymentItems), m.deploymentIndex, contentHeight)
+		for i := start; i < end; i++ {
+			item := m.deploymentItems[i]
+			lines = append(lines, m.deploymentAppListLine(item, bodyWidth, i == m.deploymentIndex))
+		}
+	}
+	for len(lines) < contentHeight {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(frameWidth).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{header, box, renderHelp(pageWidth, help)}, "\n")
+}
+
+func (m Model) deploymentHeaderParts() []string {
+	parts := []string{"应用部署", fmt.Sprintf("应用 %d", len(m.deploymentItems)), "视图：" + deploymentViewName(m.deploymentView)}
+	if m.deploymentCategory != "" {
+		parts = append(parts, "分类："+m.deploymentCategory)
+	}
+	if len(m.deploymentSelected) > 0 {
+		parts = append(parts, fmt.Sprintf("已选 %d", len(m.deploymentSelected)))
+	}
+	if m.deploymentFavoriteOnly {
+		parts = append(parts, "只看收藏")
+	}
+	if m.status != "" && m.status != "应用部署" && !strings.HasPrefix(m.status, "部署视图：") {
+		parts = append(parts, m.status)
+	}
+	return parts
+}
+
+func deploymentViewName(view deploymentViewMode) string {
+	if view == deploymentViewList {
+		return "列表"
+	}
+	return "卡片"
+}
+
+func (m Model) renderDeploymentCards(width int) string {
+	bodyHeight := m.height - 3
+	if bodyHeight < 8 {
+		bodyHeight = 8
+	}
+	lines := []string{}
+	if len(m.deploymentItems) == 0 {
+		lines = append(lines, mutedStyle.Render("没有部署应用。按 a 添加。"))
+		for len(lines) < bodyHeight {
+			lines = append(lines, "")
+		}
+		return strings.Join(lines, "\n")
+	}
+	cardLines, selectedTop, selectedBottom := m.deploymentCardLines(width)
+	cardHeight := bodyHeight
+	if cardHeight < 1 {
+		cardHeight = 1
+	}
+	start, end := dashboardLineWindow(len(cardLines), selectedTop, selectedBottom, cardHeight)
+	lines = append(lines, cardLines[start:end]...)
+	for len(lines) < bodyHeight {
+		lines = append(lines, "")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) deploymentCardLines(width int) ([]string, int, int) {
+	cols := m.dashboardColumns()
+	cardWidths := distributeWidths(width, cols)
+	lines := []string{}
+	selectedTop := 0
+	selectedBottom := 0
+	for i := 0; i < len(m.deploymentItems); i += cols {
+		rowEnd := minInt(i+cols, len(m.deploymentItems))
+		row := []string{}
+		for col := 0; col < cols; col++ {
+			cardWidth := cardWidths[col]
+			if i+col >= rowEnd {
+				row = append(row, padBlock(blankDeploymentCard(cardWidth), cardWidth))
+				continue
+			}
+			itemIndex := i + col
+			if itemIndex == m.deploymentIndex {
+				selectedTop = len(lines)
+			}
+			row = append(row, padBlock(m.renderDeploymentAppCard(m.deploymentItems[itemIndex], cardWidth, itemIndex == m.deploymentIndex), cardWidth))
+		}
+		rowLines := strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, row...), "\n")
+		lines = append(lines, rowLines...)
+		if m.deploymentIndex >= i && m.deploymentIndex < rowEnd {
+			selectedBottom = len(lines)
+		}
+	}
+	if selectedBottom == 0 {
+		selectedBottom = selectedTop
+	}
+	return lines, selectedTop, selectedBottom
+}
+
+func deploymentCardColumns(width int) int {
+	switch {
+	case width >= 148:
+		return 3
+	case width >= 96:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func blankDeploymentCard(width int) string {
+	return lipgloss.NewStyle().
+		Border(lipgloss.HiddenBorder()).
+		Padding(0, 1).
+		Width(maxInt(30, width-4)).
+		Height(deploymentCardInnerHeight).
+		Render("")
+}
+
+func (m Model) renderDeploymentAppCard(item deploymentItem, width int, selected bool) string {
+	app := item.App
+	cardWidth := maxInt(34, width)
+	innerWidth := cardWidth - 4
+	borderStyle := cardBorderStyle
+	if selected {
+		borderStyle = selectedCardBorderStyle
+	}
+	order := m.deploymentSelectionOrder(item.Index)
+	mark := ""
+	if order > 0 {
+		mark = blueStyle.Bold(true).Render(fmt.Sprintf("%02d ", order))
+	}
+	title := deploymentAppMarks(app) + mark + detailValueStyle.Render(emptyDash(app.Name))
+	meta := m.deploymentLastRecordMeta(app)
+	dot := m.deploymentLastRecordDot(app)
+	sourceLine := deploymentCardSourceLine(app, innerWidth)
+	serverLine := deploymentCardServerLine(app.Server, innerWidth)
+	pathLine := cardMutedStyle.Render("目录 ") + detailValueStyle.Render(emptyDash(app.Path))
+	fetchLine := cardMutedStyle.Render("方式 ") + detailValueStyle.Render(deployFetchModeText(app.FetchMode))
+	timeLine := m.deploymentLastRecordTimeLine(app, innerWidth)
+	lines := []string{
+		cardTopLine(cardWidth, title, meta, dot, borderStyle),
+		cardContentLine(cardWidth, serverLine, borderStyle),
+		cardContentLine(cardWidth, sourceLine, borderStyle),
+		cardContentLine(cardWidth, pathLine, borderStyle),
+		cardContentLine(cardWidth, fetchLine, borderStyle),
+		cardInnerSeparatorLine(cardWidth, borderStyle),
+		cardContentLine(cardWidth, timeLine, borderStyle),
+		cardBottomLine(cardWidth, borderStyle),
+	}
+	return strings.Join(lines, "\n")
+}
+
+func deploymentCardSourceLine(app config.DeploymentApp, width int) string {
+	left := cardMutedStyle.Render(deploySourceText(app.Source)+" ") + detailValueStyle.Render(deploymentAppTarget(app))
+	right := cardMutedStyle.Render(deployCredentialText(app.Credential))
+	gap := width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	if gap < 2 {
+		maxLeft := width - ansi.StringWidth(right) - 2
+		if maxLeft < 8 {
+			return fitANSI(left, width)
+		}
+		left = fitANSI(left, maxLeft)
+		gap = width - ansi.StringWidth(left) - ansi.StringWidth(right)
+	}
+	return left + strings.Repeat(" ", maxInt(1, gap)) + right
+}
+
+func deploymentCardServerLine(server string, width int) string {
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return transferPathLine("→", "-")
+	}
+	category := ""
+	name := server
+	if idx := strings.Index(server, "/"); idx >= 0 {
+		category = strings.TrimSpace(server[:idx])
+		name = strings.TrimSpace(server[idx+1:])
+	}
+	if name == "" {
+		name = server
+	}
+	line := blueStyle.Render("→ ")
+	if category != "" {
+		line += cardMutedStyle.Render("["+category+"]") + " "
+	}
+	line += detailValueStyle.Render(name)
+	return fitANSI(line, width)
+}
+
+func (m Model) deploymentLastRecordMeta(app config.DeploymentApp) string {
+	record, ok := m.latestDeploymentRecord(app)
+	if !ok {
+		return cardMutedStyle.Render("未部署")
+	}
+	style := greenStyle
+	if record.Status == config.DeployStatusFailed {
+		style = redStyle
+	}
+	return style.Render(deploymentRecordActionStatusText(record))
+}
+
+func (m Model) deploymentLastRecordDot(app config.DeploymentApp) string {
+	record, ok := m.latestDeploymentRecord(app)
+	if !ok {
+		return cardMutedStyle.Render("●")
+	}
+	if record.Status == config.DeployStatusFailed {
+		return redStyle.Render("●")
+	}
+	return greenStyle.Render("●")
+}
+
+func (m Model) deploymentLastRecordTimeLine(app config.DeploymentApp, width int) string {
+	record, ok := m.latestDeploymentRecord(app)
+	if !ok {
+		return cardMutedStyle.Render("时间 暂无记录")
+	}
+	return cardMutedStyle.Render("时间 ") + detailValueStyle.Render(fit(deploymentRecordTimeText(record.Time), width-5))
+}
+
+func (m Model) renderDeploymentDetail() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	lines := m.deploymentDetailLines(bodyWidth)
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	scroll := clampInt(m.deploymentOutputScroll, 0, m.deploymentDetailMaxScroll())
+	if len(lines) > height {
+		lines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(fitLines(lines, bodyWidth), "\n"))
+	return strings.Join([]string{titleStyle.Render(fit("部署详情", width)), box, renderHelp(width, "滚动 ↑↓/jk  部署 Enter  编辑 e  返回 Esc")}, "\n")
+}
+
+func (m Model) deploymentDetailMaxScroll() int {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	return maxInt(0, len(m.deploymentDetailLines(bodyWidth))-height)
+}
+
+func (m Model) deploymentDetailLines(bodyWidth int) []string {
+	app := deploymentAppWithResourceDefaults(m.deploymentDetail)
+	lines := []string{
+		detailSubTitle("基础"),
+		deploymentDetailRow("应用", emptyDash(app.Name), bodyWidth),
+		deploymentDetailRow("服务器", deploymentDisplayServerText(app.Server), bodyWidth),
+		deploymentDetailRow("来源", deploySourceText(app.Source), bodyWidth),
+		deploymentDetailRow("获取方式", deployFetchModeText(app.FetchMode), bodyWidth),
+		deploymentDetailRow("仓库", emptyDash(app.Repo), bodyWidth),
+		deploymentDetailRow("目标", deploymentAppTarget(app), bodyWidth),
+		deploymentDetailRow("资源匹配", emptyDash(app.Asset), bodyWidth),
+		deploymentDetailRow("下载地址", emptyDash(app.ReleaseURL), bodyWidth),
+		deploymentDetailRow("目录", emptyDash(app.Path), bodyWidth),
+		deploymentDetailRow("凭证", deployCredentialText(app.Credential), bodyWidth),
+		deploymentDetailRow("凭证参数", emptyDash(app.CredentialName), bodyWidth),
+		deploymentDetailRow("等待", fmt.Sprintf("%d秒", maxInt(0, app.WaitSeconds)), bodyWidth),
+		deploymentDetailRow("收藏", yesNo(app.Favorite), bodyWidth),
+		deploymentDetailRow("置顶", yesNo(app.Pinned), bodyWidth),
+		"",
+		detailSubTitle("流程代码"),
+	}
+	records := m.deploymentRecordsForApp(app, 50)
+	lines = appendDeploymentDetailCommands(lines, "更新前", app.BeforeCommands, bodyWidth)
+	lines = appendDeploymentDetailCommands(lines, "获取资源", app.ResourceCommands, bodyWidth)
+	lines = appendDeploymentDetailCommands(lines, "更新", app.UpdateCommands, bodyWidth)
+	lines = appendDeploymentDetailCommands(lines, "更新后", app.AfterCommands, bodyWidth)
+	lines = appendDeploymentDetailCommands(lines, "健康检查", app.HealthCommands, bodyWidth)
+	lines = appendDeploymentDetailCommands(lines, "回滚", app.RollbackCommands, bodyWidth)
+	lines = append(lines, "", detailSubTitle(fmt.Sprintf("历史 %d条", len(records))))
+	if len(records) == 0 {
+		lines = append(lines, mutedStyle.Render("暂无记录"))
+		return lines
+	}
+	for _, record := range records {
+		lines = append(lines, deploymentDetailHistoryLine(record, bodyWidth))
+	}
+	return lines
+}
+
+func appendDeploymentDetailCommands(lines []string, title string, commands []string, width int) []string {
+	lines = append(lines, deploymentDetailStageLine(title, len(commands), width))
+	if len(commands) == 0 {
+		lines = append(lines, mutedStyle.Render("    未配置"))
+		return append(lines, "")
+	}
+	for _, command := range commands {
+		lines = appendWrappedCommandIndented(lines, command, width)
+	}
+	return append(lines, "")
+}
+
+func deploymentDetailRow(label string, value string, width int) string {
+	labelWidth := 10
+	padding := labelWidth - runewidth.StringWidth(label)
+	if padding < 1 {
+		padding = 1
+	}
+	prefix := detailLabelStyle.Render(label) + strings.Repeat(" ", padding)
+	return fitANSI(prefix+detailValueStyle.Render(value), width)
+}
+
+func deploymentDetailStageLine(title string, count int, width int) string {
+	label := detailLabelStyle.Render(padVisible(title, 10))
+	countText := cardMutedStyle.Render(fmt.Sprintf("%d步", count))
+	return fitANSI(label+countText, width)
+}
+
+func appendWrappedCommandIndented(lines []string, command string, width int) []string {
+	prefix := cardMutedStyle.Render("    $ ")
+	wrapped := strings.Split(wrapPlainLine(command, width-ansi.StringWidth(prefix)), "\n")
+	for _, line := range wrapped {
+		lines = append(lines, prefix+detailValueStyle.Render(line))
+	}
+	return lines
+}
+
+func deploymentDetailHistoryLine(record config.DeploymentRecord, width int) string {
+	statusText := deploymentRecordActionStatusText(record)
+	statusStyle := greenStyle
+	if record.Status == config.DeployStatusFailed {
+		statusStyle = redStyle
+	}
+	version := cardMutedStyle.Render(deploymentRecordVersionText(record))
+	exit := ""
+	if record.Status == config.DeployStatusFailed && record.ExitCode != 0 {
+		exit = "  " + redStyle.Render(fmt.Sprintf("退出码 %d", record.ExitCode))
+	}
+	line := cardMutedStyle.Render(padVisible(deploymentRecordDateTimeText(record.Time), 11)) +
+		"  " + statusStyle.Render(padVisible(statusText, 8)) +
+		"  " + version + exit
+	return fitANSI(line, width)
+}
+
+func (m Model) deploymentAppListLine(item deploymentItem, width int, selected bool) string {
+	app := item.App
+	prefix := cardMutedStyle.Render(" ")
+	nameStyle := detailValueStyle
+	if selected {
+		prefix = blueStyle.Bold(true).Render("▶")
+		nameStyle = blueStyle.Bold(true)
+	}
+	mark := "  "
+	if order := m.deploymentSelectionOrder(item.Index); order > 0 {
+		mark = blueStyle.Bold(true).Render(fmt.Sprintf("%02d", order))
+	} else {
+		mark = cardMutedStyle.Render(mark)
+	}
+	flags := deploymentAppListMarks(app)
+	name := nameStyle.Render(padVisible(emptyDash(app.Name), 14))
+	server := cardMutedStyle.Render(padVisible(deploymentDisplayServerText(app.Server), 18))
+	source := detailValueStyle.Render(padVisible(deploySourceText(app.Source), 7))
+	target := cardMutedStyle.Render(padVisible(deploymentAppTarget(app), 10))
+	credential := cardMutedStyle.Render(padVisible(deployCredentialText(app.Credential), 8))
+	record := m.deploymentLastRecordListText(app)
+	return fitANSI(strings.Join([]string{prefix, mark, flags, name, server, source, target, credential, record}, "  "), width)
+}
+
+func deploymentAppMarks(app config.DeploymentApp) string {
+	marks := ""
+	if app.Pinned {
+		marks += pinnedStyle.Render("▲") + " "
+	}
+	if app.Favorite {
+		marks += favoriteStyle.Render("★") + " "
+	}
+	return marks
+}
+
+func deploymentAppListMarks(app config.DeploymentApp) string {
+	marks := ""
+	if app.Pinned {
+		marks += pinnedStyle.Render("▲")
+	} else {
+		marks += " "
+	}
+	marks += " "
+	if app.Favorite {
+		marks += favoriteStyle.Render("★")
+	} else {
+		marks += " "
+	}
+	return padVisible(marks, 3)
+}
+
+func (m Model) deploymentLastRecordText(app config.DeploymentApp) string {
+	record, ok := m.latestDeploymentRecord(app)
+	if !ok {
+		return "未部署"
+	}
+	return deploymentRecordActionStatusText(record) + "  " + deploymentRecordTimeText(record.Time)
+}
+
+func (m Model) deploymentLastRecordListText(app config.DeploymentApp) string {
+	record, ok := m.latestDeploymentRecord(app)
+	if !ok {
+		return cardMutedStyle.Render("未部署")
+	}
+	style := greenStyle
+	if record.Status == config.DeployStatusFailed {
+		style = redStyle
+	}
+	return style.Render(deploymentRecordActionStatusText(record)) + "  " + cardMutedStyle.Render(deploymentRecordTimeText(record.Time))
+}
+
+func (m Model) latestDeploymentRecord(app config.DeploymentApp) (config.DeploymentRecord, bool) {
+	records := m.deploymentRecordsForApp(app, 1)
+	if len(records) == 0 {
+		return config.DeploymentRecord{}, false
+	}
+	return records[0], true
+}
+
+func (m Model) deploymentRecordsForApp(app config.DeploymentApp, limit int) []config.DeploymentRecord {
+	category, name := splitDeploymentServer(app.Server)
+	records := []config.DeploymentRecord{}
+	for _, record := range m.deploymentFile.Records {
+		if record.App == app.Name && record.ServerCategory == category && record.ServerName == name {
+			records = append(records, record)
+			if limit > 0 && len(records) >= limit {
+				break
+			}
+		}
+	}
+	return records
+}
+
+func deploymentRecordActionStatusText(record config.DeploymentRecord) string {
+	action := "部署"
+	if record.Action == config.DeployActionRollback {
+		action = "回滚"
+	}
+	status := "成功"
+	if record.Status == config.DeployStatusFailed {
+		status = "失败"
+	}
+	if record.Status == config.DeployStatusRunning {
+		status = "运行中"
+	}
+	return action + status
+}
+
+func splitDeploymentServer(server string) (string, string) {
+	server = strings.TrimSpace(server)
+	if idx := strings.Index(server, "/"); idx >= 0 {
+		return server[:idx], server[idx+1:]
+	}
+	return "", server
+}
+
+func deploymentRecordTimeText(value string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if err != nil {
+		return "-"
+	}
+	now := time.Now()
+	if t.After(now) {
+		t = now
+	}
+	d := now.Sub(t)
+	if d < time.Minute {
+		return "刚刚"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%d分钟前", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%d小时前", int(d.Hours()))
+	}
+	if d < 7*24*time.Hour {
+		return fmt.Sprintf("%d天前", int(d.Hours()/24))
+	}
+	if t.Year() == now.Year() {
+		return t.Format("01-02")
+	}
+	return t.Format("2006-01-02")
+}
+
+func deploymentRecordDateTimeText(value string) string {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
+	if err != nil {
+		return "-"
+	}
+	return t.Local().Format("01-02 15:04")
+}
+
+func (m Model) renderDeploymentEdit() string {
+	width := detailFrameWidth(m.width)
+	innerWidth := width - 4
+	if innerWidth < 42 {
+		innerWidth = 42
+	}
+	help := "切换 Tab  保存 Enter  换行 Ctrl+J  服务器/来源/凭证 ←→  返回 Esc"
+	title := "添加部署应用"
+	if m.deploymentEditing {
+		title = "编辑部署应用"
+	}
+	header := titleStyle.Render(title)
+	if strings.TrimSpace(m.status) != "" && m.status != title {
+		statusStyle := mutedStyle
+		if strings.Contains(m.status, "失败") || strings.Contains(m.status, "不能为空") || strings.Contains(m.status, "需要填写") {
+			statusStyle = redStyle
+		}
+		header += "  " + statusStyle.Render(fit(m.status, width-ansi.StringWidth(title)-2))
+	}
+	contentHeight := m.height - 4
+	if contentHeight < 8 {
+		contentHeight = 8
+	}
+	lines := m.deploymentEditLines(innerWidth, contentHeight)
+	if !deploymentFieldIsCommand(m.deploymentField) && len(lines) > contentHeight {
+		selected := selectedDeploymentEditRow(m.deploymentField)
+		start := selected - contentHeight + 4
+		if start < 0 {
+			start = 0
+		}
+		if start+contentHeight > len(lines) {
+			start = len(lines) - contentHeight
+			if start < 0 {
+				start = 0
+			}
+		}
+		lines = lines[start:minInt(len(lines), start+contentHeight)]
+	}
+	for blockLineCount(strings.Join(lines, "\n")) < contentHeight {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(blue).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines, "\n"))
+	return strings.Join([]string{fit(header, width), box, renderHelp(width, help)}, "\n")
+}
+
+func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
+	if deploymentFieldIsCommand(m.deploymentField) {
+		lines := []string{
+			detailSubTitle("部署流程"),
+			deploymentCommandSummaryLine(m, 13, "更新前", m.deploymentForm.BeforeCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 14, "获取资源", m.deploymentForm.ResourceCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 15, "更新命令", m.deploymentForm.UpdateCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 16, "更新后", m.deploymentForm.AfterCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 17, "健康检查", m.deploymentForm.HealthCommands, innerWidth),
+			"",
+			detailSubTitle("回滚流程"),
+			deploymentCommandSummaryLine(m, 18, "回滚命令", m.deploymentForm.RollbackCommands, innerWidth),
+			"",
+			detailSubTitle(deploymentFieldName(m.deploymentField)),
+		}
+		textAreaHeight := contentHeight - len(lines) - 2
+		if textAreaHeight < 4 {
+			textAreaHeight = 4
+		}
+		lines = append(lines, commandTextArea(m.deploymentValue(), m.deploymentCursor, true, innerWidth, textAreaHeight))
+		return lines
+	}
+	lines := []string{
+		detailSubTitle("资源来源"),
+		deploymentFieldLine(m, 0, "来源", deploySourceText(m.deploymentForm.Source)+"  ←/→", innerWidth),
+		deploymentFieldLine(m, 1, "获取方式", deployFetchModeText(m.deploymentForm.FetchMode)+"  ←/→", innerWidth),
+		deploymentFieldLine(m, 2, "服务器", m.deploymentServerText(innerWidth), innerWidth),
+		deploymentFieldLine(m, 3, "应用名称", m.deploymentInputText(3, 28), innerWidth),
+		deploymentFieldLine(m, 4, "仓库", m.deploymentInputText(4, 34), innerWidth),
+	}
+	if m.deploymentForm.Source == config.DeploySourceRelease {
+		lines = append(lines,
+			deploymentFieldLine(m, 6, "版本", m.deploymentInputText(6, 18), innerWidth),
+			deploymentFieldLine(m, 7, "资源文件/匹配", m.deploymentInputText(7, 28), innerWidth),
+		)
+	} else {
+		lines = append(lines, deploymentFieldLine(m, 5, "分支", m.deploymentInputText(5, 18), innerWidth))
+	}
+	lines = append(lines, deploymentFieldLine(m, 8, "项目目录", m.deploymentInputText(8, 34), innerWidth))
+	if m.deploymentForm.Source == config.DeploySourceRelease {
+		lines = append(lines, deploymentFieldLine(m, 9, "下载地址", m.deploymentInputText(9, 34), innerWidth))
+		lines = append(lines, deploymentReleaseHintLines(innerWidth)...)
+	}
+	lines = append(lines,
+		"",
+		detailSubTitle("GitHub 凭证"),
+		deploymentFieldLine(m, 10, "凭证类型", deployCredentialText(m.deploymentForm.Credential)+"  ←/→", innerWidth),
+		deploymentFieldLine(m, 11, "凭证参数", m.deploymentInputText(11, 28), innerWidth),
+		"",
+		detailSubTitle("串行部署"),
+		deploymentFieldLine(m, 12, "等待时间", m.deploymentInputText(12, 12)+"  秒", innerWidth),
+		mutedStyle.Render(fit("说明：多选部署时，此应用完成后等待该秒数再执行下一个。", innerWidth)),
+		"",
+		detailSubTitle("部署流程"),
+		deploymentCommandSummaryLine(m, 13, "更新前", m.deploymentForm.BeforeCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 14, "获取资源", m.deploymentForm.ResourceCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 15, "更新命令", m.deploymentForm.UpdateCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 16, "更新后", m.deploymentForm.AfterCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 17, "健康检查", m.deploymentForm.HealthCommands, innerWidth),
+		"",
+		detailSubTitle("回滚流程"),
+		deploymentCommandSummaryLine(m, 18, "回滚命令", m.deploymentForm.RollbackCommands, innerWidth),
+	)
+	return lines
+}
+
+func deploymentReleaseHintLines(width int) []string {
+	return fitLines([]string{
+		mutedStyle.Render("说明：版本留空或 latest 表示最新 Release；填 v1.0.0 表示固定版本。"),
+		mutedStyle.Render("说明：资源不带 * 是固定文件名；带 * 会在 Release 资源里自动匹配。"),
+		mutedStyle.Render("说明：下载地址可选；填写后优先使用完整下载地址。"),
+	}, width)
+}
+
+func (m Model) deploymentServerText(width int) string {
+	value := deploymentDisplayServerText(m.deploymentForm.Server)
+	index := m.deploymentServerIndex(m.deploymentForm.Server)
+	if index >= 0 {
+		h := m.states[index].Host
+		value = deploymentDisplayServerName(h.Category, h.Name)
+	} else if strings.TrimSpace(m.deploymentForm.Server) != "" {
+		value += "  未找到"
+	}
+	value += "  ←/→"
+	return fit(value, width)
+}
+
+func deploymentDisplayServerText(server string) string {
+	server = strings.TrimSpace(server)
+	if server == "" {
+		return "-"
+	}
+	category := ""
+	name := server
+	if idx := strings.Index(server, "/"); idx >= 0 {
+		category = strings.TrimSpace(server[:idx])
+		name = strings.TrimSpace(server[idx+1:])
+	}
+	return deploymentDisplayServerName(category, name)
+}
+
+func deploymentDisplayServerName(category string, name string) string {
+	category = strings.TrimSpace(category)
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "-"
+	}
+	if category == "" {
+		return name
+	}
+	return "[" + category + "] " + name
+}
+
+func (m Model) deploymentInputText(field int, width int) string {
+	value := m.deploymentFieldValue(field)
+	if value != "" || m.deploymentField == field {
+		return commandInputText(value, m.deploymentCursor, m.deploymentField == field, width)
+	}
+	placeholder := deploymentFieldPlaceholder(field, m.deploymentForm.Source, m.deploymentForm.Credential)
+	if placeholder == "" {
+		return commandInputText(value, m.deploymentCursor, m.deploymentField == field, width)
+	}
+	return "[" + fit(placeholder, width) + strings.Repeat(" ", maxInt(0, width-ansi.StringWidth(placeholder))) + "]"
+}
+
+func (m Model) deploymentFieldValue(field int) string {
+	m.deploymentField = field
+	return m.deploymentValue()
+}
+
+func deploymentFieldPlaceholder(field int, source string, credential string) string {
+	switch field {
+	case 3:
+		return "例如 api"
+	case 4:
+		if source == config.DeploySourceRelease {
+			return "owner/repo"
+		}
+		return "git@github.com:owner/repo.git"
+	case 5:
+		return "main"
+	case 6:
+		return "latest 或 v1.0.0"
+	case 7:
+		return "app.tar.gz 或 app-*"
+	case 8:
+		return "/opt/app"
+	case 9:
+		return "可选：完整下载地址"
+	case 11:
+		switch credential {
+		case config.DeployCredentialSSH:
+			return "本地或目标服务器私钥路径"
+		case config.DeployCredentialToken:
+			return "本地或目标服务器环境变量名"
+		default:
+			return "公开仓库或服务器已配置认证"
+		}
+	case 12:
+		return "0"
+	default:
+		return ""
+	}
+}
+
+func selectedDeploymentEditRow(field int) int {
+	if field <= 12 {
+		return field + 1
+	}
+	return 19 + field - 13
+}
+
+func deploymentFieldLine(m Model, index int, label string, value string, width int) string {
+	prefix := " "
+	style := lipgloss.NewStyle()
+	if m.deploymentField == index {
+		prefix = "▶"
+		style = blueStyle.Bold(true)
+	}
+	labelWidth := runewidth.StringWidth("资源文件/匹配")
+	padding := labelWidth - runewidth.StringWidth(label) + 1
+	if padding < 1 {
+		padding = 1
+	}
+	return style.Render(fit(prefix+" "+label+strings.Repeat(" ", padding)+value, width))
+}
+
+func deploymentCommandSummaryLine(m Model, index int, label string, value string, width int) string {
+	count := len(splitCommandBlock(value))
+	summary := fmt.Sprintf("%d条", count)
+	if count == 0 {
+		summary = "未配置"
+	}
+	return deploymentFieldLine(m, index, label, summary, width)
+}
+
+func deploymentFieldName(field int) string {
+	switch field {
+	case 13:
+		return "更新前命令"
+	case 14:
+		return "获取资源命令"
+	case 15:
+		return "更新命令"
+	case 16:
+		return "更新后命令"
+	case 17:
+		return "健康检查命令"
+	case 18:
+		return "回滚命令"
+	default:
+		return "命令"
+	}
+}
+
+func (m Model) renderDeploymentConfirm() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	hostName := m.deploymentConfirmServerName()
+	lines := m.deploymentConfirmLines(hostName, bodyWidth)
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	scroll := clampInt(m.deploymentOutputScroll, 0, m.deploymentConfirmMaxScroll())
+	if len(lines) > height {
+		lines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(m.deploymentConfirmBorderColor()).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(fitLines(lines, bodyWidth), "\n"))
+	return strings.Join([]string{titleStyle.Render(fit("确认部署", width)), box, renderHelp(width, m.deploymentConfirmHelp())}, "\n")
+}
+
+func (m Model) deploymentConfirmBorderColor() lipgloss.Color {
+	if m.activeDeployment.Running {
+		return blue
+	}
+	if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.QueueFailed >= 0 && m.activeDeployment.ExitCode != 0 {
+		return red
+	}
+	return softGray
+}
+
+func (m Model) deploymentConfirmLines(hostName string, bodyWidth int) []string {
+	app := m.deploymentConfirm
+	queue := m.deploymentConfirmQueue
+	if len(m.activeDeployment.Queue) > 0 {
+		queue = m.activeDeployment.Queue
+	}
+	if len(queue) == 0 {
+		queue = []config.DeploymentApp{app}
+	}
+	return m.deploymentQueueConfirmLines(queue, bodyWidth)
+}
+
+func (m Model) deploymentConfirmHelp() string {
+	if m.activeDeployment.Running {
+		return "滚动 ↑↓/jk  执行中"
+	}
+	if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.QueueFailed >= 0 && m.activeDeployment.ExitCode != 0 {
+		return "滚动 ↑↓/jk  重试失败 r  重新部署 a  返回 q/Esc"
+	}
+	if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.Output != "" {
+		return "滚动 ↑↓/jk  重新部署 a  返回 q/Esc"
+	}
+	return "滚动 ↑↓/jk  开始 Enter  重试失败 r  重新部署 a  返回 q/Esc"
+}
+
+func (m Model) deploymentQueueConfirmLines(queue []config.DeploymentApp, bodyWidth int) []string {
+	current := m.deploymentQueueCurrentApp(queue)
+	lines := []string{}
+	if len(queue) == 1 {
+		lines = append(lines, detailSubTitle("部署信息"))
+		lines = append(lines, deploymentInfoLines(current, bodyWidth)...)
+	} else {
+		lines = append(lines,
+			detailSubTitle("部署队列"),
+			mutedStyle.Render(fit("按下面顺序串行执行；每个应用完成后按自己的等待时间进入下一个。", bodyWidth)),
+			"",
+		)
+		for i, app := range queue {
+			lines = append(lines, deploymentQueueLine(m.activeDeployment, i, app, bodyWidth))
+		}
+	}
+	lines = append(lines, "", detailSubTitle("当前流程"), fit(deploymentQueueFlowText(current), bodyWidth))
+	if len(m.activeDeployment.Queue) > 0 {
+		lines = append(lines, "", detailSubTitle("执行输出"))
+		lines = append(lines, m.deploymentOutputContentLines(bodyWidth)...)
+		if !m.activeDeployment.Running && m.activeDeployment.Output != "" {
+			lines = append(lines, "", fmt.Sprintf("退出码 %d", m.activeDeployment.ExitCode))
+		}
+	}
+	if len(queue) == 1 {
+		records := m.deploymentRecordsForApp(current, 50)
+		lines = append(lines, "", detailSubTitle(fmt.Sprintf("历史 %d条", len(records))))
+		if len(records) == 0 {
+			lines = append(lines, mutedStyle.Render("暂无记录"))
+		} else {
+			for _, record := range records {
+				lines = append(lines, deploymentDetailHistoryLine(record, bodyWidth))
+			}
+		}
+	}
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+func deploymentQueueLine(active activeDeployment, index int, app config.DeploymentApp, width int) string {
+	icon := deploymentQueueStatusStyle(active, index).Render(deploymentQueueStatusIcon(active, index))
+	seq := cardMutedStyle.Render(fmt.Sprintf("%02d", index+1))
+	name := deploymentQueueNameStyle(active, index).Render(padVisible(emptyDash(app.Name), 14))
+	server := cardMutedStyle.Render(padVisible(emptyDash(app.Server), 18))
+	source := detailValueStyle.Render(padVisible(deploySourceText(app.Source), 7))
+	target := cardMutedStyle.Render(padVisible(deploymentAppTarget(app), 10))
+	wait := cardMutedStyle.Render(fmt.Sprintf("等待 %d秒", maxInt(0, app.WaitSeconds)))
+	return fitANSI(icon+" "+strings.Join([]string{seq, name, server, source, target, wait}, "  "), width)
+}
+
+func deploymentQueueNameStyle(active activeDeployment, index int) lipgloss.Style {
+	status := deploymentQueueItemStatus(active, index)
+	switch status {
+	case "running":
+		return blueStyle.Bold(true)
+	case "done":
+		return greenStyle
+	case "failed":
+		return redStyle
+	default:
+		return detailValueStyle
+	}
+}
+
+func deploymentAppTarget(app config.DeploymentApp) string {
+	target := app.Branch
+	if app.Source == config.DeploySourceRelease {
+		target = app.Version
+	}
+	if strings.TrimSpace(target) == "" {
+		return "-"
+	}
+	return target
+}
+
+func deploymentInfoLines(app config.DeploymentApp, bodyWidth int) []string {
+	return []string{
+		deploymentDetailRow("应用", emptyDash(app.Name), bodyWidth),
+		deploymentDetailRow("服务器", deploymentDisplayServerText(app.Server), bodyWidth),
+		deploymentDetailRow("来源", deploySourceText(app.Source), bodyWidth),
+		deploymentDetailRow("仓库", emptyDash(app.Repo), bodyWidth),
+		deploymentDetailRow("目录", emptyDash(app.Path), bodyWidth),
+		deploymentDetailRow("凭证", deployCredentialText(app.Credential), bodyWidth),
+		deploymentDetailRow("凭证参数", emptyDash(app.CredentialName), bodyWidth),
+		deploymentDetailRow("收藏", yesNo(app.Favorite), bodyWidth),
+		deploymentDetailRow("置顶", yesNo(app.Pinned), bodyWidth),
+	}
+}
+
+func (m Model) deploymentQueueCurrentApp(queue []config.DeploymentApp) config.DeploymentApp {
+	if len(m.activeDeployment.Queue) > 0 {
+		index := clampInt(m.activeDeployment.QueueIndex, 0, len(m.activeDeployment.Queue)-1)
+		return m.activeDeployment.Queue[index]
+	}
+	if len(queue) > 0 {
+		return queue[0]
+	}
+	return config.DeploymentApp{}
+}
+
+func deploymentQueueStatusIcon(active activeDeployment, index int) string {
+	status := deploymentQueueItemStatus(active, index)
+	switch status {
+	case "running":
+		return "▶"
+	case "done":
+		return "✓"
+	case "failed":
+		return "✕"
+	default:
+		return "·"
+	}
+}
+
+func deploymentQueueStatusStyle(active activeDeployment, index int) lipgloss.Style {
+	status := deploymentQueueItemStatus(active, index)
+	switch status {
+	case "running":
+		return blueStyle.Bold(true)
+	case "done":
+		return greenStyle
+	case "failed":
+		return redStyle
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+func deploymentQueueItemStatus(active activeDeployment, index int) string {
+	if len(active.Queue) == 0 {
+		return "pending"
+	}
+	if active.QueueFailed == index && active.ExitCode != 0 {
+		return "failed"
+	}
+	if active.Running && active.QueueIndex == index {
+		return "running"
+	}
+	if active.QueueFailed >= 0 && active.ExitCode != 0 {
+		if index < active.QueueFailed {
+			return "done"
+		}
+		return "pending"
+	}
+	if index < active.QueueIndex {
+		return "done"
+	}
+	if !active.Running && active.QueueIndex == len(active.Queue)-1 && index == active.QueueIndex && active.Output != "" && active.ExitCode == 0 {
+		return "done"
+	}
+	return "pending"
+}
+
+func deploymentQueueFlowText(app config.DeploymentApp) string {
+	parts := []string{}
+	if len(app.BeforeCommands) > 0 {
+		parts = append(parts, fmt.Sprintf("更新前 %d步", len(app.BeforeCommands)))
+	}
+	parts = append(parts, fmt.Sprintf("获取资源 %d步", len(app.ResourceCommands)))
+	if len(app.UpdateCommands) > 0 {
+		parts = append(parts, fmt.Sprintf("更新 %d步", len(app.UpdateCommands)))
+	}
+	if len(app.AfterCommands) > 0 {
+		parts = append(parts, fmt.Sprintf("更新后 %d步", len(app.AfterCommands)))
+	}
+	if len(app.HealthCommands) > 0 {
+		parts = append(parts, fmt.Sprintf("健康检查 %d步", len(app.HealthCommands)))
+	}
+	return strings.Join(parts, "  ")
+}
+
+func deploymentHistoryLine(record config.DeploymentRecord, width int) string {
+	version := deploymentRecordVersionText(record)
+	exit := ""
+	if record.Status == config.DeployStatusFailed && record.ExitCode != 0 {
+		exit = fmt.Sprintf("  退出码 %d", record.ExitCode)
+	}
+	line := fmt.Sprintf("%s  %s  %s%s",
+		padVisible(deploymentRecordDateTimeText(record.Time), 11),
+		padVisible(deploymentRecordActionStatusText(record), 8),
+		version,
+		exit,
+	)
+	return fit(line, width)
+}
+
+func deploymentRecordVersionText(record config.DeploymentRecord) string {
+	previous := strings.TrimSpace(record.PreviousVersion)
+	current := strings.TrimSpace(record.CurrentVersion)
+	if previous == "" {
+		previous = "-"
+	}
+	if current == "" {
+		current = "-"
+	}
+	return previous + " -> " + current
+}
+
+func appendWrappedCommandPreview(lines []string, command string, width int) []string {
+	wrapped := strings.Split(wrapPlainLine("$ "+command, width), "\n")
+	return append(lines, wrapped...)
+}
+
+func deploymentStepCountLine(label string, count int, width int) string {
+	return fit(fmt.Sprintf("%s  %d步", padVisible(label, 10), count), width)
+}
+
+func (m Model) renderDeploymentRollbackConfirm() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	lines := m.deploymentRollbackConfirmLines(bodyWidth)
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	scroll := clampInt(m.deploymentOutputScroll, 0, m.deploymentRollbackConfirmMaxScroll())
+	if len(lines) > height {
+		lines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(fitLines(lines, bodyWidth), "\n"))
+	return strings.Join([]string{titleStyle.Render(fit("确认回滚", width)), box, renderHelp(width, "滚动 ↑↓/jk  执行 Enter  返回 Esc")}, "\n")
+}
+
+func (m Model) deploymentRollbackConfirmLines(bodyWidth int) []string {
+	app := m.activeDeployment.App
+	lines := []string{
+		modalLine("服务器", m.activeDeploymentServerName(), bodyWidth),
+		modalLine("应用", app.Name, bodyWidth),
+		modalLine("上一版本", emptyDash(m.activeDeployment.PreviousVersion), bodyWidth),
+		modalLine("当前版本", emptyDash(m.activeDeployment.CurrentVersion), bodyWidth),
+		"",
+		detailSubTitle("回滚命令"),
+	}
+	for _, command := range app.RollbackCommands {
+		lines = appendWrappedCommandPreview(lines, command, bodyWidth)
+	}
+	return lines
+}
+
+func (m Model) deploymentRollbackConfirmMaxScroll() int {
+	bodyWidth := detailFrameWidth(m.width) - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	lines := len(m.deploymentRollbackConfirmLines(bodyWidth))
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	return maxInt(0, lines-height)
+}
+
+func (m Model) activeDeploymentServerName() string {
+	if m.activeDeployment.HostIndex >= 0 && m.activeDeployment.HostIndex < len(m.states) {
+		return hostDisplayName(m.states[m.activeDeployment.HostIndex].Host)
+	}
+	return emptyDash(m.activeDeployment.App.Server)
+}
+
+func (m Model) deploymentConfirmMaxScroll() int {
+	bodyWidth := detailFrameWidth(m.width) - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	hostName := m.deploymentConfirmServerName()
+	lines := len(m.deploymentConfirmLines(hostName, bodyWidth))
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	return maxInt(0, lines-height)
+}
+
+func (m Model) deploymentConfirmServerName() string {
+	index := m.deploymentServerIndex(m.deploymentConfirm.Server)
+	if index >= 0 && index < len(m.states) {
+		return hostDisplayName(m.states[index].Host)
+	}
+	return emptyDash(m.deploymentConfirm.Server)
+}
+
+func (m Model) renderDeploymentOutput() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	help := "滚动 ↑↓/jk  回滚 r  返回 q/Esc"
+	title := "部署输出  " + m.activeDeployment.App.Name
+	lines := []string{
+		modalLine("应用", m.activeDeployment.App.Name, bodyWidth),
+		modalLine("来源", deploySourceText(m.activeDeployment.App.Source), bodyWidth),
+		modalLine("队列", deploymentQueueProgressText(m.activeDeployment), bodyWidth),
+		modalLine("上一版本", emptyDash(m.activeDeployment.PreviousVersion), bodyWidth),
+		modalLine("当前版本", emptyDash(m.activeDeployment.CurrentVersion), bodyWidth),
+		"",
+	}
+	lines = append(lines, m.deploymentOutputContentLines(bodyWidth)...)
+	if !m.activeDeployment.Running {
+		lines = append(lines, "", fmt.Sprintf("退出码 %d", m.activeDeployment.ExitCode))
+	}
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	scroll := clampInt(m.deploymentOutputScroll, 0, m.deploymentOutputMaxScroll())
+	if len(lines) > height {
+		lines = lines[scroll:minInt(len(lines), scroll+height)]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(fitLines(lines, bodyWidth), "\n"))
+	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, help)}, "\n")
+}
+
+func (m Model) deploymentOutputMaxScroll() int {
+	lines := 6
+	bodyWidth := detailFrameWidth(m.width) - 4
+	if bodyWidth < 32 {
+		bodyWidth = 32
+	}
+	lines += len(m.deploymentOutputContentLines(bodyWidth))
+	if !m.activeDeployment.Running {
+		lines += 2
+	}
+	height := m.height - 4
+	if height < 8 {
+		height = 8
+	}
+	return maxInt(0, lines-height)
+}
+
+func (m Model) deploymentOutputContentLines(width int) []string {
+	stages := deploymentExecutionStages(m.activeDeployment.App, m.activeDeployment.Action)
+	output := strings.TrimRight(m.activeDeployment.Output, "\n")
+	sections, loose, lastStage := deploymentOutputSections(output)
+	if len(stages) == 0 {
+		if output == "" {
+			return []string{mutedStyle.Render("(无输出)")}
+		}
+		return deploymentOutputLines(output, width)
+	}
+	currentIndex := 0
+	if lastStage != "" {
+		for i, stage := range stages {
+			if stage == lastStage {
+				currentIndex = i
+				break
+			}
+		}
+	}
+	lines := []string{}
+	if len(loose) > 0 {
+		lines = append(lines, detailSubTitle("输出"))
+		for _, line := range loose {
+			lines = append(lines, fit(line, width))
+		}
+		lines = append(lines, "")
+	}
+	for i, stage := range stages {
+		status := "pending"
+		if m.activeDeployment.Running {
+			if i < currentIndex {
+				status = "done"
+			} else if i == currentIndex {
+				status = "running"
+			}
+		} else {
+			if m.activeDeployment.ExitCode != 0 {
+				if i < currentIndex {
+					status = "done"
+				} else if i == currentIndex {
+					status = "failed"
+				}
+			} else {
+				status = "done"
+			}
+		}
+		lines = append(lines, deploymentOutputStageLine(stage, status, width))
+		stageLines := sections[stage]
+		if len(stageLines) == 0 && status == "running" {
+			lines = append(lines, mutedStyle.Render("  正在执行..."))
+		}
+		for _, line := range stageLines {
+			lines = append(lines, fit("  "+line, width))
+		}
+	}
+	return lines
+}
+
+func deploymentExecutionStages(app config.DeploymentApp, action string) []string {
+	if action == config.DeployActionRollback {
+		if len(app.RollbackCommands) == 0 {
+			return nil
+		}
+		return []string{"回滚"}
+	}
+	stages := []string{}
+	if len(app.BeforeCommands) > 0 {
+		stages = append(stages, "更新前")
+	}
+	stages = append(stages, "获取资源")
+	if app.FetchMode == config.DeployFetchLocal {
+		stages = append(stages, "上传资源")
+	}
+	if len(app.UpdateCommands) > 0 {
+		stages = append(stages, "更新")
+	}
+	if len(app.AfterCommands) > 0 {
+		stages = append(stages, "更新后")
+	}
+	if len(app.HealthCommands) > 0 {
+		stages = append(stages, "健康检查")
+	}
+	return stages
+}
+
+func deploymentOutputStageLine(stage string, status string, width int) string {
+	switch status {
+	case "running":
+		return blueStyle.Bold(true).Render(fit("▶ "+stage, width))
+	case "done":
+		return greenStyle.Render(fit("✓ "+stage, width))
+	case "failed":
+		return redStyle.Render(fit("✕ "+stage, width))
+	default:
+		return mutedStyle.Render(fit("· "+stage, width))
+	}
+}
+
+func deploymentQueueProgressText(active activeDeployment) string {
+	if len(active.Queue) <= 1 {
+		return "-"
+	}
+	return fmt.Sprintf("%d/%d", active.QueueIndex+1, len(active.Queue))
+}
+
+func deploymentOutputSections(output string) (map[string][]string, []string, string) {
+	sections := map[string][]string{}
+	loose := []string{}
+	current := ""
+	for _, line := range strings.Split(output, "\n") {
+		if isDeploymentVersionMarker(line) {
+			continue
+		}
+		if title, ok := deploymentOutputStageTitle(line); ok {
+			current = title
+			if _, exists := sections[current]; !exists {
+				sections[current] = []string{}
+			}
+			continue
+		}
+		if current == "" {
+			if strings.TrimSpace(line) != "" {
+				loose = append(loose, line)
+			}
+			continue
+		}
+		sections[current] = append(sections[current], line)
+	}
+	return sections, loose, current
+}
+
+func deploymentOutputLines(output string, width int) []string {
+	rawLines := strings.Split(output, "\n")
+	lines := []string{}
+	for _, line := range rawLines {
+		if isDeploymentVersionMarker(line) {
+			continue
+		}
+		if title, ok := deploymentOutputStageTitle(line); ok {
+			if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+				lines = append(lines, "")
+			}
+			lines = append(lines, detailSubTitle(title))
+			continue
+		}
+		lines = append(lines, fit(line, width))
+	}
+	return lines
+}
+
+func isDeploymentVersionMarker(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "SSHM_PREVIOUS_VERSION=") || strings.HasPrefix(line, "SSHM_CURRENT_VERSION=")
+}
+
+func deploymentOutputStageTitle(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "== ") || !strings.HasSuffix(line, " ==") {
+		return "", false
+	}
+	title := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, "== "), " =="))
+	if title == "" {
+		return "", false
+	}
+	return title, true
+}
+
+func deploySourceText(source string) string {
+	if source == config.DeploySourceRelease {
+		return "Release"
+	}
+	return "Git"
+}
+
+func deployFetchModeText(value string) string {
+	if value == config.DeployFetchRemote {
+		return "服务器拉取"
+	}
+	return "本地拉取后上传"
+}
+
+func deployCredentialText(value string) string {
+	switch value {
+	case config.DeployCredentialSSH:
+		return "SSH Key"
+	case config.DeployCredentialToken:
+		return "Token"
+	default:
+		return "不配置"
+	}
 }
 
 func (m Model) renderCommandList() string {
@@ -6058,6 +9307,7 @@ func (m Model) renderHelpPanel() string {
 		{"b", "批量命令"},
 		{"i", "命令历史"},
 		{"y", "传输任务"},
+		{"g", "应用部署"},
 		{"w", "异常总览"},
 		{"z", "切换首页视图"},
 		{"t", "置顶 / 取消置顶"},
