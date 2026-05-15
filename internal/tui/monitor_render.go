@@ -80,7 +80,67 @@ func limitedDockerNames(names []string, count int, limit int) string {
 	return strings.Join(out, "、")
 }
 
+func servicePreviewRows(m Model, metrics monitor.Metrics, state hostState) []string {
+	if metrics.ServiceTotal > 0 {
+		failed := metrics.FailedServices
+		stopped := metrics.ServiceStopped
+		if failed > 0 && stopped >= failed {
+			stopped -= failed
+		}
+		return previewCountRows(m, metrics.ServiceTotal, metrics.ServiceRunning, stopped, failed)
+	}
+	if metrics.FailedServices > 0 {
+		return []string{m.detailRow(m.t("Failed", "故障"), previewCountStyle(metrics.FailedServices, "failed"))}
+	}
+	if !metrics.ServiceAvailable {
+		return []string{m.detailRow(m.t("Status", "状态"), mutedStyle.Render(m.t("Unavailable", "不可用")))}
+	}
+	return previewCountRows(m, 0, 0, 0, 0)
+}
+
+func containerPreviewRows(m Model, metrics monitor.Metrics, state hostState) []string {
+	if !metrics.DockerAvailable {
+		return []string{m.detailRow(m.t("Status", "状态"), mutedStyle.Render(m.dockerUnavailableText(metrics)))}
+	}
+	total := dockerTotal(metrics)
+	running := metrics.DockerRunning
+	stopped := metrics.DockerStopped
+	failed := metrics.DockerFailed
+	return previewCountRows(m, total, running, stopped, failed)
+}
+
+func previewCountRows(m Model, total, running, stopped, failed int) []string {
+	return []string{
+		m.detailRow(m.t("Total", "总数"), detailValueStyle.Render(fmt.Sprintf("%d", total))),
+		m.detailRow(m.t("Running", "运行"), previewCountStyle(running, "running")),
+		m.detailRow(m.t("Stopped", "停止"), previewCountStyle(stopped, "stopped")),
+		m.detailRow(m.t("Failed", "故障"), previewCountStyle(failed, "failed")),
+	}
+}
+
+func previewCountStyle(count int, kind string) string {
+	text := fmt.Sprintf("%d", count)
+	switch kind {
+	case "running":
+		if count > 0 {
+			return greenStyle.Render(text)
+		}
+	case "stopped":
+		if count > 0 {
+			return yellowStyle.Render(text)
+		}
+	case "failed":
+		if count > 0 {
+			return redStyle.Render(text)
+		}
+	}
+	return mutedStyle.Render(text)
+}
+
 func dockerDetailRows(m Model, metrics monitor.Metrics, state hostState) []string {
+	if strings.TrimSpace(state.ContainerError) != "" {
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(m.t("Collection failed", "采集失败")))}
+	}
 	total := dockerTotal(metrics)
 	if len(state.ContainerDetails) > 0 {
 		total = len(state.ContainerDetails)
@@ -106,11 +166,8 @@ func dockerDetailRows(m Model, metrics monitor.Metrics, state hostState) []strin
 }
 
 func serviceDetailSummaryRows(m Model, metrics monitor.Metrics, state hostState) []string {
-	if state.LoginLoading {
-		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
-	}
 	if strings.TrimSpace(state.ServiceError) != "" {
-		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(state.ServiceError))}
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(m.t("Collection failed", "采集失败")))}
 	}
 	failed, running, active, stopped := serviceDetailCounts(state.ServiceDetails)
 	if len(state.ServiceDetails) == 0 {
@@ -142,9 +199,6 @@ func serviceCountText(count int, danger bool) string {
 }
 
 func serviceDetailRows(m Model, metrics monitor.Metrics, state hostState) []string {
-	if state.LoginLoading {
-		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
-	}
 	if strings.TrimSpace(state.ServiceError) != "" {
 		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(state.ServiceError))}
 	}
@@ -183,6 +237,44 @@ func serviceDetailRows(m Model, metrics monitor.Metrics, state hostState) []stri
 		}
 	}
 	return lines
+}
+
+func serviceProblemRows(m Model, metrics monitor.Metrics, state hostState) []string {
+	if strings.TrimSpace(state.ServiceError) != "" {
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("Cannot list problems while service collection failed.", "服务采集失败，无法列出异常项。"))}
+	}
+	if len(state.ServiceDetails) == 0 {
+		if metrics.FailedServices > 0 {
+			return failedServiceFallbackRows(m, metrics)
+		}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("No problems found", "未发现异常"))}
+	}
+	items := filterServicesByKind(state.ServiceDetails, "failed")
+	if len(items) == 0 {
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("No problems found", "未发现异常"))}
+	}
+	limit := 5
+	lines := []string{detailDangerStyle.Render(fmt.Sprintf("· %s %d", m.t("Failed", "异常"), len(items)))}
+	unitWidth := serviceUnitWidth(items)
+	for i, item := range items {
+		if i >= limit {
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  %s %d", m.t("More in Resources:", "更多请到资源页查看："), len(items)-limit)))
+			break
+		}
+		lines = append(lines, serviceProblemLine(m, item, unitWidth, i+1))
+	}
+	return lines
+}
+
+func serviceProblemLine(m Model, item serviceDetail, unitWidth int, index int) string {
+	state := coloredServiceStatus(m.serviceStatusText(item), serviceDetailKind(item))
+	prefix := detailLabelStyle.Render(fmt.Sprintf("%02d  ", index))
+	unit := detailValueStyle.Render(padVisible(fit(item.Unit, unitWidth), unitWidth))
+	meta := strings.TrimSpace(strings.Join([]string{serviceRawState(item), servicePIDText(item), serviceMemoryText(item)}, "  "))
+	if meta != "" && meta != "-" {
+		meta = "  " + cardMutedStyle.Render(fitANSI(meta, maxInt(12, m.detailContentWidth()-unitWidth-12)))
+	}
+	return fitANSI(prefix+unit+"  "+state+meta, m.detailContentWidth())
 }
 
 func failedServiceFallbackRows(m Model, metrics monitor.Metrics) []string {
@@ -243,6 +335,12 @@ func serviceDetailItemRows(m Model, item serviceDetail, unitWidth int, index int
 	if serviceRawState(item) != "" {
 		lines = append(lines, containerIndentedLine(m, indent, m.t("State", "状态"), serviceRawState(item)))
 	}
+	if pid := servicePIDText(item); pid != "" {
+		lines = append(lines, containerIndentedLine(m, indent, "PID", pid))
+	}
+	if item.MemoryCurrent > 0 {
+		lines = append(lines, containerIndentedLine(m, indent, m.t("Memory", "内存"), serviceMemoryText(item)))
+	}
 	if strings.TrimSpace(item.Load) != "" {
 		lines = append(lines, containerIndentedLine(m, indent, m.t("Load", "加载"), item.Load))
 	}
@@ -288,6 +386,9 @@ func serviceDetailKindRank(item serviceDetail) int {
 }
 
 func serviceDetailKind(item serviceDetail) string {
+	if item.Missing {
+		return "missing"
+	}
 	active := strings.ToLower(strings.TrimSpace(item.Active))
 	sub := strings.ToLower(strings.TrimSpace(item.Sub))
 	load := strings.ToLower(strings.TrimSpace(item.Load))
@@ -307,6 +408,8 @@ func serviceDetailKind(item serviceDetail) string {
 
 func serviceStatusText(item serviceDetail) string {
 	switch serviceDetailKind(item) {
+	case "missing":
+		return "未发现"
 	case "failed":
 		return "异常"
 	case "running":
@@ -329,6 +432,8 @@ func (m Model) serviceStatusText(item serviceDetail) string {
 		return serviceStatusText(item)
 	}
 	switch serviceDetailKind(item) {
+	case "missing":
+		return "Not found"
 	case "failed":
 		return "Failed"
 	case "running":
@@ -358,10 +463,18 @@ func serviceRawState(item serviceDetail) string {
 }
 
 func coloredServiceStatus(status string, kind string) string {
-	if kind == "failed" {
+	switch kind {
+	case "failed":
 		return redStyle.Render(status)
+	case "missing", "stopped":
+		return mutedStyle.Render(status)
+	case "running":
+		return greenStyle.Render(status)
+	case "active":
+		return yellowStyle.Render(status)
+	default:
+		return detailValueStyle.Render(status)
 	}
-	return detailValueStyle.Render(status)
 }
 
 func portDetailRows(m Model, state hostState) []string {
@@ -369,7 +482,7 @@ func portDetailRows(m Model, state hostState) []string {
 		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
 	}
 	if strings.TrimSpace(state.PortDetailsError) != "" {
-		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(state.PortDetailsError))}
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(m.t("Collection failed", "采集失败")))}
 	}
 	if len(state.PortDetails) == 0 {
 		return []string{m.detailRow(m.t("Status", "状态"), m.t("None found", "未发现"))}
@@ -435,6 +548,9 @@ func portDetailItemRows(m Model, items []portDetail) []string {
 			processPadding = 1
 		}
 		value := process + strings.Repeat(" ", processPadding) + "pid:" + pid
+		if strings.TrimSpace(item.LocalAddress) != "" {
+			value += "  " + m.t("listen ", "监听 ") + item.LocalAddress
+		}
 		lines = append(lines, detailAlignedRow(m, label, value, labelWidth))
 	}
 	return lines
@@ -492,11 +608,8 @@ func detailAlignedRow(m Model, label, value string, labelWidth int) string {
 }
 
 func containerDetailRows(m Model, state hostState) []string {
-	if state.LoginLoading {
-		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
-	}
 	if strings.TrimSpace(state.ContainerError) != "" {
-		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(state.ContainerError))}
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(m.t("Collection failed", "采集失败")))}
 	}
 	if len(state.ContainerDetails) == 0 {
 		return []string{m.detailRow(m.t("Status", "状态"), m.t("None found", "未发现"))}
@@ -530,6 +643,41 @@ func containerDetailRows(m Model, state hostState) []string {
 	return lines
 }
 
+func containerProblemRows(m Model, state hostState) []string {
+	if strings.TrimSpace(state.ContainerError) != "" {
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("Cannot list problems while container collection failed.", "容器采集失败，无法列出异常项。"))}
+	}
+	if len(state.ContainerDetails) == 0 {
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("No problems found", "未发现异常"))}
+	}
+	items := filterContainersByKind(state.ContainerDetails, "failed")
+	if len(items) == 0 {
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("No problems found", "未发现异常"))}
+	}
+	limit := 5
+	lines := []string{detailDangerStyle.Render(fmt.Sprintf("· %s %d", m.t("Failed", "故障"), len(items)))}
+	nameWidth := containerNameWidth(items)
+	for i, item := range items {
+		if i >= limit {
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  %s %d", m.t("More in Resources:", "更多请到资源页查看："), len(items)-limit)))
+			break
+		}
+		lines = append(lines, containerProblemLine(m, item, nameWidth, i+1))
+	}
+	return lines
+}
+
+func containerProblemLine(m Model, item containerDetail, nameWidth int, index int) string {
+	state := coloredContainerStatus(emptyDash(item.Status), containerDetailKind(item))
+	prefix := detailLabelStyle.Render(fmt.Sprintf("%02d  ", index))
+	name := detailValueStyle.Render(padVisible(fit(item.Name, nameWidth), nameWidth))
+	meta := containerResourceText(item)
+	if strings.TrimSpace(item.Image) != "" {
+		meta += "  " + item.Image
+	}
+	return fitANSI(prefix+name+"  "+state+"  "+cardMutedStyle.Render(fitANSI(meta, maxInt(12, m.detailContentWidth()-nameWidth-12))), m.detailContentWidth())
+}
+
 func containerNameWidth(items []containerDetail) int {
 	width := 10
 	for _, item := range items {
@@ -549,7 +697,7 @@ func containerDetailItemRows(m Model, item containerDetail, nameWidth int, index
 		status = "-"
 	}
 	ports := item.Ports
-	state := coloredContainerStatus(m.containerStatusSummary(status), containerDetailKind(item))
+	state := coloredContainerStatus(status, containerDetailKind(item))
 	prefix := detailLabelStyle.Render(fmt.Sprintf("%02d  ", index))
 	name := detailValueStyle.Render(padVisible(fit(item.Name, nameWidth), nameWidth))
 	line := fitANSI(prefix+name+"  "+state, m.detailContentWidth())
@@ -557,6 +705,9 @@ func containerDetailItemRows(m Model, item containerDetail, nameWidth int, index
 	indent := strings.Repeat(" ", 4)
 	if strings.TrimSpace(item.Status) != "" {
 		lines = append(lines, containerIndentedLine(m, indent, m.t("Status", "状态"), item.Status))
+	}
+	if strings.TrimSpace(item.CPU) != "" || strings.TrimSpace(item.Memory) != "" || strings.TrimSpace(item.MemPerc) != "" {
+		lines = append(lines, containerIndentedLine(m, indent, m.t("Resource", "资源"), containerResourceText(item)))
 	}
 	if strings.TrimSpace(item.Image) != "" {
 		lines = append(lines, containerIndentedLine(m, indent, m.t("Image", "镜像"), item.Image))
@@ -590,6 +741,8 @@ func containerStatusSummary(status string) string {
 	raw := strings.TrimSpace(status)
 	lower := strings.ToLower(raw)
 	switch {
+	case lower == "missing":
+		return "未发现"
 	case strings.Contains(lower, "unhealthy"):
 		return strings.TrimSpace("异常 " + dockerStatusAge(raw, "Up"))
 	case strings.HasPrefix(lower, "up "):
@@ -616,6 +769,8 @@ func (m Model) containerStatusSummary(status string) string {
 	raw := strings.TrimSpace(status)
 	lower := strings.ToLower(raw)
 	switch {
+	case lower == "missing":
+		return "Not found"
 	case strings.Contains(lower, "unhealthy"):
 		return strings.TrimSpace("Unhealthy " + dockerStatusAgeEN(raw, "Up"))
 	case strings.HasPrefix(lower, "up "):
@@ -781,6 +936,12 @@ func coloredContainerStatus(status string, kind string) string {
 	switch kind {
 	case "failed":
 		return redStyle.Render(status)
+	case "missing":
+		return mutedStyle.Render(status)
+	case "running":
+		return greenStyle.Render(status)
+	case "stopped":
+		return mutedStyle.Render(status)
 	default:
 		return detailValueStyle.Render(status)
 	}
@@ -805,6 +966,9 @@ func filterContainersByKind(items []containerDetail, kind string) []containerDet
 }
 
 func containerDetailKind(item containerDetail) string {
+	if item.Missing {
+		return "missing"
+	}
 	status := strings.ToLower(item.Status)
 	switch {
 	case strings.Contains(status, "restarting") || strings.Contains(status, "dead") || strings.Contains(status, "unhealthy"):
@@ -1101,9 +1265,6 @@ func buildChecksWithThresholds(state hostState, thresholds metricThresholds) []c
 	if metrics.FailedServices > 0 {
 		add("警告", fmt.Sprintf("系统服务：警告，存在%d个异常服务", metrics.FailedServices))
 	}
-	if metrics.HealthTotal() > 0 && metrics.HealthOK() < metrics.HealthTotal() {
-		add("警告", fmt.Sprintf("健康端口：警告，%d/%d正常", metrics.HealthOK(), metrics.HealthTotal()))
-	}
 	if len(state.PortDetails) > 0 {
 		publicDockerPorts := publicDockerProxyPorts(state.PortDetails)
 		if publicDockerPorts > 0 {
@@ -1219,9 +1380,6 @@ func (m Model) checkText(text string) string {
 	if strings.Contains(text, "系统服务：") {
 		return "System services: warning, " + extractFirstNumber(text) + " failed services"
 	}
-	if strings.Contains(text, "健康端口：") {
-		return "Health ports: warning, " + extractHealthRatio(text) + " healthy"
-	}
 	if strings.Contains(text, "公网端口：") {
 		return "Public ports: info, " + extractFirstNumber(text) + " Docker mapped ports found"
 	}
@@ -1324,7 +1482,15 @@ func (m Model) serviceCardText(metrics monitor.Metrics) string {
 	total := dockerTotal(metrics)
 	containerLabel := m.t("Ctr", "容器")
 	serviceLabel := m.t("Svc", "服务")
-	healthLabel := m.t("Health", "健康")
+	if !metrics.DockerAvailable {
+		containerText := cardMutedStyle.Render(containerLabel + " " + m.dockerUnavailableShortText(metrics))
+		serviceNumber := cardMutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+		if metrics.FailedServices > 0 {
+			serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+		}
+		serviceText := cardMutedStyle.Render(serviceLabel+" ") + serviceNumber
+		return fmt.Sprintf("%s  %s", containerText, serviceText)
+	}
 	containerText := cardMutedStyle.Render(fmt.Sprintf("%s %d/%d/%d", containerLabel, metrics.DockerFailed, metrics.DockerRunning, total))
 	if total == 0 {
 		containerText = cardMutedStyle.Render(containerLabel + " 0")
@@ -1337,35 +1503,21 @@ func (m Model) serviceCardText(metrics monitor.Metrics) string {
 		serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	}
 	serviceText := cardMutedStyle.Render(serviceLabel+" ") + serviceNumber
-	if metrics.HealthTotal() > 0 {
-		healthNumber := cardMutedStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
-		switch {
-		case metrics.HealthOK() == metrics.HealthTotal():
-			healthNumber = greenStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
-		case metrics.HealthOK() == 0:
-			healthNumber = redStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
-		default:
-			healthNumber = yellowStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
-		}
-		healthText := cardMutedStyle.Render(healthLabel+" ") + healthNumber
-		return fmt.Sprintf("%s  %s  %s", healthText, containerText, serviceText)
-	}
 	return fmt.Sprintf("%s  %s", containerText, serviceText)
 }
 
-func healthPortsText(metrics monitor.Metrics) string {
-	if metrics.HealthTotal() == 0 {
-		return "-"
+func (m Model) dockerUnavailableText(metrics monitor.Metrics) string {
+	if strings.TrimSpace(metrics.DockerStatus) == "permission" {
+		return m.t("Docker permission denied", "Docker无权限")
 	}
-	parts := make([]string, 0, len(metrics.HealthPorts))
-	for _, port := range metrics.HealthPorts {
-		status := "失败"
-		if port.Healthy {
-			status = "正常"
-		}
-		parts = append(parts, fmt.Sprintf("%d%s", port.Port, status))
+	return m.t("Docker not installed", "未安装Docker")
+}
+
+func (m Model) dockerUnavailableShortText(metrics monitor.Metrics) string {
+	if strings.TrimSpace(metrics.DockerStatus) == "permission" {
+		return m.t("No permission", "无权限")
 	}
-	return strings.Join(parts, "  ")
+	return m.t("N/A", "未安装")
 }
 
 func padToBottom(lines []string, height int, reservedBottomLines int) []string {

@@ -2,6 +2,21 @@
 
 This file records user-visible changes. Historical release notes are available in GitHub Releases.
 
+## v0.1.45 - 2026-05-16
+
+### Added
+
+- Add a dedicated resource manager for the selected server, covering Docker containers, systemd services, processes, and listening ports with card/list views, search, filters, details, logs, and confirmed start/stop/restart actions.
+- Resource discovery now keeps a local cache per server and resource type so reopening the page can show the last known resources before refreshing remote data.
+- Resource actions automatically retry with `sudo -n` when the normal command fails, then report permission errors clearly if sudo also fails.
+- Container cards show the configured CPU limit from Docker inspect data during list loading, so users do not need to open container details first.
+
+### Changed
+
+- Server details now show service and container summary counts inside resource monitoring instead of duplicating the full service/container pages.
+- Docker containers are treated as auto-discovered resources: they can be favorited or unfavorited, but removal is blocked with a clear message.
+- Resource lists now show localized status labels alongside the original raw state for clearer scanning.
+
 ## v0.1.44 - 2026-05-15
 
 ### Changed

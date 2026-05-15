@@ -61,7 +61,13 @@ type Metrics struct {
 	Load5              string
 	Load15             string
 	Uptime             string
+	ServiceAvailable   bool
+	ServiceTotal       int
+	ServiceRunning     int
+	ServiceStopped     int
 	DockerRunning      int
+	DockerAvailable    bool
+	DockerStatus       string
 	DockerTotal        int
 	DockerStopped      int
 	DockerFailed       int

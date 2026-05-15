@@ -274,7 +274,6 @@ func checkKind(check checkItem) string {
 		strings.HasPrefix(text, "容器详情："):
 		return "container"
 	case strings.HasPrefix(text, "系统服务：") ||
-		strings.HasPrefix(text, "健康端口：") ||
 		strings.HasPrefix(text, "端口详情："):
 		return "service"
 	case strings.HasPrefix(text, "允许密码登录：") ||

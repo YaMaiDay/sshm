@@ -484,6 +484,15 @@ func (m Model) dashboardListServiceColumns(metrics monitor.Metrics) (string, str
 	total := dockerTotal(metrics)
 	containerLabel := m.t("Ctr", "容器")
 	serviceLabel := m.t("Svc", "服务")
+	if !metrics.DockerAvailable {
+		containerText := cardMutedStyle.Render(containerLabel + " " + m.dockerUnavailableShortText(metrics))
+		serviceNumber := cardMutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+		if metrics.FailedServices > 0 {
+			serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+		}
+		service := cardMutedStyle.Render(serviceLabel+" ") + serviceNumber
+		return padVisible(containerText, ansi.StringWidth(containerLabel+" "+m.dockerUnavailableShortText(metrics))), padVisible(service, 7)
+	}
 	containerRaw := fmt.Sprintf("%s %d/%d/%d", containerLabel, metrics.DockerFailed, metrics.DockerRunning, total)
 	if total == 0 {
 		containerRaw = containerLabel + " 0"
@@ -523,6 +532,13 @@ func (m Model) compactServicePair(metrics monitor.Metrics) (string, string) {
 	total := dockerTotal(metrics)
 	containerLabel := m.t("Ctr", "容器")
 	serviceLabel := m.t("Svc", "服务")
+	if !metrics.DockerAvailable {
+		serviceNumber := cardMutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+		if metrics.FailedServices > 0 {
+			serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
+		}
+		return cardMutedStyle.Render(containerLabel + m.dockerUnavailableShortText(metrics)), cardMutedStyle.Render(serviceLabel) + serviceNumber
+	}
 	container := containerLabel + "0"
 	if total > 0 {
 		if metrics.DockerFailed > 0 {

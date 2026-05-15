@@ -173,6 +173,12 @@ func parseMetrics(output string) (Metrics, error) {
 	m.CPUCores, _ = strconv.Atoi(strings.TrimSpace(values["CPU_CORES"]))
 	m.CPUModel = values["CPU_MODEL"]
 	m.Uptime = values["UPTIME"]
+	m.ServiceAvailable = strings.TrimSpace(values["SERVICE_AVAILABLE"]) == "1"
+	m.ServiceTotal, _ = strconv.Atoi(strings.TrimSpace(values["SERVICE_TOTAL"]))
+	m.ServiceRunning, _ = strconv.Atoi(strings.TrimSpace(values["SERVICE_RUNNING"]))
+	m.ServiceStopped, _ = strconv.Atoi(strings.TrimSpace(values["SERVICE_STOPPED"]))
+	m.DockerStatus = strings.TrimSpace(values["DOCKER_STATUS"])
+	m.DockerAvailable = strings.TrimSpace(values["DOCKER_AVAILABLE"]) == "1" || m.DockerStatus == "ok"
 	m.DockerRunning, _ = strconv.Atoi(strings.TrimSpace(values["DOCKER"]))
 	m.DockerTotal, _ = strconv.Atoi(strings.TrimSpace(values["DOCKER_TOTAL"]))
 	m.DockerStopped, _ = strconv.Atoi(strings.TrimSpace(values["DOCKER_STOPPED"]))
@@ -335,8 +341,32 @@ echo DISK_MOUNT="$(df -P -B1 / 2>/dev/null | awk '"'"'NR==2{print $6}'"'"')"
 echo DISKS="$(df -PT -B1 2>/dev/null | awk '"'"'NR>1{printf "%s%s\t%s\t%s\t%s\t%s\t%s", sep, $1, $2, $3, $4, $5, $7; sep="|"}'"'"')"
 echo INODE="$(df -Pi / 2>/dev/null | awk '"'"'NR==2{print $2" "$3" "$4}'"'"')"
 echo UPTIME="$(uptime -p 2>/dev/null || uptime 2>/dev/null)"
-echo DOCKER="$(docker ps -q 2>/dev/null | wc -l | tr -d '"'"' '"'"')"
-DOCKER_LINES="$(docker ps -a --format '"'"'{{.Names}}|{{.State}}'"'"' 2>/dev/null)"
+if command -v systemctl >/dev/null 2>&1; then
+  echo SERVICE_AVAILABLE=1
+  SERVICE_LINES="$(systemctl list-units --type=service --all --no-legend --plain --no-pager 2>/dev/null)"
+  echo SERVICE_TOTAL="$(printf "%s\n" "$SERVICE_LINES" | awk '"'"'$1 ~ /\.service$/ {c++} END{print c+0}'"'"')"
+  echo SERVICE_RUNNING="$(printf "%s\n" "$SERVICE_LINES" | awk '"'"'$1 ~ /\.service$/ && $3=="active" {c++} END{print c+0}'"'"')"
+  echo SERVICE_STOPPED="$(printf "%s\n" "$SERVICE_LINES" | awk '"'"'$1 ~ /\.service$/ && ($3=="inactive" || $3=="deactivating") {c++} END{print c+0}'"'"')"
+else
+  echo SERVICE_AVAILABLE=0
+  echo SERVICE_TOTAL=0
+  echo SERVICE_RUNNING=0
+  echo SERVICE_STOPPED=0
+fi
+if command -v docker >/dev/null 2>&1; then
+  DOCKER_LINES="$(docker ps -a --format '"'"'{{.Names}}|{{.State}}'"'"' 2>/dev/null)"
+  DOCKER_CODE=$?
+  if [ "$DOCKER_CODE" -ne 0 ]; then
+    DOCKER_LINES="$(sudo -n docker ps -a --format '"'"'{{.Names}}|{{.State}}'"'"' 2>/dev/null)"
+    DOCKER_CODE=$?
+  fi
+  if [ "$DOCKER_CODE" -eq 0 ]; then echo DOCKER_AVAILABLE=1; echo DOCKER_STATUS=ok; else echo DOCKER_AVAILABLE=0; echo DOCKER_STATUS=permission; DOCKER_LINES=""; fi
+else
+  DOCKER_LINES="$(sudo -n docker ps -a --format '"'"'{{.Names}}|{{.State}}'"'"' 2>/dev/null)"
+  DOCKER_CODE=$?
+  if [ "$DOCKER_CODE" -eq 0 ]; then echo DOCKER_AVAILABLE=1; echo DOCKER_STATUS=ok; else echo DOCKER_AVAILABLE=0; echo DOCKER_STATUS=not_installed; DOCKER_LINES=""; fi
+fi
+echo DOCKER="$(printf "%s\n" "$DOCKER_LINES" | awk -F"|" '"'"'$2=="running"{c++} END{print c+0}'"'"')"
 echo DOCKER_TOTAL="$(printf "%s\n" "$DOCKER_LINES" | awk '"'"'NF{c++} END{print c+0}'"'"')"
 echo DOCKER_STOPPED="$(printf "%s\n" "$DOCKER_LINES" | awk -F"|" '"'"'$2=="exited" || $2=="created" || $2=="paused"{c++} END{print c+0}'"'"')"
 echo DOCKER_FAILED="$(printf "%s\n" "$DOCKER_LINES" | awk -F"|" '"'"'$2=="restarting" || $2=="dead"{c++} END{print c+0}'"'"')"

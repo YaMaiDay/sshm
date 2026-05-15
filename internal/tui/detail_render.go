@@ -65,8 +65,9 @@ func (m Model) renderDetail() string {
 	if checks := m.currentDetailChecks(); len(checks) > 0 {
 		headerText += "  " + m.riskSummaryText(checks)
 	}
+	lines = flattenDetailLines(lines)
 	header := titleStyle.Render(fitANSI(headerText, width))
-	help := renderHelp(width, m.t("Scroll ↑↓/jk  Section ←→/Tab  Login l  Command m  Upload u  Download d  Refresh r  Back q/Esc", "滚动 ↑↓/jk  分类 ←→/Tab  登录 l  命令 m  上传 u  下载 d  刷新 r  返回 q/Esc"))
+	help := renderHelp(width, m.t("Scroll ↑↓/jk  Section ←→/Tab  Login Enter  Command m  Resources n  Upload u  Download d  Refresh r  Back q/Esc", "滚动 ↑↓/jk  分类 ←→/Tab  登录 Enter  命令 m  资源 n  上传 u  下载 d  刷新 r  返回 q/Esc"))
 	tabs := m.renderDetailSectionTabs(width)
 	viewportHeight := m.detailViewportHeight()
 	if viewportHeight < len(lines) {
@@ -86,6 +87,15 @@ func (m Model) renderDetail() string {
 		body,
 		help,
 	}, "\n")
+}
+
+func flattenDetailLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		parts := strings.Split(line, "\n")
+		out = append(out, parts...)
+	}
+	return out
 }
 
 func (m Model) renderDetailSectionTabs(width int) string {
@@ -221,31 +231,14 @@ func (m Model) detailLines() ([]string, bool) {
 		m.detailRow(m.t("Load", "负载"), fmt.Sprintf("%s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))),
 		m.detailRow(m.t("Uptime", "运行时间"), m.uptimeText(metrics.Uptime)),
 		"",
-		sectionTitle(m.t("Services", "服务状态")),
-		detailSubTitle(m.t("Health", "健康")),
-		m.detailRow(m.t("Health ports", "健康端口"), healthPortsText(metrics)),
-		"",
 		detailSubTitle(m.t("Services", "服务")),
 	)
-	lines = append(lines, serviceDetailSummaryRows(m, metrics, state)...)
+	lines = append(lines, servicePreviewRows(m, metrics, state)...)
 	lines = append(lines,
 		"",
-		detailSubTitle(m.t("Service details", "服务详情")),
+		detailSubTitle(m.t("Containers", "容器")),
 	)
-	lines = append(lines, serviceDetailRows(m, metrics, state)...)
-	lines = append(lines,
-		"",
-		detailSubTitle(m.t("Ports", "端口")),
-	)
-	lines = append(lines, portDetailRows(m, state)...)
-	lines = append(lines,
-		"",
-		sectionTitle(m.t("Containers", "容器")),
-		detailSubTitle(m.t("Status", "状态")),
-	)
-	lines = append(lines, dockerDetailRows(m, metrics, state)...)
-	lines = append(lines, "", detailSubTitle(m.t("Details", "详情")))
-	lines = append(lines, containerDetailRows(m, state)...)
+	lines = append(lines, containerPreviewRows(m, metrics, state)...)
 	if metrics.Error != "" {
 		lines = append(lines, "", sectionTitle(m.t("Recent Error", "最近错误")), m.detailRow(m.t("Error", "错误"), metrics.Error))
 	}
@@ -344,6 +337,7 @@ func (m Model) detailMaxScroll() int {
 	if !ok {
 		return 0
 	}
+	lines = flattenDetailLines(lines)
 	maxScroll := len(lines) - m.detailViewportHeight()
 	if maxScroll < 0 {
 		return 0

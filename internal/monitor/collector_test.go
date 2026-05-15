@@ -1,9 +1,30 @@
 package monitor
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
+
+func TestRemoteScriptSyntax(t *testing.T) {
+	if out, err := exec.Command("sh", "-n", "-c", remoteScript).CombinedOutput(); err != nil {
+		t.Fatalf("remoteScript syntax error: %v\n%s", err, out)
+	}
+}
+
+func TestRemoteScriptDockerUsesSudoFallback(t *testing.T) {
+	if !strings.Contains(remoteScript, "sudo -n docker ps -a") {
+		t.Fatalf("remoteScript should use sudo fallback for docker container counts")
+	}
+}
+
+func TestRemoteScriptDockerDistinguishesPermissionAndMissing(t *testing.T) {
+	for _, want := range []string{"DOCKER_STATUS=ok", "DOCKER_STATUS=permission", "DOCKER_STATUS=not_installed"} {
+		if !strings.Contains(remoteScript, want) {
+			t.Fatalf("remoteScript missing %s", want)
+		}
+	}
+}
 
 func TestParseMetricsUsesAvailableMemory(t *testing.T) {
 	metrics, err := parseMetrics("MEM=1000 700 400\n")
@@ -127,6 +148,12 @@ func TestHealthPortsFromListeningPorts(t *testing.T) {
 func TestParseMetricsDockerStates(t *testing.T) {
 	metrics, err := parseMetrics(strings.Join([]string{
 		"DOCKER=2",
+		"SERVICE_AVAILABLE=1",
+		"SERVICE_TOTAL=8",
+		"SERVICE_RUNNING=6",
+		"SERVICE_STOPPED=1",
+		"DOCKER_AVAILABLE=1",
+		"DOCKER_STATUS=ok",
 		"DOCKER_TOTAL=5",
 		"DOCKER_STOPPED=2",
 		"DOCKER_FAILED=1",
@@ -140,6 +167,12 @@ func TestParseMetricsDockerStates(t *testing.T) {
 
 	if metrics.DockerRunning != 2 || metrics.DockerTotal != 5 {
 		t.Fatalf("docker running/total = %d/%d, want 2/5", metrics.DockerRunning, metrics.DockerTotal)
+	}
+	if !metrics.ServiceAvailable || metrics.ServiceTotal != 8 || metrics.ServiceRunning != 6 || metrics.ServiceStopped != 1 {
+		t.Fatalf("service metrics = available:%v total:%d running:%d stopped:%d", metrics.ServiceAvailable, metrics.ServiceTotal, metrics.ServiceRunning, metrics.ServiceStopped)
+	}
+	if !metrics.DockerAvailable || metrics.DockerStatus != "ok" {
+		t.Fatalf("docker status = available:%v status:%q, want ok", metrics.DockerAvailable, metrics.DockerStatus)
 	}
 	if metrics.DockerStopped != 2 || metrics.DockerFailed != 1 {
 		t.Fatalf("docker stopped/failed = %d/%d, want 2/1", metrics.DockerStopped, metrics.DockerFailed)
@@ -155,5 +188,42 @@ func TestParseMetricsDockerStates(t *testing.T) {
 	}
 	if len(metrics.DockerFailedNames) != 1 || metrics.DockerFailedNames[0] != "worker(restarting)" {
 		t.Fatalf("DockerFailedNames = %#v, want parsed failed containers", metrics.DockerFailedNames)
+	}
+}
+
+func TestParseMetricsDockerUnavailable(t *testing.T) {
+	metrics, err := parseMetrics(strings.Join([]string{
+		"DOCKER_AVAILABLE=0",
+		"DOCKER_STATUS=not_installed",
+		"DOCKER=0",
+		"DOCKER_TOTAL=0",
+		"DOCKER_STOPPED=0",
+		"DOCKER_FAILED=0",
+	}, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.DockerAvailable || metrics.DockerStatus != "not_installed" {
+		t.Fatalf("docker status = available:%v status:%q, want not_installed", metrics.DockerAvailable, metrics.DockerStatus)
+	}
+	if metrics.DockerTotal != 0 || metrics.DockerRunning != 0 || metrics.DockerStopped != 0 || metrics.DockerFailed != 0 {
+		t.Fatalf("docker counts = total:%d running:%d stopped:%d failed:%d", metrics.DockerTotal, metrics.DockerRunning, metrics.DockerStopped, metrics.DockerFailed)
+	}
+}
+
+func TestParseMetricsDockerPermissionDenied(t *testing.T) {
+	metrics, err := parseMetrics(strings.Join([]string{
+		"DOCKER_AVAILABLE=0",
+		"DOCKER_STATUS=permission",
+		"DOCKER=0",
+		"DOCKER_TOTAL=0",
+		"DOCKER_STOPPED=0",
+		"DOCKER_FAILED=0",
+	}, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.DockerAvailable || metrics.DockerStatus != "permission" {
+		t.Fatalf("docker status = available:%v status:%q, want permission", metrics.DockerAvailable, metrics.DockerStatus)
 	}
 }

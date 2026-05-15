@@ -214,6 +214,33 @@ docker logs <container>
 docker inspect <container>
 ```
 
+## Resource Manager Keeps Reading Or Shows Old Data
+
+The resource manager shows cached data first when it has a previous snapshot, then refreshes the selected server in the background.
+
+If the page keeps showing "reading resources" or refreshes back to empty:
+
+- Confirm the selected server can still be reached through SSH.
+- Confirm the remote commands exist: `docker`, `systemctl`, `ps`, and `ss` or `netstat`.
+- For Docker, sshm tries the normal command first and then `sudo -n docker`. If both fail, it reports a permission problem. If neither command exists, Docker is shown as not installed.
+- For services, sshm uses a lightweight `systemctl list-units` query for the resource list and only loads heavier details when needed.
+
+Container CPU usage comes from `docker stats`. The configured CPU limit shown after the percentage comes from `docker inspect`. `Unlimited` / `未限制` means Docker did not configure a CPU quota, NanoCPUs, or CPU set for that container.
+
+## Container Or Service Action Says Permission Denied
+
+The resource view can start, stop, restart, log, and delete Docker containers, and can start, stop, restart, and log systemd services.
+
+For Docker and systemd actions, sshm first runs the normal command. If it fails, sshm retries with `sudo -n`. If sudo also fails, the user account needs permission on the target server.
+
+Common fixes:
+
+- Add the user to the Docker group for Docker actions.
+- Configure passwordless sudo for the exact Docker or systemctl commands you want to allow.
+- Use a server user that already has the required permission.
+
+sshm does not prompt for a sudo password inside these resource actions.
+
 ## What To Include In An Issue
 
 Please provide:

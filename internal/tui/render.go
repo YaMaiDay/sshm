@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -40,6 +41,7 @@ func (m Model) renderDashboardHelp(width int) string {
 		"History i",
 		"Transfer y",
 		"Deploy g",
+		"Resources n",
 		"Settings .",
 		"Overview w",
 		"View z",
@@ -71,6 +73,7 @@ func (m Model) renderDashboardHelp(width int) string {
 			"历史 i",
 			"传输 y",
 			"部署 g",
+			"资源 n",
 			"设置 .",
 			"总览 w",
 			"视图 z",
@@ -1089,6 +1092,77 @@ func serviceDetailScript() string {
   echo "__SSHM_SYSTEMCTL_UNAVAILABLE__"
   exit 0
 fi
+units=$(systemctl list-units --type=service --all --no-legend --plain --no-pager 2>/dev/null | awk '$1 ~ /\.service$/ {print $1}')
+if [ -z "$units" ]; then
+  out=$(systemctl list-units --type=service --all --no-legend --plain --no-pager 2>&1)
+  code=$?
+  if [ "$code" -ne 0 ]; then
+    echo "__SSHM_SYSTEMCTL_ERROR__"
+    printf '%s\n' "$out"
+    exit 0
+  fi
+  printf '%s\n' "$out"
+  exit 0
+fi
+parsed=$(for unit in $units; do
+  props=$(systemctl show "$unit" -p Id -p LoadState -p ActiveState -p SubState -p Description -p FragmentPath -p WorkingDirectory -p ExecStart -p MainPID -p ExecMainPID -p MemoryCurrent -p ActiveEnterTimestamp -p InactiveEnterTimestamp -p StateChangeTimestamp -p ExecMainStartTimestamp -p ExecMainExitTimestamp -p UnitFileState --no-pager 2>/dev/null)
+  [ -n "$props" ] || continue
+  get_prop() { printf '%s\n' "$props" | awk -F= -v key="$1" '$1==key{print substr($0, index($0,"=")+1); exit}'; }
+  id=$(get_prop Id)
+  [ -n "$id" ] || continue
+  load=$(get_prop LoadState)
+  active=$(get_prop ActiveState)
+  sub=$(get_prop SubState)
+  desc=$(get_prop Description)
+  fragment=$(get_prop FragmentPath)
+  workdir=$(get_prop WorkingDirectory)
+  execstart=$(get_prop ExecStart)
+  mainpid=$(get_prop MainPID)
+  execmainpid=$(get_prop ExecMainPID)
+  memorycurrent=$(get_prop MemoryCurrent)
+  activeenter=$(get_prop ActiveEnterTimestamp)
+  inactiveenter=$(get_prop InactiveEnterTimestamp)
+  statechange=$(get_prop StateChangeTimestamp)
+  execmainstart=$(get_prop ExecMainStartTimestamp)
+  execmainexit=$(get_prop ExecMainExitTimestamp)
+  unitfilestate=$(get_prop UnitFileState)
+  pid="$mainpid"
+  [ -n "$pid" ] && [ "$pid" != "0" ] || pid="$execmainpid"
+  if { [ -z "$memorycurrent" ] || [ "$memorycurrent" = "[not set]" ] || [ "$memorycurrent" = "18446744073709551615" ]; } && [ -n "$pid" ] && [ "$pid" != "0" ]; then
+    rss=$(ps -o rss= -p "$pid" 2>/dev/null | awk 'NR==1{print $1}')
+    case "$rss" in
+      ''|*[!0-9]*) ;;
+      *) memorycurrent=$((rss * 1024)) ;;
+    esac
+  fi
+  if [ -z "$activeenter" ] || [ "$activeenter" = "n/a" ]; then
+    activeenter="$execmainstart"
+  fi
+  if [ -z "$activeenter" ] || [ "$activeenter" = "n/a" ]; then
+    activeenter="$statechange"
+  fi
+  printf "__SSHM_SERVICE__\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" "$id" "$load" "$active" "$sub" "$desc" "$fragment" "$workdir" "$execstart" "$mainpid" "$execmainpid" "$memorycurrent" "$activeenter" "$inactiveenter" "$statechange" "$execmainstart" "$execmainexit" "$unitfilestate"
+done)
+if [ -n "$parsed" ]; then
+  printf '%s\n' "$parsed"
+  exit 0
+fi
+fallback=$(systemctl list-units --type=service --all --no-legend --plain --no-pager 2>&1)
+fallback_code=$?
+if [ "$fallback_code" -ne 0 ]; then
+  echo "__SSHM_SYSTEMCTL_ERROR__"
+  printf '%s\n' "$out"
+  exit 0
+fi
+printf '%s\n' "$fallback"
+exit 0`
+}
+
+func serviceListScript() string {
+	return `if ! command -v systemctl >/dev/null 2>&1; then
+  echo "__SSHM_SYSTEMCTL_UNAVAILABLE__"
+  exit 0
+fi
 out=$(systemctl list-units --type=service --all --no-legend --plain --no-pager 2>&1)
 code=$?
 if [ "$code" -ne 0 ]; then
@@ -1096,25 +1170,65 @@ if [ "$code" -ne 0 ]; then
   printf '%s\n' "$out"
   exit 0
 fi
-printf '%s\n' "$out"`
+printf '%s\n' "$out"
+exit 0`
+}
+
+func serviceExtraDetailScript(unit string) string {
+	quoted := shellQuoteLocal(unit)
+	return fmt.Sprintf(`if ! command -v systemctl >/dev/null 2>&1; then
+  echo "__SSHM_SYSTEMCTL_UNAVAILABLE__"
+  exit 0
+fi
+props=$(systemctl show %s -p Id -p LoadState -p ActiveState -p SubState -p Description -p FragmentPath -p WorkingDirectory -p ExecStart -p ExecStop -p ExecReload -p MainPID -p ExecMainPID -p MemoryCurrent -p ActiveEnterTimestamp -p InactiveEnterTimestamp -p StateChangeTimestamp -p ExecMainStartTimestamp -p ExecMainExitTimestamp -p UnitFileState -p Result -p ExecMainStatus -p NRestarts -p TasksCurrent -p ControlGroup -p Slice -p User -p Group -p Restart -p RestartUSec -p DropInPaths --no-pager 2>&1)
+code=$?
+if [ "$code" -ne 0 ] && ! printf '%%s\n' "$props" | grep -q '^Id='; then
+  echo "__SSHM_SYSTEMCTL_ERROR__"
+  printf '%%s\n' "$props"
+  exit 0
+fi
+get_prop() { printf '%%s\n' "$props" | awk -F= -v key="$1" '$1==key{print substr($0, index($0,"=")+1); exit}'; }
+printf '%%s\n' "$props"`, quoted)
 }
 
 func portDetailScript() string {
-	return `if ! command -v ss >/dev/null 2>&1; then
+	return `run_ports() {
+  if command -v ss >/dev/null 2>&1; then
+    ss -H -tulnp 2>&1 || ss -tulnp 2>&1
+    return $?
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -tulnp 2>&1
+    return $?
+  fi
+  return 127
+}
+run_ports_sudo() {
+  if command -v ss >/dev/null 2>&1; then
+    sudo -n ss -H -tulnp 2>&1 || sudo -n ss -tulnp 2>&1
+    return $?
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    sudo -n netstat -tulnp 2>&1
+    return $?
+  fi
+  return 127
+}
+if ! command -v ss >/dev/null 2>&1 && ! command -v netstat >/dev/null 2>&1; then
   echo "__SSHM_SS_UNAVAILABLE__"
   exit 0
 fi
-out=$(ss -H -tulnp 2>&1)
+out=$(run_ports)
 code=$?
-if [ "$code" -eq 0 ] && ! printf '%s\n' "$out" | grep -q 'users:('; then
-  sudo_out=$(sudo -n ss -H -tulnp 2>&1)
+if [ "$code" -eq 0 ] && ! printf '%s\n' "$out" | grep -q 'users:(' && ! printf '%s\n' "$out" | grep -Eq '[0-9]+/[^[:space:]]+'; then
+  sudo_out=$(run_ports_sudo)
   sudo_code=$?
   if [ "$sudo_code" -eq 0 ]; then
     out="$sudo_out"
   fi
 fi
 if [ "$code" -ne 0 ]; then
-  sudo_out=$(sudo -n ss -H -tulnp 2>&1)
+  sudo_out=$(run_ports_sudo)
   sudo_code=$?
   if [ "$sudo_code" -ne 0 ]; then
     echo "__SSHM_SS_PERMISSION__"
@@ -1123,7 +1237,46 @@ if [ "$code" -ne 0 ]; then
   fi
   out="$sudo_out"
 fi
-printf '%s\n' "$out"`
+printf '%s\n' "$out"
+printf '%s\n' "$out" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p; s/.*[[:space:]]\([0-9][0-9]*\)\/[^[:space:]]*.*/\1/p' | sort -u | while read -r pid; do
+  [ -n "$pid" ] || continue
+  unit=$(cat "/proc/$pid/cgroup" 2>/dev/null | sed -n 's|.*[:/]\([^/:]*\.service\).*|\1|p' | head -n 1)
+  [ -n "$unit" ] && printf '__SSHM_PORT_CGROUP__\t%s\t%s\n' "$pid" "$unit"
+done`
+}
+
+func processExtraDetailScript(pid string) string {
+	quoted := shellQuoteLocal(pid)
+	return fmt.Sprintf(`pid=%s
+case "$pid" in
+  ''|*[!0-9]*)
+    echo "__SSHM_PROCESS_INVALID__"
+    exit 0
+    ;;
+esac
+if [ ! -d "/proc/$pid" ]; then
+  echo "__SSHM_PROCESS_NOT_FOUND__"
+  exit 0
+fi
+ps_value() {
+  ps -p "$pid" -o "$1=" 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | head -n 1
+}
+ppid=$(ps_value ppid)
+user=$(ps_value user)
+state=$(ps_value stat)
+cpu=$(ps_value pcpu)
+mem=$(ps_value pmem)
+rss=$(ps_value rss)
+elapsed=$(ps_value etime)
+started=$(ps_value lstart)
+comm=$(ps_value comm)
+cmdline=$(tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null | sed -e 's/[[:space:]]*$//')
+[ -z "$cmdline" ] && cmdline=$(ps_value args)
+cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+exe=$(readlink "/proc/$pid/exe" 2>/dev/null || true)
+cgroup=$(cat "/proc/$pid/cgroup" 2>/dev/null | paste -sd ';' -)
+unit=$(printf '%%s\n' "$cgroup" | sed -n 's|.*[:/]\([^/:;]*\.service\).*|\1|p' | head -n 1)
+printf '__SSHM_PROCESS__\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\t%%s\n' "$pid" "$ppid" "$user" "$state" "$cpu" "$mem" "$rss" "$elapsed" "$started" "$comm" "$cmdline" "$cwd" "$exe" "$cgroup" "$unit"`, quoted)
 }
 
 func containerDetailScript() string {
@@ -1142,7 +1295,81 @@ if [ "$code" -ne 0 ]; then
   printf '%s\n' "$out"
   exit 0
 fi
-printf '%s\n' "$out"`
+printf '%s\n' "$out" | while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  printf '__SSHM_CONTAINER__\t%s\n' "$line"
+done
+stats=$(docker stats --no-stream --format '{{.Name}}	{{.CPUPerc}}	{{.MemUsage}}	{{.MemPerc}}' 2>/dev/null)
+stats_code=$?
+if [ "$stats_code" -ne 0 ]; then
+  stats=$(sudo -n docker stats --no-stream --format '{{.Name}}	{{.CPUPerc}}	{{.MemUsage}}	{{.MemPerc}}' 2>/dev/null)
+  stats_code=$?
+fi
+if [ "$stats_code" -eq 0 ]; then
+  printf '%s\n' "$stats" | while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    printf '__SSHM_CONTAINER_STATS__\t%s\n' "$line"
+  done
+fi
+ids=$(docker ps -aq 2>/dev/null)
+limits_code=$?
+if [ "$limits_code" -ne 0 ]; then
+  ids=$(sudo -n docker ps -aq 2>/dev/null)
+  limits_code=$?
+fi
+if [ "$limits_code" -eq 0 ] && [ -n "$ids" ]; then
+  limits=$(docker inspect --format '{{.Name}}	{{.HostConfig.NanoCpus}}	{{.HostConfig.CpuQuota}}	{{.HostConfig.CpuPeriod}}	{{.HostConfig.CpusetCpus}}' $ids 2>/dev/null)
+  limits_code=$?
+  if [ "$limits_code" -ne 0 ]; then
+    limits=$(sudo -n docker inspect --format '{{.Name}}	{{.HostConfig.NanoCpus}}	{{.HostConfig.CpuQuota}}	{{.HostConfig.CpuPeriod}}	{{.HostConfig.CpusetCpus}}' $ids 2>/dev/null)
+    limits_code=$?
+  fi
+  if [ "$limits_code" -eq 0 ]; then
+    printf '%s\n' "$limits" | while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      printf '__SSHM_CONTAINER_LIMIT__\t%s\n' "$line"
+    done
+  fi
+fi`
+}
+
+func containerExtraDetailScript(name string) string {
+	quoted := shellQuoteLocal(name)
+	filter := shellQuoteLocal("name=^/" + name + "$")
+	return fmt.Sprintf(`if ! command -v docker >/dev/null 2>&1; then
+  echo "__SSHM_DOCKER_UNAVAILABLE__"
+  exit 0
+fi
+run_docker() {
+  docker "$@" 2>&1
+}
+run_docker_sudo() {
+  sudo -n docker "$@" 2>&1
+}
+inspect=$(run_docker inspect --size --format '{{json .}}' %s)
+code=$?
+if [ "$code" -ne 0 ]; then
+  inspect=$(run_docker_sudo inspect --size --format '{{json .}}' %s)
+  code=$?
+fi
+if [ "$code" -ne 0 ]; then
+  echo "__SSHM_DOCKER_PERMISSION__"
+  printf '%%s\n' "$inspect"
+  exit 0
+fi
+printf '__SSHM_CONTAINER_INSPECT__\t%%s\n' "$inspect"
+size=$(run_docker ps -a --filter %s --size --format '{{.Size}}')
+code=$?
+if [ "$code" -ne 0 ]; then
+  size=$(run_docker_sudo ps -a --filter %s --size --format '{{.Size}}')
+fi
+[ -n "$size" ] && printf '__SSHM_CONTAINER_SIZE__\t%%s\n' "$size"
+blockio=$(run_docker stats --no-stream --format '{{.BlockIO}}' %s)
+code=$?
+if [ "$code" -ne 0 ]; then
+  blockio=$(run_docker_sudo stats --no-stream --format '{{.BlockIO}}' %s)
+fi
+[ -n "$blockio" ] && printf '__SSHM_CONTAINER_BLOCKIO__\t%%s\n' "$blockio"`, quoted, quoted, filter, filter, quoted, quoted)
 }
 
 func sshdSecurityScript() string {
@@ -1173,16 +1400,68 @@ func parseServiceDetails(output string) ([]serviceDetail, string) {
 	if strings.Contains(output, "__SSHM_SYSTEMCTL_UNAVAILABLE__") {
 		return nil, "systemctl不可用"
 	}
-	if strings.Contains(output, "__SSHM_SYSTEMCTL_ERROR__") {
-		return nil, strings.TrimSpace(strings.ReplaceAll(output, "__SSHM_SYSTEMCTL_ERROR__", ""))
-	}
+	errText := ""
 	items := []serviceDetail{}
 	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "UNIT ") || strings.HasPrefix(line, "LOAD ") {
+		line = strings.TrimRight(line, "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "UNIT ") || strings.HasPrefix(trimmed, "LOAD ") {
 			continue
 		}
-		fields := strings.Fields(line)
+		if strings.HasPrefix(trimmed, "__SSHM_SYSTEMCTL_ERROR__") {
+			errText = strings.TrimSpace(strings.ReplaceAll(output, "__SSHM_SYSTEMCTL_ERROR__", ""))
+			continue
+		}
+		if strings.HasPrefix(line, "__SSHM_SERVICE__\t") {
+			parts := strings.Split(line, "\t")
+			for len(parts) < 31 {
+				parts = append(parts, "")
+			}
+			if len(parts) < 9 || !strings.HasSuffix(parts[1], ".service") {
+				continue
+			}
+			item := serviceDetail{
+				Unit:             strings.TrimSpace(parts[1]),
+				Load:             strings.TrimSpace(parts[2]),
+				Active:           strings.TrimSpace(parts[3]),
+				Sub:              strings.TrimSpace(parts[4]),
+				Description:      strings.TrimSpace(parts[5]),
+				FragmentPath:     strings.TrimSpace(parts[6]),
+				WorkingDirectory: strings.TrimSpace(parts[7]),
+				ExecStart:        strings.TrimSpace(parts[8]),
+			}
+			if len(parts) >= 12 {
+				item.MainPID = normalizePID(parts[9])
+				item.ExecMainPID = normalizePID(parts[10])
+				item.MemoryCurrent = parseSystemdMemoryCurrent(parts[11])
+			}
+			if len(parts) >= 13 {
+				item.ActiveSince = strings.TrimSpace(parts[12])
+			}
+			if len(parts) >= 31 {
+				item.InactiveSince = strings.TrimSpace(parts[13])
+				item.StateChangedAt = strings.TrimSpace(parts[14])
+				item.ExecStartedAt = strings.TrimSpace(parts[15])
+				item.ExecExitedAt = strings.TrimSpace(parts[16])
+				item.UnitFileState = strings.TrimSpace(parts[17])
+				item.Result = strings.TrimSpace(parts[18])
+				item.ExecMainStatus = strings.TrimSpace(parts[19])
+				item.NRestarts = strings.TrimSpace(parts[20])
+				item.TasksCurrent = strings.TrimSpace(parts[21])
+				item.ControlGroup = strings.TrimSpace(parts[22])
+				item.Slice = strings.TrimSpace(parts[23])
+				item.User = strings.TrimSpace(parts[24])
+				item.Group = strings.TrimSpace(parts[25])
+				item.Restart = strings.TrimSpace(parts[26])
+				item.RestartSec = strings.TrimSpace(parts[27])
+				item.ExecStop = strings.TrimSpace(parts[28])
+				item.ExecReload = strings.TrimSpace(parts[29])
+				item.DropInPaths = strings.TrimSpace(parts[30])
+			}
+			items = append(items, item)
+			continue
+		}
+		fields := strings.Fields(trimmed)
 		if len(fields) < 4 || !strings.HasSuffix(fields[0], ".service") {
 			continue
 		}
@@ -1197,6 +1476,9 @@ func parseServiceDetails(output string) ([]serviceDetail, string) {
 		}
 		items = append(items, item)
 	}
+	if len(items) == 0 && errText != "" {
+		return nil, errText
+	}
 	sort.SliceStable(items, func(i, j int) bool {
 		ki, kj := serviceDetailKindRank(items[i]), serviceDetailKindRank(items[j])
 		if ki != kj {
@@ -1207,6 +1489,73 @@ func parseServiceDetails(output string) ([]serviceDetail, string) {
 	return items, ""
 }
 
+func parseServiceExtraDetail(output string) (serviceDetail, string) {
+	if strings.Contains(output, "__SSHM_SYSTEMCTL_UNAVAILABLE__") {
+		return serviceDetail{}, "systemctl不可用"
+	}
+	errText := ""
+	props := map[string]string{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimRight(line, "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "__SSHM_SYSTEMCTL_ERROR__") {
+			errText = strings.TrimSpace(strings.ReplaceAll(output, "__SSHM_SYSTEMCTL_ERROR__", ""))
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		props[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	if props["Id"] == "" {
+		items, parsedErr := parseServiceDetails(output)
+		if len(items) > 0 {
+			return items[0], ""
+		}
+		if parsedErr != "" {
+			return serviceDetail{}, parsedErr
+		}
+		return serviceDetail{}, errText
+	}
+	item := serviceDetail{
+		Unit:             props["Id"],
+		Load:             props["LoadState"],
+		Active:           props["ActiveState"],
+		Sub:              props["SubState"],
+		Description:      props["Description"],
+		FragmentPath:     props["FragmentPath"],
+		WorkingDirectory: props["WorkingDirectory"],
+		ExecStart:        props["ExecStart"],
+		MainPID:          normalizePID(props["MainPID"]),
+		ExecMainPID:      normalizePID(props["ExecMainPID"]),
+		MemoryCurrent:    parseSystemdMemoryCurrent(props["MemoryCurrent"]),
+		ActiveSince:      props["ActiveEnterTimestamp"],
+		InactiveSince:    props["InactiveEnterTimestamp"],
+		StateChangedAt:   props["StateChangeTimestamp"],
+		ExecStartedAt:    props["ExecMainStartTimestamp"],
+		ExecExitedAt:     props["ExecMainExitTimestamp"],
+		UnitFileState:    props["UnitFileState"],
+		Result:           props["Result"],
+		ExecMainStatus:   props["ExecMainStatus"],
+		NRestarts:        props["NRestarts"],
+		TasksCurrent:     props["TasksCurrent"],
+		ControlGroup:     props["ControlGroup"],
+		Slice:            props["Slice"],
+		User:             props["User"],
+		Group:            props["Group"],
+		Restart:          props["Restart"],
+		RestartSec:       props["RestartUSec"],
+		ExecStop:         props["ExecStop"],
+		ExecReload:       props["ExecReload"],
+		DropInPaths:      props["DropInPaths"],
+	}
+	return item, ""
+}
+
 func parsePortDetails(output string) ([]portDetail, string) {
 	if strings.Contains(output, "__SSHM_SS_UNAVAILABLE__") {
 		return nil, "ss不可用"
@@ -1215,35 +1564,57 @@ func parsePortDetails(output string) ([]portDetail, string) {
 		return nil, "需要root权限（可配置sudo -n ss）"
 	}
 	lines := strings.Split(output, "\n")
+	cgroups := map[string]string{}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "__SSHM_PORT_CGROUP__\t") {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) >= 3 {
+			cgroups[strings.TrimSpace(parts[1])] = strings.TrimSpace(parts[2])
+		}
+	}
 	grouped := map[string]*portDetail{}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "Netid") {
+		if line == "" || strings.HasPrefix(line, "__SSHM_PORT_CGROUP__\t") || strings.HasPrefix(line, "Netid") || strings.HasPrefix(line, "Proto") {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) < 5 {
+		if len(fields) < 4 {
 			continue
 		}
-		local := fields[4]
-		port := portFromAddress(local)
+		info := portLineInfo(fields)
+		port := portFromAddress(info.LocalAddress)
 		if port == "" || port == "*" {
 			continue
 		}
-		processText := ""
-		if len(fields) > 6 {
-			processText = strings.Join(fields[6:], " ")
-		}
-		process, pid := processFromSS(processText)
-		key := fields[0] + "/" + port + "/" + process
+		process, pid, fd := processFromSS(info.ProcessText)
+		serviceUnit := cgroups[strings.TrimSpace(pid)]
+		protocol := normalizePortProtocol(fields[0])
+		key := strings.Join([]string{protocol, port, info.State, process, serviceUnit}, "/")
 		if item, ok := grouped[key]; ok {
 			item.Count++
-			if item.PID == "" && pid != "" {
-				item.PID = pid
-			}
+			item.LocalAddress = appendUniqueCSV(item.LocalAddress, info.LocalAddress)
+			item.ForeignAddress = appendUniqueCSV(item.ForeignAddress, info.ForeignAddress)
+			item.PID = appendUniqueCSV(item.PID, pid)
+			item.FD = appendUniqueCSV(item.FD, fd)
+			item.ServiceUnit = appendUniqueCSV(item.ServiceUnit, serviceUnit)
 			continue
 		}
-		grouped[key] = &portDetail{Protocol: fields[0], Port: port, Process: process, PID: pid, Count: 1}
+		grouped[key] = &portDetail{
+			Protocol:       protocol,
+			Port:           port,
+			LocalAddress:   info.LocalAddress,
+			ForeignAddress: info.ForeignAddress,
+			State:          info.State,
+			Process:        process,
+			PID:            pid,
+			FD:             fd,
+			ServiceUnit:    serviceUnit,
+			Count:          1,
+		}
 	}
 	out := make([]portDetail, 0, len(grouped))
 	for _, item := range grouped {
@@ -1258,6 +1629,174 @@ func parsePortDetails(output string) ([]portDetail, string) {
 		return pi < pj
 	})
 	return out, ""
+}
+
+func normalizePortProtocol(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "tcp6":
+		return "tcp"
+	case "udp6":
+		return "udp"
+	default:
+		return value
+	}
+}
+
+func appendUniqueCSV(current string, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return current
+	}
+	values := splitCSVValues(current)
+	for _, existing := range values {
+		if existing == value {
+			return current
+		}
+	}
+	values = append(values, value)
+	return strings.Join(values, ", ")
+}
+
+func splitCSVValues(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func parseProcessExtraDetail(output string) (processExtraDetail, string) {
+	if strings.Contains(output, "__SSHM_PROCESS_INVALID__") {
+		return processExtraDetail{}, "PID无效"
+	}
+	if strings.Contains(output, "__SSHM_PROCESS_NOT_FOUND__") {
+		return processExtraDetail{}, "进程不存在"
+	}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if !strings.HasPrefix(line, "__SSHM_PROCESS__\t") {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		for len(parts) < 16 {
+			parts = append(parts, "")
+		}
+		return processExtraDetail{
+			PID:          strings.TrimSpace(parts[1]),
+			PPID:         strings.TrimSpace(parts[2]),
+			User:         strings.TrimSpace(parts[3]),
+			State:        strings.TrimSpace(parts[4]),
+			CPU:          strings.TrimSpace(parts[5]),
+			Memory:       strings.TrimSpace(parts[6]),
+			RSS:          strings.TrimSpace(parts[7]),
+			Elapsed:      strings.TrimSpace(parts[8]),
+			Started:      strings.TrimSpace(parts[9]),
+			Command:      strings.TrimSpace(parts[10]),
+			CommandLine:  strings.TrimSpace(parts[11]),
+			WorkingDir:   strings.TrimSpace(parts[12]),
+			Executable:   strings.TrimSpace(parts[13]),
+			ControlGroup: strings.TrimSpace(parts[14]),
+			ServiceUnit:  strings.TrimSpace(parts[15]),
+		}, ""
+	}
+	return processExtraDetail{}, ""
+}
+
+type portLineParseInfo struct {
+	LocalAddress   string
+	ForeignAddress string
+	State          string
+	ProcessText    string
+}
+
+func portLineInfo(fields []string) portLineParseInfo {
+	processStart := len(fields)
+	for i, field := range fields {
+		if strings.HasPrefix(field, "users:") || strings.Contains(field, "users:(") {
+			processStart = i
+			break
+		}
+	}
+	if processStart == len(fields) {
+		for i := len(fields) - 1; i >= 0; i-- {
+			if netstatProcessField(fields[i]) {
+				processStart = i
+				break
+			}
+		}
+	}
+	processText := ""
+	if processStart < len(fields) {
+		processText = strings.Join(fields[processStart:], " ")
+	}
+	limit := processStart
+	if limit > len(fields) {
+		limit = len(fields)
+	}
+	info := portLineParseInfo{ProcessText: processText}
+	if len(fields) > 1 && !numericText(fields[1]) {
+		info.State = fields[1]
+	}
+	localIndex := -1
+	for i := 3; i < limit; i++ {
+		port := portFromAddress(fields[i])
+		if port == "" || port == "*" {
+			continue
+		}
+		info.LocalAddress = fields[i]
+		localIndex = i
+		break
+	}
+	if localIndex >= 0 && localIndex+1 < limit {
+		next := fields[localIndex+1]
+		if portFromAddress(next) != "" {
+			info.ForeignAddress = next
+		}
+	}
+	if info.State == "" && localIndex >= 0 {
+		for i := localIndex + 1; i < limit; i++ {
+			field := fields[i]
+			if portFromAddress(field) != "" || numericText(field) || netstatProcessField(field) {
+				continue
+			}
+			info.State = field
+			break
+		}
+	}
+	return info
+}
+
+func numericText(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func netstatProcessField(value string) bool {
+	if value == "-" {
+		return true
+	}
+	pid, _, ok := strings.Cut(value, "/")
+	if !ok || pid == "" {
+		return false
+	}
+	for _, r := range pid {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func portFromAddress(value string) string {
@@ -1277,9 +1816,28 @@ func portFromAddress(value string) string {
 	return strings.TrimSpace(value[idx+1:])
 }
 
-func processFromSS(value string) (string, string) {
+func processFromSS(value string) (string, string, string) {
 	name := ""
 	pid := ""
+	fd := ""
+	for _, field := range strings.Fields(value) {
+		if field == "-" {
+			return "", "", ""
+		}
+		left, right, ok := strings.Cut(field, "/")
+		if ok && left != "" && right != "" {
+			digits := true
+			for _, r := range left {
+				if r < '0' || r > '9' {
+					digits = false
+					break
+				}
+			}
+			if digits {
+				return right, left, ""
+			}
+		}
+	}
 	if idx := strings.Index(value, "\""); idx >= 0 {
 		rest := value[idx+1:]
 		if end := strings.Index(rest, "\""); end >= 0 {
@@ -1294,7 +1852,15 @@ func processFromSS(value string) (string, string) {
 		}
 		pid = rest[:end]
 	}
-	return name, pid
+	if idx := strings.Index(value, "fd="); idx >= 0 {
+		rest := value[idx+3:]
+		end := 0
+		for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+			end++
+		}
+		fd = rest[:end]
+	}
+	return name, pid, fd
 }
 
 func parseContainerDetails(output string) ([]containerDetail, string) {
@@ -1306,11 +1872,46 @@ func parseContainerDetails(output string) ([]containerDetail, string) {
 	}
 	lines := strings.Split(output, "\n")
 	out := make([]containerDetail, 0, len(lines))
+	stats := map[string]containerDetail{}
+	limits := map[string]containerDetail{}
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
+		if strings.HasPrefix(line, "__SSHM_CONTAINER_STATS__\t") {
+			parts := strings.Split(line, "\t")
+			if len(parts) >= 5 {
+				name := strings.TrimSpace(parts[1])
+				stats[name] = containerDetail{
+					Name:    name,
+					CPU:     strings.TrimSpace(parts[2]),
+					Memory:  normalizeDockerMemory(strings.TrimSpace(parts[3])),
+					MemPerc: strings.TrimSpace(parts[4]),
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "__SSHM_CONTAINER_LIMIT__\t") {
+			parts := strings.Split(line, "\t")
+			if len(parts) >= 5 {
+				name := strings.TrimPrefix(strings.TrimSpace(parts[1]), "/")
+				limits[name] = containerDetail{
+					Name:          name,
+					CPULimitKnown: true,
+					NanoCpus:      parseContainerLimitInt(parts[2]),
+					CPUQuota:      parseContainerLimitInt(parts[3]),
+					CPUPeriod:     parseContainerLimitInt(parts[4]),
+				}
+				if len(parts) >= 6 {
+					limit := limits[name]
+					limit.CpusetCpus = strings.TrimSpace(parts[5])
+					limits[name] = limit
+				}
+			}
+			continue
+		}
+		line = strings.TrimPrefix(line, "__SSHM_CONTAINER__\t")
 		parts := strings.Split(line, "\t")
 		if len(parts) < 3 {
 			continue
@@ -1323,62 +1924,391 @@ func parseContainerDetails(output string) ([]containerDetail, string) {
 		if len(parts) >= 4 {
 			item.Ports = strings.TrimSpace(parts[3])
 		}
+		if stat, ok := stats[item.Name]; ok {
+			item.CPU = stat.CPU
+			item.Memory = stat.Memory
+			item.MemPerc = stat.MemPerc
+		}
+		if limit, ok := limits[item.Name]; ok {
+			item.CPULimitKnown = limit.CPULimitKnown
+			item.NanoCpus = limit.NanoCpus
+			item.CPUQuota = limit.CPUQuota
+			item.CPUPeriod = limit.CPUPeriod
+			item.CpusetCpus = limit.CpusetCpus
+		}
 		if item.Name != "" {
 			out = append(out, item)
 		}
 	}
+	for i := range out {
+		if stat, ok := stats[out[i].Name]; ok {
+			out[i].CPU = stat.CPU
+			out[i].Memory = stat.Memory
+			out[i].MemPerc = stat.MemPerc
+		}
+		if limit, ok := limits[out[i].Name]; ok {
+			out[i].CPULimitKnown = limit.CPULimitKnown
+			out[i].NanoCpus = limit.NanoCpus
+			out[i].CPUQuota = limit.CPUQuota
+			out[i].CPUPeriod = limit.CPUPeriod
+			out[i].CpusetCpus = limit.CpusetCpus
+		}
+	}
 	return out, ""
+}
+
+func parseContainerLimitInt(value string) int64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func parseContainerExtraDetail(output string) (containerExtraDetail, string) {
+	if strings.Contains(output, "__SSHM_DOCKER_UNAVAILABLE__") {
+		return containerExtraDetail{}, "未安装Docker"
+	}
+	if strings.Contains(output, "__SSHM_DOCKER_PERMISSION__") {
+		return containerExtraDetail{}, "需要Docker权限（可配置sudo -n docker）"
+	}
+	detail := containerExtraDetail{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "__SSHM_CONTAINER_INSPECT__\t"):
+			raw := strings.TrimSpace(strings.TrimPrefix(line, "__SSHM_CONTAINER_INSPECT__\t"))
+			if err := applyContainerInspectJSON(raw, &detail); err != nil {
+				return detail, err.Error()
+			}
+		case strings.HasPrefix(line, "__SSHM_CONTAINER_SIZE__\t"):
+			size := strings.TrimSpace(strings.TrimPrefix(line, "__SSHM_CONTAINER_SIZE__\t"))
+			detail.Size, detail.VirtualSize = splitDockerSize(size)
+		case strings.HasPrefix(line, "__SSHM_CONTAINER_BLOCKIO__\t"):
+			detail.BlockIO = normalizeDockerMemory(strings.TrimSpace(strings.TrimPrefix(line, "__SSHM_CONTAINER_BLOCKIO__\t")))
+		}
+	}
+	return detail, ""
+}
+
+func applyContainerInspectJSON(raw string, detail *containerExtraDetail) error {
+	type inspectItem struct {
+		ID         string   `json:"Id"`
+		Created    string   `json:"Created"`
+		Path       string   `json:"Path"`
+		Args       []string `json:"Args"`
+		Driver     string   `json:"Driver"`
+		Platform   string   `json:"Platform"`
+		SizeRw     int64    `json:"SizeRw"`
+		SizeRootFS int64    `json:"SizeRootFs"`
+		State      struct {
+			Status     string `json:"Status"`
+			StartedAt  string `json:"StartedAt"`
+			FinishedAt string `json:"FinishedAt"`
+			ExitCode   int    `json:"ExitCode"`
+			Health     *struct {
+				Status string `json:"Status"`
+			} `json:"Health"`
+		} `json:"State"`
+		HostConfig struct {
+			RestartPolicy struct {
+				Name string `json:"Name"`
+			} `json:"RestartPolicy"`
+			NanoCpus   int64  `json:"NanoCpus"`
+			CPUQuota   int64  `json:"CpuQuota"`
+			CPUPeriod  int64  `json:"CpuPeriod"`
+			CpusetCpus string `json:"CpusetCpus"`
+		} `json:"HostConfig"`
+		Mounts []struct {
+			Type        string `json:"Type"`
+			Source      string `json:"Source"`
+			Destination string `json:"Destination"`
+			RW          bool   `json:"RW"`
+		} `json:"Mounts"`
+		NetworkSettings struct {
+			Networks map[string]struct {
+				IPAddress  string   `json:"IPAddress"`
+				Gateway    string   `json:"Gateway"`
+				MacAddress string   `json:"MacAddress"`
+				NetworkID  string   `json:"NetworkID"`
+				EndpointID string   `json:"EndpointID"`
+				Aliases    []string `json:"Aliases"`
+			} `json:"Networks"`
+		} `json:"NetworkSettings"`
+	}
+	var items []inspectItem
+	if err := json.Unmarshal([]byte(raw), &items); err != nil {
+		var single inspectItem
+		if singleErr := json.Unmarshal([]byte(raw), &single); singleErr != nil {
+			return err
+		}
+		items = []inspectItem{single}
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	item := items[0]
+	detail.ID = item.ID
+	detail.Created = item.Created
+	detail.Path = item.Path
+	detail.Args = item.Args
+	detail.Driver = item.Driver
+	detail.Platform = item.Platform
+	detail.StateStatus = item.State.Status
+	detail.StartedAt = item.State.StartedAt
+	detail.FinishedAt = item.State.FinishedAt
+	detail.ExitCode = item.State.ExitCode
+	if item.State.Health != nil {
+		detail.HealthStatus = item.State.Health.Status
+	}
+	detail.RestartPolicy = item.HostConfig.RestartPolicy.Name
+	detail.NanoCpus = item.HostConfig.NanoCpus
+	detail.CPUQuota = item.HostConfig.CPUQuota
+	detail.CPUPeriod = item.HostConfig.CPUPeriod
+	detail.CpusetCpus = item.HostConfig.CpusetCpus
+	if item.SizeRw > 0 {
+		detail.SizeRW = uint64(item.SizeRw)
+	}
+	if item.SizeRootFS > 0 {
+		detail.SizeRootFS = uint64(item.SizeRootFS)
+	}
+	for _, mount := range item.Mounts {
+		detail.Mounts = append(detail.Mounts, containerMountDetail{
+			Type:        mount.Type,
+			Source:      mount.Source,
+			Destination: mount.Destination,
+			RW:          mount.RW,
+		})
+	}
+	for name, network := range item.NetworkSettings.Networks {
+		detail.Networks = append(detail.Networks, containerNetworkDetail{
+			Name:       name,
+			IPAddress:  network.IPAddress,
+			Gateway:    network.Gateway,
+			MacAddress: network.MacAddress,
+			NetworkID:  network.NetworkID,
+			EndpointID: network.EndpointID,
+			Aliases:    network.Aliases,
+		})
+	}
+	sort.Slice(detail.Networks, func(i, j int) bool {
+		return detail.Networks[i].Name < detail.Networks[j].Name
+	})
+	return nil
+}
+
+func splitDockerSize(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", ""
+	}
+	if left, right, ok := strings.Cut(value, "(virtual "); ok {
+		return strings.TrimSpace(left), strings.TrimSuffix(strings.TrimSpace(right), ")")
+	}
+	return value, ""
+}
+
+func normalizePID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "0" {
+		return ""
+	}
+	return value
+}
+
+func parseSystemdMemoryCurrent(value string) uint64 {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "[not set]" || value == "-" {
+		return 0
+	}
+	n, err := strconv.ParseUint(value, 10, 64)
+	if err != nil || n == ^uint64(0) {
+		return 0
+	}
+	return n
+}
+
+func normalizeDockerMemory(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "GiB", "G")
+	value = strings.ReplaceAll(value, "MiB", "M")
+	value = strings.ReplaceAll(value, "KiB", "K")
+	value = strings.ReplaceAll(value, "TiB", "T")
+	value = strings.ReplaceAll(value, " / ", "/")
+	value = strings.ReplaceAll(value, "B /", "B/")
+	value = strings.ReplaceAll(value, "/ ", "/")
+	return value
+}
+
+func shortSystemdTimestampAge(value string, chinese bool) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "n/a" {
+		return ""
+	}
+	layouts := []string{
+		"Mon 2006-01-02 15:04:05 MST",
+		"Mon 2006-01-02 15:04:05 -07",
+		"Mon 2006-01-02 15:04:05 -0700",
+		"2006-01-02 15:04:05 MST",
+		"2006-01-02 15:04:05 -0700",
+	}
+	var parsed time.Time
+	ok := false
+	for _, layout := range layouts {
+		t, err := time.Parse(layout, value)
+		if err == nil {
+			parsed = t
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		fields := strings.Fields(value)
+		if len(fields) >= 3 {
+			trimmed := strings.Join(fields[:3], " ")
+			if t, err := time.ParseInLocation("Mon 2006-01-02 15:04:05", trimmed, time.Local); err == nil {
+				parsed = t
+				ok = true
+			}
+		}
+	}
+	if !ok {
+		return ""
+	}
+	d := time.Since(parsed)
+	if d < 0 {
+		return ""
+	}
+	return shortDurationAge(d, chinese)
+}
+
+func shortDurationAge(d time.Duration, chinese bool) string {
+	switch {
+	case d < time.Minute:
+		n := int(d.Seconds())
+		if n < 1 {
+			n = 1
+		}
+		if chinese {
+			return fmt.Sprintf("%d秒", n)
+		}
+		return fmt.Sprintf("%ds", n)
+	case d < time.Hour:
+		n := int(d.Minutes())
+		if chinese {
+			return fmt.Sprintf("%d分", n)
+		}
+		return fmt.Sprintf("%dm", n)
+	case d < 24*time.Hour:
+		n := int(d.Hours())
+		if chinese {
+			return fmt.Sprintf("%d时", n)
+		}
+		return fmt.Sprintf("%dh", n)
+	case d < 7*24*time.Hour:
+		n := int(d.Hours() / 24)
+		if chinese {
+			return fmt.Sprintf("%d天", n)
+		}
+		return fmt.Sprintf("%dd", n)
+	case d < 30*24*time.Hour:
+		n := int(d.Hours() / 24 / 7)
+		if chinese {
+			return fmt.Sprintf("%d周", n)
+		}
+		return fmt.Sprintf("%dw", n)
+	case d < 365*24*time.Hour:
+		n := int(d.Hours() / 24 / 30)
+		if chinese {
+			return fmt.Sprintf("%d月", n)
+		}
+		return fmt.Sprintf("%dmo", n)
+	default:
+		n := int(d.Hours() / 24 / 365)
+		if chinese {
+			return fmt.Sprintf("%d年", n)
+		}
+		return fmt.Sprintf("%dy", n)
+	}
 }
 
 func associatePortContainers(ports []portDetail, containers []containerDetail) {
 	portMap := containerPublishedPortMap(containers)
 	for i := range ports {
 		key := strings.ToLower(ports[i].Protocol) + "/" + ports[i].Port
-		if names := portMap[key]; len(names) > 0 {
+		if mappings := portMap[key]; len(mappings) > 0 {
+			names := make([]string, 0, len(mappings))
+			targets := make([]string, 0, len(mappings))
+			for _, mapping := range mappings {
+				if !stringSliceContains(names, mapping.Name) {
+					names = append(names, mapping.Name)
+				}
+				if mapping.Target != "" && !stringSliceContains(targets, mapping.Target) {
+					targets = append(targets, mapping.Target)
+				}
+			}
 			ports[i].Container = strings.Join(names, "、")
+			ports[i].ContainerPort = strings.Join(targets, "、")
 		}
 	}
 }
 
-func containerPublishedPortMap(containers []containerDetail) map[string][]string {
-	out := map[string][]string{}
+type containerPortMapping struct {
+	Name   string
+	Target string
+}
+
+func containerPublishedPortMap(containers []containerDetail) map[string][]containerPortMapping {
+	out := map[string][]containerPortMapping{}
 	for _, container := range containers {
 		name := strings.TrimSpace(container.Name)
 		if name == "" {
 			continue
 		}
 		for _, part := range strings.Split(container.Ports, ",") {
-			hostPort, proto, ok := parseDockerPublishedPort(part)
+			hostPort, targetPort, proto, ok := parseDockerPublishedPort(part)
 			if !ok {
 				continue
 			}
 			key := proto + "/" + hostPort
-			if !stringSliceContains(out[key], name) {
-				out[key] = append(out[key], name)
+			exists := false
+			for _, existing := range out[key] {
+				if existing.Name == name && existing.Target == targetPort {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				out[key] = append(out[key], containerPortMapping{Name: name, Target: targetPort})
 			}
 		}
 	}
 	return out
 }
 
-func parseDockerPublishedPort(value string) (string, string, bool) {
+func parseDockerPublishedPort(value string) (string, string, string, bool) {
 	value = strings.TrimSpace(value)
 	left, right, ok := strings.Cut(value, "->")
 	if !ok {
-		return "", "", false
+		return "", "", "", false
 	}
 	hostPort := portFromAddress(left)
 	if hostPort == "" {
-		return "", "", false
+		return "", "", "", false
 	}
 	proto := "tcp"
+	targetPort := strings.TrimSpace(right)
 	if idx := strings.LastIndex(right, "/"); idx >= 0 && idx < len(right)-1 {
 		proto = strings.ToLower(strings.TrimSpace(right[idx+1:]))
+		targetPort = strings.TrimSpace(right[:idx])
 	}
 	if proto != "tcp" && proto != "udp" {
 		proto = "tcp"
 	}
-	return hostPort, proto, true
+	return hostPort, targetPort, proto, true
 }
 
 func stringSliceContains(values []string, needle string) bool {

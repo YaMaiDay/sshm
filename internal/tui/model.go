@@ -39,7 +39,6 @@ func (f addForm) fields() []formField {
 	}
 	fields = append(fields,
 		formField{Label: "辅助信息", Section: true},
-		formField{ID: healthPortsFormIndex, Label: "健康端口", Value: f.HealthPorts},
 		formField{ID: noteFormIndex, Label: "备注", Value: f.Note},
 		formField{ID: expireAtFormIndex, Label: "到期时间", Value: f.ExpireAt},
 	)
@@ -53,6 +52,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	categories, _, _ := config.LoadCategories(home)
 	commandFile, _, _ := config.LoadCommands(home)
 	deploymentFile, _, _ := config.LoadDeployments(home)
+	resourceFile, _, _ := config.LoadResources(home)
 	_ = config.MarkRunningTransfersInterrupted(home)
 	transferHistory, _, _ := config.LoadTransfers(home)
 	setASCIIMode(appConfig.ASCIIMode)
@@ -73,6 +73,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 		home:            home,
 		commandFile:     commandFile,
 		deploymentFile:  deploymentFile,
+		resourceFile:    resourceFile,
 		transferHistory: transferHistory,
 		categories:      categories,
 		status:          "",
@@ -198,13 +199,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.states[msg.Index].FailedLoginError = msg.FailedErrText
 		m.states[msg.Index].SSHDSecurity = msg.SSHDSecurity
 		m.states[msg.Index].SSHDSecurityError = msg.SSHDErrText
-		m.states[msg.Index].ServiceDetails = msg.Services
-		m.states[msg.Index].ServiceError = msg.ServiceErr
-		m.states[msg.Index].PortDetails = msg.Ports
-		m.states[msg.Index].PortDetailsError = msg.PortsErrText
-		m.states[msg.Index].ContainerDetails = msg.Containers
-		m.states[msg.Index].ContainerError = msg.ContainerErr
 		return m, nil
+	case resourceLoadMsg:
+		return m.handleResourceLoad(msg)
+	case resourceContainerDetailMsg:
+		return m.handleResourceContainerDetail(msg)
+	case resourceServiceDetailMsg:
+		return m.handleResourceServiceDetail(msg)
+	case resourceProcessDetailMsg:
+		return m.handleResourceProcessDetail(msg)
+	case resourceLogMsg:
+		return m.handleResourceLog(msg)
+	case resourceActionMsg:
+		return m.handleResourceAction(msg)
 	case commandDoneMsg:
 		m.activeCommand.Running = false
 		m.activeCommand.Output = msg.Result.Output
@@ -273,6 +280,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateTransferDetail(msg)
 		case modeHelp:
 			return m.updateHelpPanel(msg)
+		case modeResourceList:
+			return m.updateResourceList(msg)
+		case modeResourceDetail:
+			return m.updateResourceDetail(msg)
+		case modeResourceAdd:
+			return m.updateResourceAdd(msg)
+		case modeResourceLog:
+			return m.updateResourceLog(msg)
+		case modeResourceCommandEdit:
+			return m.updateResourceCommandEdit(msg)
+		case modeResourceConfirm:
+			return m.updateResourceConfirm(msg)
+		case modeResourceOutput:
+			return m.updateResourceOutput(msg)
 		}
 		if m.mode == modeAddForm {
 			return m.updateAddForm(msg)
@@ -406,6 +427,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "w":
 			m.mode = modeAnomalyOverview
 			m.anomalyIndex = 0
+		case "n":
+			if idx, ok := m.selectedRealIndex(); ok {
+				return m.startResourceList(idx, resourceAll, modeDashboard)
+			}
 		case "z":
 			switch m.dashboardMode {
 			case dashboardCards:
@@ -477,11 +502,6 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.moveFormCursor(1)
 		}
 	case "enter":
-		healthPorts, err := config.ParseHealthPorts(m.form.HealthPorts)
-		if err != nil {
-			m.status = "保存失败：" + err.Error()
-			return m, nil
-		}
 		expireAt, err := normalizeExpireAtForSave(m.form.ExpireAt)
 		if err != nil {
 			m.status = "保存失败：" + err.Error()
@@ -513,7 +533,6 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Favorite:     favorite,
 			Pinned:       pinned,
 			PinnedOrder:  pinnedOrder,
-			HealthPorts:  healthPorts,
 		}
 		if m.editing {
 			if err := config.EditHost(m.home, m.states[m.editIndex].Host, input); err != nil {
@@ -792,7 +811,11 @@ func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "n", "q":
 		m.mode = m.confirm.Back
-		m.status = "已取消删除。"
+		if m.confirm.Kind == confirmRemoveResource {
+			m.status = m.t("Canceled.", "已取消。")
+		} else {
+			m.status = "已取消删除。"
+		}
 	case "y", "enter":
 		switch m.confirm.Kind {
 		case confirmDeleteCategory:
@@ -818,6 +841,10 @@ func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			index := m.confirm.Index
 			m.mode = modeDeploymentList
 			return m.deleteDeploymentApp(index)
+		case confirmRemoveResource:
+			item := m.confirm.Resource
+			m.mode = m.confirm.Back
+			return m.removeManagedResource(item)
 		}
 		m.confirm = confirmAction{}
 	}
@@ -895,7 +922,6 @@ func (m Model) startCopyForm(idx int) Model {
 		IdentityFile: input.IdentityFile,
 		Password:     input.Password,
 		JumpHostRef:  input.JumpHostRef,
-		HealthPorts:  config.FormatHealthPorts(input.HealthPorts),
 		ExpireAt:     input.ExpireAt,
 		Note:         input.Note,
 	}
@@ -928,7 +954,6 @@ func (m Model) startEditForm(idx int) Model {
 		IdentityFile: input.IdentityFile,
 		Password:     input.Password,
 		JumpHostRef:  input.JumpHostRef,
-		HealthPorts:  config.FormatHealthPorts(input.HealthPorts),
 		ExpireAt:     input.ExpireAt,
 		Note:         input.Note,
 	}
@@ -1251,10 +1276,8 @@ func (m Model) formValue() string {
 	case 7:
 		return emptyChoice(m.form.JumpHostRef, "无")
 	case 8:
-		return m.form.HealthPorts
-	case 9:
 		return m.form.Note
-	case 10:
+	case 9:
 		return m.form.ExpireAt
 	default:
 		return ""
@@ -1278,10 +1301,8 @@ func (m *Model) setFormValue(value string) {
 	case 7:
 		m.form.JumpHostRef = strings.TrimSpace(value)
 	case 8:
-		m.form.HealthPorts = value
-	case 9:
 		m.form.Note = value
-	case 10:
+	case 9:
 		m.form.ExpireAt = value
 	}
 }
@@ -1419,7 +1440,11 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx, ok := m.selectedRealIndex(); ok {
 			return m.startCommandList(idx), nil
 		}
-	case "l":
+	case "n":
+		if idx, ok := m.selectedRealIndex(); ok {
+			return m.startResourceList(idx, resourceAll, modeDetail)
+		}
+	case "enter":
 		if idx, ok := m.selectedRealIndex(); ok {
 			cmd, cleanup := actions.SSHCommand(m.states[idx].Host)
 			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
@@ -1533,8 +1558,6 @@ func (m Model) detailSectionNames() []string {
 	sections := []string{
 		m.t("Basic", "基础信息"),
 		m.t("Resources", "资源监控"),
-		m.t("Services", "服务状态"),
-		m.t("Containers", "容器"),
 	}
 	if idx, ok := m.selectedRealIndex(); ok && strings.TrimSpace(m.states[idx].Metrics.Error) != "" {
 		sections = append(sections, m.t("Recent Error", "最近错误"))
@@ -1549,7 +1572,7 @@ func (m Model) openDetail(idx int) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeDetail
 	m.detailScroll = 0
-	if len(m.states[idx].LoginSummary) > 0 || len(m.states[idx].FailedLoginSummary) > 0 || len(m.states[idx].SSHDSecurity) > 0 || len(m.states[idx].ServiceDetails) > 0 || len(m.states[idx].PortDetails) > 0 || len(m.states[idx].ContainerDetails) > 0 || m.states[idx].LoginLoading || m.states[idx].LoginError != "" || m.states[idx].FailedLoginError != "" || m.states[idx].SSHDSecurityError != "" || m.states[idx].ServiceError != "" || m.states[idx].PortDetailsError != "" || m.states[idx].ContainerError != "" {
+	if len(m.states[idx].LoginSummary) > 0 || len(m.states[idx].FailedLoginSummary) > 0 || len(m.states[idx].SSHDSecurity) > 0 || m.states[idx].LoginLoading || m.states[idx].LoginError != "" || m.states[idx].FailedLoginError != "" || m.states[idx].SSHDSecurityError != "" {
 		return m, nil
 	}
 	m.states[idx].LoginLoading = true
@@ -1592,25 +1615,6 @@ func (m Model) fetchLoginRecords(index int) tea.Cmd {
 		if sshdResult.Err != nil {
 			msg.SSHDErrText = "sshd配置不可读"
 		}
-		serviceResult, serviceCleanup := actions.RemoteCommandContext(ctx, h, serviceDetailScript())
-		serviceCleanup()
-		msg.Services, msg.ServiceErr = parseServiceDetails(serviceResult.Output)
-		if serviceResult.Err != nil && msg.ServiceErr == "" {
-			msg.ServiceErr = serviceResult.Err.Error()
-		}
-		portResult, portCleanup := actions.RemoteCommandContext(ctx, h, portDetailScript())
-		portCleanup()
-		msg.Ports, msg.PortsErrText = parsePortDetails(portResult.Output)
-		if portResult.Err != nil && msg.PortsErrText == "" {
-			msg.PortsErrText = portResult.Err.Error()
-		}
-		containerResult, containerCleanup := actions.RemoteCommandContext(ctx, h, containerDetailScript())
-		containerCleanup()
-		msg.Containers, msg.ContainerErr = parseContainerDetails(containerResult.Output)
-		if containerResult.Err != nil && msg.ContainerErr == "" {
-			msg.ContainerErr = containerResult.Err.Error()
-		}
-		associatePortContainers(msg.Ports, msg.Containers)
 		return msg
 	}
 }
@@ -1916,6 +1920,107 @@ func (m Model) sortName() string {
 	}
 }
 
+func (m Model) dashboardHeaderText(indexes []int) string {
+	parts := []string{
+		titleStyle.Render("sshm"),
+		mutedStyle.Render(m.dashboardServerCountText(len(indexes))),
+		blueStyle.Render(m.dashboardModeName(m.dashboardMode)),
+		m.dashboardCategoryHeaderText(),
+	}
+	if m.searching {
+		searchWidth := m.width / 3
+		if searchWidth < 8 {
+			searchWidth = 8
+		}
+		parts = append(parts, blueStyle.Render(m.t("Search ", "搜索 ")+inlineCursorText(m.query, searchWidth, len([]rune(m.query)))))
+	} else if m.query != "" {
+		parts = append(parts, blueStyle.Render(m.t("Search ", "搜索 ")+m.query))
+	}
+	if m.filter != filterAll {
+		parts = append(parts, m.dashboardFilterHeaderText())
+	}
+	if m.favoriteOnly {
+		parts = append(parts, favoriteStyle.Render(m.t("Favorites", "收藏")))
+	}
+	if m.sortBy != sortDefault {
+		parts = append(parts, mutedStyle.Render(m.sortName()))
+	}
+	if refresh := m.dashboardRefreshHeaderText(); refresh != "" {
+		parts = append(parts, mutedStyle.Render(refresh))
+	}
+	if m.status != "" && m.status != m.refreshStatus {
+		parts = append(parts, m.dashboardStatusHeaderText(m.status))
+	}
+	return strings.Join(parts, "  ")
+}
+
+func (m Model) dashboardServerCountText(count int) string {
+	if m.isChineseUI() {
+		return fmt.Sprintf("%d台", count)
+	}
+	if count == 1 {
+		return "1 server"
+	}
+	return fmt.Sprintf("%d servers", count)
+}
+
+func (m Model) dashboardCategoryHeaderText() string {
+	category := m.category
+	if m.dashboardMode == dashboardCategory {
+		category = m.dashboardCategoryActiveLabel()
+	}
+	if strings.TrimSpace(category) == "" {
+		category = m.t("All", "全部")
+	}
+	if category == m.t("All", "全部") {
+		return detailValueStyle.Render(category)
+	}
+	return blueStyle.Render(category)
+}
+
+func (m Model) dashboardFilterHeaderText() string {
+	name := m.filterName()
+	switch m.filter {
+	case filterOnline:
+		return greenStyle.Render(name)
+	case filterProblem:
+		return redStyle.Render(name)
+	default:
+		return detailValueStyle.Render(name)
+	}
+}
+
+func (m Model) dashboardRefreshHeaderText() string {
+	status := strings.TrimSpace(m.refreshStatus)
+	if status == "" {
+		return ""
+	}
+	prefixes := []string{
+		m.t("Manual refresh done: ", "手动刷新完成："),
+		m.t("Last refresh: ", "最后刷新："),
+	}
+	for _, prefix := range prefixes {
+		status = strings.TrimPrefix(status, prefix)
+	}
+	return status
+}
+
+func (m Model) dashboardStatusHeaderText(status string) string {
+	text := strings.TrimSuffix(strings.TrimSpace(status), "。")
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "fail") || strings.Contains(lower, "error") || strings.Contains(text, "失败") || strings.Contains(text, "错误") {
+		return redStyle.Render(text)
+	}
+	if strings.Contains(lower, "cancel") || strings.Contains(lower, "unfavorite") || strings.Contains(lower, "unpin") || strings.Contains(text, "取消") {
+		return yellowStyle.Render(text)
+	}
+	if strings.Contains(lower, "saved") || strings.Contains(lower, "added") || strings.Contains(lower, "favorited") || strings.Contains(lower, "pinned") ||
+		strings.Contains(text, "保存") || strings.Contains(text, "添加") || strings.Contains(text, "收藏") || strings.Contains(text, "置顶") {
+		return greenStyle.Render(text)
+	}
+	return yellowStyle.Render(text)
+}
+
 func (m Model) filterName() string {
 	switch m.filter {
 	case filterOnline:
@@ -2088,49 +2193,37 @@ func (m Model) View() string {
 	if m.mode == modeHelp {
 		return m.renderHelpPanel()
 	}
+	if m.mode == modeResourceList {
+		return m.renderResourceList()
+	}
+	if m.mode == modeResourceDetail {
+		return m.renderResourceDetail()
+	}
+	if m.mode == modeResourceAdd {
+		return m.renderResourceAdd()
+	}
+	if m.mode == modeResourceLog {
+		return m.renderResourceLog()
+	}
+	if m.mode == modeResourceCommandEdit {
+		return m.renderResourceCommandEdit()
+	}
+	if m.mode == modeResourceConfirm {
+		return m.renderResourceConfirm()
+	}
+	if m.mode == modeResourceOutput {
+		return m.renderResourceOutput()
+	}
 	if m.mode != modeDashboard {
 		return m.renderPicker()
 	}
 
 	indexes := m.filteredIndexes()
-	headerParts := []string{"sshm", fmt.Sprintf("%s %d", m.t("Servers", "服务器"), len(indexes))}
-	headerParts = append(headerParts, m.t("View: ", "视图：")+m.dashboardModeName(m.dashboardMode))
-	if m.dashboardMode == dashboardCategory {
-		headerParts = append(headerParts, m.t("Category: ", "分类：")+m.dashboardCategoryActiveLabel())
-	}
-	if m.searching {
-		searchWidth := m.width / 3
-		if searchWidth < 8 {
-			searchWidth = 8
-		}
-		headerParts = append(headerParts, m.t("Search: ", "搜索：")+inlineCursorText(m.query, searchWidth, len([]rune(m.query))))
-	} else if m.query != "" {
-		headerParts = append(headerParts, m.t("Search: ", "搜索：")+m.query)
-	}
-	if m.category != "" && m.dashboardMode != dashboardCategory {
-		headerParts = append(headerParts, m.t("Category: ", "分类：")+m.category)
-	}
-	if m.filter != filterAll {
-		headerParts = append(headerParts, m.t("Filter: ", "筛选：")+m.filterName())
-	}
-	if m.favoriteOnly {
-		headerParts = append(headerParts, m.t("Favorites only", "只看收藏"))
-	}
-	if m.sortBy != sortDefault {
-		headerParts = append(headerParts, m.t("Sort: ", "排序：")+m.sortName())
-	}
-	if m.refreshStatus != "" {
-		headerParts = append(headerParts, m.refreshStatus)
-	}
-	if m.status != "" && m.status != m.refreshStatus {
-		headerParts = append(headerParts, m.status)
-	}
-	headerText := strings.Join(headerParts, "  ")
 	headerWidth := m.width
 	if headerWidth < 1 {
 		headerWidth = contentWidth(m.width)
 	}
-	header := titleStyle.Render(fit(headerText, headerWidth))
+	header := fitANSI(m.dashboardHeaderText(indexes), headerWidth)
 
 	var lines []string
 	lines = append(lines, header)

@@ -81,6 +81,7 @@ After the local SHA256 matches `checksums.txt`, extract and run the binary. Rele
 | 🔐 | Uses the system `ssh`, preserving the native terminal experience |
 | 🪜 | Bastion / jump host support with private keys kept on the local machine |
 | 🚀 | App deployment with Git, GitHub Releases, command stages, history, and rollback |
+| 🧭 | Container and systemd service resource views with search, filters, logs, and confirmed actions |
 | 🛡️ | Login summary and SSH risk hints |
 | 🧰 | Command templates, batch commands, and command history |
 | 📁 | File and directory upload/download with multi-select, task history, and progress |
@@ -95,6 +96,7 @@ After the local SHA256 matches `checksums.txt`, extract and run the binary. Rele
 | 📊 | Check CPU, memory, mounted disks, containers, and basic health |
 | 🔐 | Press `Enter` to open SSH for the selected server |
 | 🧰 | Press `m` for command templates and `b` for batch commands |
+| 🧭 | Press `n` to manage containers and systemd services for the selected server |
 | 🚀 | Press `g` for Git or GitHub Release based deployment |
 | 📁 | Press `u` / `d` to upload or download files and `y` to view transfer jobs |
 | 🛡️ | Inspect failed logins and SSH risk information |
@@ -182,6 +184,21 @@ Disk data is based on mounted filesystems, not raw block device names. sshm show
 
 The dashboard disk card highlights the real mounted filesystem with the highest usage. If that mount point is not `/`, it is shown as labels such as `disk/data` or `disk/mnt/xxx`. The detail page lists mount point, device, filesystem type, usage, capacity, and available space.
 
+## 🧭 Resource Manager
+
+Press `n` on a server to open the resource manager. It discovers Docker containers, systemd services, processes, and listening ports on the selected server.
+
+| Resource | Notes |
+| --- | --- |
+| Containers | Auto-discovered from Docker. Cards show status, CPU, configured CPU limit, memory, image, and ports |
+| Services | Auto-discovered from systemd with localized status and the original raw state |
+| Processes | Shows process identity, CPU, memory, user, and command details |
+| Ports | Shows listening protocol, port, state, process, service, and related container when available |
+
+The resource manager keeps a local cache per server and resource type. When a cached view exists, sshm shows it immediately and refreshes in the background to avoid an empty page while remote discovery is running.
+
+Docker containers are managed as discovered resources. They can be favorited, but they cannot be deleted from the resource list because Docker will rediscover them on the next scan. Stop or remove the container on the target server if it should no longer exist.
+
 ## 🧭 Usage
 
 ```text
@@ -205,6 +222,7 @@ Common keys:
 | `b` | Batch commands |
 | `y` | Transfer jobs |
 | `g` | App deployments |
+| `n` | Container and service resources |
 | `.` | Settings |
 
 ## 📚 Documentation

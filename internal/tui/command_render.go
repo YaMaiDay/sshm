@@ -927,6 +927,7 @@ func (m Model) renderHelpPanel() string {
 		{"i", m.t("Command history", "命令历史")},
 		{"y", m.t("Transfer jobs", "传输任务")},
 		{"g", m.t("App deployment", "应用部署")},
+		{"n", m.t("Container and service resources", "容器和服务资源")},
 		{".", m.t("Settings", "设置")},
 		{"w", m.t("Problem overview", "异常总览")},
 		{"z", m.t("Switch dashboard view", "切换首页视图")},

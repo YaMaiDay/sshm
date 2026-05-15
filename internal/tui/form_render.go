@@ -177,8 +177,6 @@ func (m Model) formLabel(label string) string {
 		return m.t("Use bastion", "使用跳板机")
 	case "辅助信息":
 		return m.t("Extra", "辅助信息")
-	case "健康端口":
-		return m.t("Health ports", "健康端口")
 	case "备注":
 		return m.t("Note", "备注")
 	case "到期时间":
