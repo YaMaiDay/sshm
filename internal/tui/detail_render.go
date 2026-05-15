@@ -24,17 +24,7 @@ func (m Model) renderDeleteConfirm() string {
 		"",
 		"将删除该服务器配置。",
 	}
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(red).
-		Padding(0, 1).
-		Width(width).
-		Render(strings.Join(lines, "\n"))
-	return strings.Join([]string{
-		titleStyle.Render(fit("确认删除服务器", width)),
-		box,
-		renderHelp(width, "确认 Enter/y  取消 Esc/n"),
-	}, "\n")
+	return renderDangerConfirm("确认删除服务器", lines, width)
 }
 
 func (m Model) renderConfirmAction() string {
@@ -47,6 +37,10 @@ func (m Model) renderConfirmAction() string {
 	for _, line := range m.confirm.Lines {
 		lines = append(lines, wrapPlainLine(line, bodyWidth))
 	}
+	return renderDangerConfirm(m.confirm.Title, lines, width)
+}
+
+func renderDangerConfirm(title string, lines []string, width int) string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(red).
@@ -54,7 +48,7 @@ func (m Model) renderConfirmAction() string {
 		Width(width).
 		Render(strings.Join(lines, "\n"))
 	return strings.Join([]string{
-		titleStyle.Render(fit(m.confirm.Title, width)),
+		titleStyle.Render(fit(title, width)),
 		box,
 		renderHelp(width, "确认 Enter/y  取消 Esc/n"),
 	}, "\n")
