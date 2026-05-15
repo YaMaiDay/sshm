@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
 	"github.com/YaMaiDay/sshm/internal/host"
 )
@@ -682,4 +684,147 @@ func TestDeploymentEditShowsValidationStatus(t *testing.T) {
 	if !strings.Contains(view, "保存失败：应用名称不能为空") {
 		t.Fatalf("deployment edit view missing validation status:\n%s", view)
 	}
+}
+
+func TestDeploymentEditInputWidthsAlign(t *testing.T) {
+	app := config.DeploymentApp{
+		Source:         config.DeploySourceGit,
+		FetchMode:      config.DeployFetchLocal,
+		Credential:     config.DeployCredentialSSH,
+		Name:           "api",
+		Repo:           "git@github.com:owner/repo.git",
+		Branch:         "main",
+		Path:           "/opt/app",
+		CredentialName: "本地或目标服务器私钥路径",
+	}
+	m := Model{
+		width:          120,
+		height:         32,
+		deploymentForm: deploymentFormFromApp(app),
+	}
+	view := m.renderDeploymentEdit()
+	wantWidth := deploymentInputWidth() + 2
+	for _, label := range []string{"应用名称", "仓库", "分支", "项目目录", "凭证参数", "等待时间"} {
+		line := findLineContaining(view, label)
+		if line == "" {
+			t.Fatalf("deployment edit view missing %q:\n%s", label, view)
+		}
+		plain := ansi.Strip(line)
+		start := strings.Index(plain, "[")
+		end := strings.LastIndex(plain, "]")
+		if start < 0 || end <= start {
+			t.Fatalf("line %q does not contain input brackets", plain)
+		}
+		gotWidth := ansi.StringWidth(plain[start : end+1])
+		if gotWidth != wantWidth {
+			t.Fatalf("%s input width = %d, want %d; line=%q", label, gotWidth, wantWidth, plain)
+		}
+	}
+}
+
+func TestDeploymentDeleteRequiresConfirmation(t *testing.T) {
+	home := t.TempDir()
+	apps := []config.DeploymentApp{
+		{Name: "api", Server: "prod/api", Source: config.DeploySourceGit, Repo: "git@github.com:owner/api.git", Path: "/data/api"},
+		{Name: "web", Server: "prod/web", Source: config.DeploySourceGit, Repo: "git@github.com:owner/web.git", Path: "/data/web"},
+	}
+	if err := config.SaveDeployments(home, config.DeploymentsFile{Apps: apps}); err != nil {
+		t.Fatalf("save deployments: %v", err)
+	}
+	m := Model{
+		home:             home,
+		mode:             modeDeploymentList,
+		deploymentFile:   config.DeploymentsFile{Apps: apps},
+		activeDeployment: activeDeployment{HostIndex: 0},
+	}
+	m.deploymentItems = m.deploymentListItems()
+
+	next, _ := m.updateDeploymentList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	got := next.(Model)
+	if got.mode != modeConfirmAction || got.confirm.Kind != confirmDeleteDeployment {
+		t.Fatalf("mode=%v confirm=%+v, want delete confirmation", got.mode, got.confirm)
+	}
+	file, _, err := config.LoadDeployments(home)
+	if err != nil {
+		t.Fatalf("load deployments: %v", err)
+	}
+	if len(file.Apps) != 2 {
+		t.Fatalf("apps deleted before confirmation: %+v", file.Apps)
+	}
+
+	next, _ = got.updateConfirmAction(tea.KeyMsg{Type: tea.KeyEnter})
+	got = next.(Model)
+	file, _, err = config.LoadDeployments(home)
+	if err != nil {
+		t.Fatalf("load deployments after delete: %v", err)
+	}
+	if got.mode != modeDeploymentList {
+		t.Fatalf("mode=%v, want deployment list", got.mode)
+	}
+	if len(file.Apps) != 1 || file.Apps[0].Name != "web" {
+		t.Fatalf("apps after confirmed delete = %+v, want only web", file.Apps)
+	}
+}
+
+func TestHandleDeploymentDoneStopsQueueOnFailure(t *testing.T) {
+	home := t.TempDir()
+	apps := []config.DeploymentApp{
+		{Name: "api", Server: "prod/api", Source: config.DeploySourceGit, Repo: "git@github.com:owner/api.git", Path: "/data/api"},
+		{Name: "web", Server: "prod/web", Source: config.DeploySourceGit, Repo: "git@github.com:owner/web.git", Path: "/data/web"},
+	}
+	if err := config.SaveDeployments(home, config.DeploymentsFile{Apps: apps}); err != nil {
+		t.Fatalf("save deployments: %v", err)
+	}
+	m := Model{
+		home:   home,
+		states: []hostState{{Host: host.Host{Name: "api", Category: "prod"}}},
+		activeDeployment: activeDeployment{
+			HostIndex:       0,
+			App:             apps[0],
+			Action:          config.DeployActionDeploy,
+			Queue:           apps,
+			QueueIndex:      0,
+			Running:         true,
+			ProgressID:      "run-1",
+			PreviousVersion: "old",
+		},
+	}
+
+	next, cmd := m.handleDeploymentDone(deploymentDoneMsg{
+		ID:     "run-1",
+		Result: actions.CommandResult{Err: errors.New("git failed"), ExitCode: 128, Output: "fatal"},
+	})
+	got := next.(Model)
+	if cmd != nil {
+		t.Fatal("failed queue should not schedule next deployment")
+	}
+	if got.activeDeployment.QueueFailed != 0 || got.activeDeployment.Running {
+		t.Fatalf("active deployment after failure = %+v", got.activeDeployment)
+	}
+	if !strings.Contains(got.status, "部署队列停止") {
+		t.Fatalf("status = %q, want queue stopped", got.status)
+	}
+}
+
+func TestContainerDetailRowsShowRawStatus(t *testing.T) {
+	m := Model{width: 120}
+	rows := containerDetailItemRows(m, containerDetail{
+		Name:   "kafka",
+		Image:  "apache/kafka:3.9.0",
+		Status: "Up 2 weeks (unhealthy)",
+		Ports:  "9092/tcp",
+	}, 10, 1)
+	got := strings.Join(rows, "\n")
+	if !strings.Contains(got, "异常 2周") || !strings.Contains(got, "状态 Up 2 weeks (unhealthy)") {
+		t.Fatalf("container rows missing summary or raw status:\n%s", got)
+	}
+}
+
+func findLineContaining(view string, needle string) string {
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(ansi.Strip(line), needle) {
+			return line
+		}
+	}
+	return ""
 }

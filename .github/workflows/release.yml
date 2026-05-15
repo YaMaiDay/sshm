@@ -45,6 +45,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Go vet
+        run: go vet ./...
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
