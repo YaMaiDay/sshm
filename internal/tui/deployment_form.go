@@ -66,9 +66,9 @@ func (m Model) startDeploymentEdit(app config.DeploymentApp, editing bool) Model
 	}
 	m.mode = modeDeploymentEdit
 	if editing {
-		m.status = "编辑部署应用"
+		m.status = m.t("Edit Deployment App", "编辑部署应用")
 	} else {
-		m.status = "添加部署应用"
+		m.status = m.t("Add Deployment App", "添加部署应用")
 	}
 	return m
 }
@@ -215,7 +215,7 @@ func (m Model) updateDeploymentEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.deploymentFile = file
 		m = m.startDeploymentList(m.activeDeployment.HostIndex)
-		m.status = "部署应用已保存。"
+		m.status = m.t("Deployment app saved.", "部署应用已保存。")
 		return m, nil
 	case "backspace":
 		m.deploymentBackspace()

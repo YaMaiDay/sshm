@@ -39,7 +39,7 @@ func (m Model) startBatchSelect() Model {
 		}
 	}
 	m.mode = modeBatchSelect
-	m.status = "批量选择服务器"
+	m.status = m.t("Batch Select Servers", "批量选择服务器")
 	return m
 }
 
@@ -532,7 +532,7 @@ func (m Model) updateBatchSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.batchSelected = map[int]bool{}
 	case "enter":
 		if m.batchSelectedCount() == 0 {
-			m.status = "请至少选择一台服务器"
+			m.status = m.t("Select at least one server", "请至少选择一台服务器")
 			return m, nil
 		}
 		return m.startBatchCommandList()
@@ -543,14 +543,14 @@ func (m Model) updateBatchSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) startBatchCommandList() (tea.Model, tea.Cmd) {
 	file, _, err := config.LoadCommands(m.home)
 	if err != nil {
-		m.status = "读取命令模板失败：" + err.Error()
+		m.status = m.t("Failed to read command templates: ", "读取命令模板失败：") + err.Error()
 		return m, nil
 	}
 	m.commandFile = file
 	m.batchCommandItems = m.batchGlobalCommandItems()
 	m.batchCommandIndex = firstCommandItem(m.batchCommandItems)
 	m.mode = modeBatchCommandList
-	m.status = "选择批量命令模板"
+	m.status = m.t("Select Batch Command Template", "选择批量命令模板")
 	return m, nil
 }
 
@@ -587,13 +587,13 @@ func (m Model) updateBatchCommandList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.commandField = 2
 			m.commandCursor = 0
 			m.mode = modeBatchCommandEdit
-			m.status = "输入批量临时命令"
+			m.status = m.t("Enter batch temporary command", "输入批量临时命令")
 			return m, nil
 		}
 		m.batchCommand = item
 		m.mode = modeBatchConfirm
 		m.batchOutputScroll = 0
-		m.status = "确认批量执行"
+		m.status = m.t("Confirm Batch Run", "确认批量执行")
 	}
 	return m, nil
 }
@@ -750,7 +750,7 @@ func (m Model) retryFailedBatchJobs() (tea.Model, tea.Cmd) {
 		}
 	}
 	if len(jobs) == 0 {
-		m.status = "没有失败的服务器需要重试"
+		m.status = m.t("No failed servers to retry.", "没有失败的服务器需要重试")
 		return m, nil
 	}
 	m.batchJobs = jobs
@@ -758,14 +758,14 @@ func (m Model) retryFailedBatchJobs() (tea.Model, tea.Cmd) {
 	m.batchJobs[0].Running = true
 	m.batchOutputIndex = 0
 	m.batchOutputScroll = 0
-	m.status = "正在重试失败服务器..."
+	m.status = m.t("Retrying failed servers...", "正在重试失败服务器...")
 	return m, m.runBatchJob(0)
 }
 
 func (m Model) startCommandHistory() (tea.Model, tea.Cmd) {
 	file, _, err := config.LoadCommandHistory(m.home)
 	if err != nil {
-		m.status = "读取命令历史失败：" + err.Error()
+		m.status = m.t("Failed to read command history: ", "读取命令历史失败：") + err.Error()
 		return m, nil
 	}
 	m.commandHistory = file
@@ -834,8 +834,8 @@ func (m Model) updateCommandHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if entry, ok := m.selectedHistoryEntry(); ok {
 			m.confirm = confirmAction{
 				Kind:    confirmDeleteHistory,
-				Title:   "确认删除命令历史",
-				Lines:   []string{"将删除该命令历史记录。", "命令：" + entry.Name},
+				Title:   m.t("Delete Command History", "确认删除命令历史"),
+				Lines:   []string{m.t("This command history record will be deleted.", "将删除该命令历史记录。"), m.t("Command: ", "命令：") + m.historyCommandName(entry)},
 				Back:    modeCommandHistory,
 				History: entry,
 			}
@@ -862,8 +862,8 @@ func (m Model) updateCommandHistoryDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if entry, ok := m.selectedHistoryEntry(); ok {
 			m.confirm = confirmAction{
 				Kind:    confirmDeleteHistory,
-				Title:   "确认删除命令历史",
-				Lines:   []string{"将删除该命令历史记录。", "命令：" + entry.Name},
+				Title:   m.t("Delete Command History", "确认删除命令历史"),
+				Lines:   []string{m.t("This command history record will be deleted.", "将删除该命令历史记录。"), m.t("Command: ", "命令：") + m.historyCommandName(entry)},
 				Back:    modeCommandHistoryDetail,
 				History: entry,
 			}
@@ -910,12 +910,12 @@ func historyEntryMatches(entry config.CommandHistoryEntry, query string) bool {
 
 func (m Model) deleteCommandHistoryEntry(entry config.CommandHistoryEntry) (tea.Model, tea.Cmd) {
 	if err := config.DeleteCommandHistoryEntry(m.home, entry.ID); err != nil {
-		m.status = "删除命令历史失败：" + err.Error()
+		m.status = m.t("Failed to delete command history: ", "删除命令历史失败：") + err.Error()
 		return m, nil
 	}
 	m.reloadCommandHistory()
 	m.historyIndex = clampInt(m.historyIndex, 0, maxInt(0, len(m.commandHistory.Entries)-1))
-	m.status = "命令历史已删除。"
+	m.status = m.t("Command history deleted.", "命令历史已删除。")
 	if len(m.commandHistory.Entries) == 0 {
 		m.mode = modeCommandHistory
 	}
@@ -924,12 +924,12 @@ func (m Model) deleteCommandHistoryEntry(entry config.CommandHistoryEntry) (tea.
 
 func (m Model) rerunHistoryEntry(entry config.CommandHistoryEntry) (tea.Model, tea.Cmd) {
 	if strings.TrimSpace(entry.Command) == "" {
-		m.status = "历史命令为空，不能重新执行。"
+		m.status = m.t("History command is empty and cannot be rerun.", "历史命令为空，不能重新执行。")
 		return m, nil
 	}
 	indexes := m.historyTargetIndexes(entry)
 	if len(indexes) == 0 {
-		m.status = "服务器不存在，不能重新执行。"
+		m.status = m.t("Server no longer exists; cannot rerun.", "服务器不存在，不能重新执行。")
 		return m, nil
 	}
 	if len(indexes) == 1 {
@@ -943,7 +943,7 @@ func (m Model) rerunHistoryEntry(entry config.CommandHistoryEntry) (tea.Model, t
 		m.commandOutputScroll = 0
 		m.commandOutputBack = backMode
 		m.mode = modeCommandOutput
-		m.status = "正在重新执行命令..."
+		m.status = m.t("Rerunning command...", "正在重新执行命令...")
 		return m, m.runCommand(indexes[0], entry.Command)
 	}
 	backMode := m.mode
@@ -955,7 +955,7 @@ func (m Model) rerunHistoryEntry(entry config.CommandHistoryEntry) (tea.Model, t
 	m.batchCommand = commandItem{Name: historyCommandName(entry), Command: entry.Command}
 	m.prepareBatchJobs()
 	if len(m.batchJobs) == 0 {
-		m.status = "没有可执行的服务器"
+		m.status = m.t("No runnable servers.", "没有可执行的服务器")
 		return m, nil
 	}
 	m.mode = modeBatchOutput
@@ -964,7 +964,7 @@ func (m Model) rerunHistoryEntry(entry config.CommandHistoryEntry) (tea.Model, t
 	m.batchOutputIndex = 0
 	m.batchOutputScroll = 0
 	m.batchOutputBack = backMode
-	m.status = "正在重新批量执行..."
+	m.status = m.t("Rerunning batch command...", "正在重新批量执行...")
 	return m, m.runBatchJob(0)
 }
 
@@ -1038,7 +1038,7 @@ func (m Model) commandOutputMaxScroll() int {
 
 func (m Model) runCommand(index int, script string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
 		result, cleanup := actions.RemoteCommandContext(ctx, m.states[index].Host, script)
 		cleanup()
@@ -1087,7 +1087,7 @@ func (m Model) runBatchJob(job int) tea.Cmd {
 	h := m.states[hostIndex].Host
 	script := m.batchCommand.Command
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
 		result, cleanup := actions.RemoteCommandContext(ctx, h, script)
 		cleanup()

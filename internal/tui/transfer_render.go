@@ -15,16 +15,16 @@ import (
 )
 
 func (m Model) renderTransferPanel() string {
-	title := "上传文件"
+	title := m.t("Upload File", "上传文件")
 	if m.panel.Mode == transferDownload {
-		title = "下载文件"
+		title = m.t("Download File", "下载文件")
 	}
 	header := title
 	if m.status != "" {
 		header += "  " + m.status
 	}
 	width := formContentWidth(m.width)
-	help := "切换 Tab  移动 ↑↓/jk  展开 Enter  选择 Space  任务 s  返回 Esc"
+	help := m.t("Switch Tab  Move ↑↓/jk  Expand Enter  Select Space  Jobs s  Back Esc", "切换 Tab  移动 ↑↓/jk  展开 Enter  选择 Space  任务 s  返回 Esc")
 	height := m.height - 4
 	if height < 8 {
 		height = 8
@@ -32,16 +32,16 @@ func (m Model) renderTransferPanel() string {
 	body := ""
 	if m.useSingleTransferPane(width) {
 		if m.panel.ActivePane == 0 {
-			body = renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, width, height, true, m.panel.LeftSelected)
+			body = m.renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, width, height, true, m.panel.LeftSelected)
 		} else {
-			body = renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, width, height, true, nil)
+			body = m.renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, width, height, true, nil)
 		}
 	} else {
 		gap := 1
 		leftWidth := (width - gap) / 2
 		rightWidth := width - gap - leftWidth
-		left := renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, leftWidth, height, m.panel.ActivePane == 0, m.panel.LeftSelected)
-		right := renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, rightWidth, height, m.panel.ActivePane == 1, nil)
+		left := m.renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, leftWidth, height, m.panel.ActivePane == 0, m.panel.LeftSelected)
+		right := m.renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, rightWidth, height, m.panel.ActivePane == 1, nil)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 	}
 	return strings.Join([]string{
@@ -59,16 +59,22 @@ func (m Model) renderTransferJobs() string {
 	if width < 34 {
 		width = 34
 	}
-	help := renderTransferJobsHelp(width)
+	help := m.renderTransferJobsHelp(width)
 	reservedBottomLines := strings.Count(help, "\n") + 1
 	counts := transferStatusCounts(m.transferHistory.Entries)
 	filtered := m.filteredTransferIndexes()
-	header := fmt.Sprintf("传输任务  状态 %s  显示 %d/%d  运行 %d  未完成 %d  已完成 %d", m.transferStatusFilterName(), len(filtered), len(m.transferHistory.Entries), counts[config.TransferStatusRunning], transferUnfinishedCount(m.transferHistory.Entries), counts[config.TransferStatusDone])
+	header := fmt.Sprintf("%s  %s %s  %s %d/%d  %s %d  %s %d  %s %d",
+		m.t("Transfer Jobs", "传输任务"),
+		m.t("Status", "状态"), m.transferStatusFilterName(),
+		m.t("Showing", "显示"), len(filtered), len(m.transferHistory.Entries),
+		m.t("Running", "运行"), counts[config.TransferStatusRunning],
+		m.t("Open", "未完成"), transferUnfinishedCount(m.transferHistory.Entries),
+		m.t("Done", "已完成"), counts[config.TransferStatusDone])
 	lines := []string{titleStyle.Render(fit(header, width)), ""}
 	if len(m.transferHistory.Entries) == 0 {
-		lines = append(lines, mutedStyle.Render("暂无传输记录"))
+		lines = append(lines, mutedStyle.Render(m.t("No transfer records", "暂无传输记录")))
 	} else if len(filtered) == 0 {
-		lines = append(lines, mutedStyle.Render("当前状态没有传输任务"))
+		lines = append(lines, mutedStyle.Render(m.t("No transfer jobs for this status", "当前状态没有传输任务")))
 	} else {
 		bodyLines := m.height - reservedBottomLines - 2
 		if bodyLines < 1 {
@@ -92,9 +98,9 @@ func (m Model) renderTransferDetail() string {
 	}
 	if !ok {
 		return strings.Join([]string{
-			titleStyle.Render(fit("传输详情", width)),
-			mutedStyle.Render("当前任务不存在"),
-			renderHelp(width, "返回 Esc"),
+			titleStyle.Render(fit(m.t("Transfer Detail", "传输详情"), width)),
+			mutedStyle.Render(m.t("Current job does not exist", "当前任务不存在")),
+			renderHelp(width, m.t("Back Esc", "返回 Esc")),
 		}, "\n")
 	}
 	lines := m.transferDetailLines(entry)
@@ -104,7 +110,7 @@ func (m Model) renderTransferDetail() string {
 		scroll := clampInt(m.detailScroll, 0, maxScroll)
 		lines = lines[scroll : scroll+viewportHeight]
 	}
-	headerText := fmt.Sprintf("传输详情  %s  %s", transferEntryName(entry), transferStatusText(entry.Status))
+	headerText := fmt.Sprintf("%s  %s  %s", m.t("Transfer Detail", "传输详情"), transferEntryName(entry), m.transferStatusText(entry.Status))
 	header := titleStyle.Render(fitANSI(headerText, width))
 	body := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -112,7 +118,7 @@ func (m Model) renderTransferDetail() string {
 		Padding(0, 1).
 		Width(width).
 		Render(strings.Join(lines, "\n"))
-	help := renderHelp(width, "滚动 ↑↓/jk  开始 Enter  全部开始 a  全部暂停 p  取消 c  删除 x  返回 Esc")
+	help := renderHelp(width, m.t("Scroll ↑↓/jk  Start Enter  Start all a  Pause all p  Cancel c  Delete x  Back Esc", "滚动 ↑↓/jk  开始 Enter  全部开始 a  全部暂停 p  取消 c  删除 x  返回 Esc"))
 	return strings.Join([]string{header, body, help}, "\n")
 }
 
@@ -124,7 +130,7 @@ func (m Model) selectedTransferEntry() (config.TransferEntry, bool) {
 }
 
 func (m Model) transferDetailLines(entry config.TransferEntry) []string {
-	status := lipgloss.NewStyle().Foreground(transferStatusColor(entry.Status)).Bold(true).Render(transferStatusText(entry.Status))
+	status := lipgloss.NewStyle().Foreground(transferStatusColor(entry.Status)).Bold(true).Render(m.transferStatusText(entry.Status))
 	total := "-"
 	if entry.TotalBytes > 0 {
 		total = bytesHuman(uint64(entry.TotalBytes))
@@ -138,39 +144,39 @@ func (m Model) transferDetailLines(entry config.TransferEntry) []string {
 	percent := transferPercentText(entry)
 	progress := transferProgressBarLine(entry, m.detailContentWidth())
 	lines := []string{
-		m.renderDetailSectionLine("基本信息", sectionTitle("基本信息")),
-		m.detailRow("状态", status),
-		m.detailRow("类型", transferEntryKindText(entry)),
-		m.detailRow("方向", transferDirectionText(entry)),
-		m.detailRow("文件", transferEntryName(entry)),
-		m.detailRow("目录", yesNo(entry.IsDir)),
-		m.detailRow("任务ID", entry.ID),
-		m.detailRow("服务器", ansi.Strip(transferEntryHostTitle(entry))),
-		m.detailRow("连接", transferEntryConnection(entry)),
-		m.detailRow("创建时间", transferTimeShort(entry.Time)),
-		m.detailRow("更新时间", transferTimeShort(entry.UpdatedAt)),
-		m.detailRow("队列位置", transferQueueText(m.transferHistory.Entries, entry)),
-		m.detailRow("传输方式", "rsync，支持断点续传，保留半成品"),
+		m.renderDetailSectionLine(m.t("Basic", "基本信息"), sectionTitle(m.t("Basic", "基本信息"))),
+		m.detailRow(m.t("Status", "状态"), status),
+		m.detailRow(m.t("Type", "类型"), m.transferEntryKindText(entry)),
+		m.detailRow(m.t("Direction", "方向"), m.transferDirectionText(entry)),
+		m.detailRow(m.t("File", "文件"), transferEntryName(entry)),
+		m.detailRow(m.t("Directory", "目录"), yesNoLang(entry.IsDir, m.isChineseUI())),
+		m.detailRow(m.t("Job ID", "任务ID"), entry.ID),
+		m.detailRow(m.t("Server", "服务器"), ansi.Strip(m.transferEntryHostTitle(entry))),
+		m.detailRow(m.t("Connection", "连接"), transferEntryConnection(entry)),
+		m.detailRow(m.t("Created", "创建时间"), transferTimeShort(entry.Time)),
+		m.detailRow(m.t("Updated", "更新时间"), transferTimeShort(entry.UpdatedAt)),
+		m.detailRow(m.t("Queue", "队列位置"), transferQueueText(m.transferHistory.Entries, entry)),
+		m.detailRow(m.t("Method", "传输方式"), m.t("rsync, resumable, keeps partial files", "rsync，支持断点续传，保留半成品")),
 		"",
-		m.renderDetailSectionLine("路径信息", sectionTitle("路径信息")),
-		m.detailRow("来源", entry.Source),
-		m.detailRow("目标", transferJobTarget(entry)),
+		m.renderDetailSectionLine(m.t("Paths", "路径信息"), sectionTitle(m.t("Paths", "路径信息"))),
+		m.detailRow(m.t("Source", "来源"), entry.Source),
+		m.detailRow(m.t("Target", "目标"), transferJobTarget(entry)),
 		"",
-		m.renderDetailSectionLine("传输进度", sectionTitle("传输进度")),
-		m.detailRow("进度", progress),
-		m.detailRow("百分比", percent),
-		m.detailRow("总大小", total),
-		m.detailRow("已完成", done),
-		m.detailRow("剩余大小", remaining),
-		m.detailRow("速度", emptyDash(speed)),
-		m.detailRow("剩余时间", emptyDash(remain)),
-		m.detailRow("原始进度", emptyDash(strings.Join(strings.Fields(entry.Progress), " "))),
+		m.renderDetailSectionLine(m.t("Progress", "传输进度"), sectionTitle(m.t("Progress", "传输进度"))),
+		m.detailRow(m.t("Progress", "进度"), progress),
+		m.detailRow(m.t("Percent", "百分比"), percent),
+		m.detailRow(m.t("Total", "总大小"), total),
+		m.detailRow(m.t("Done", "已完成"), done),
+		m.detailRow(m.t("Remaining", "剩余大小"), remaining),
+		m.detailRow(m.t("Speed", "速度"), emptyDash(speed)),
+		m.detailRow(m.t("ETA", "剩余时间"), emptyDash(remain)),
+		m.detailRow(m.t("Raw progress", "原始进度"), emptyDash(strings.Join(strings.Fields(entry.Progress), " "))),
 		"",
-		m.renderDetailSectionLine("操作", sectionTitle("操作")),
-		m.detailRow("可操作", transferActionHint(entry.Status)),
+		m.renderDetailSectionLine(m.t("Actions", "操作"), sectionTitle(m.t("Actions", "操作"))),
+		m.detailRow(m.t("Available", "可操作"), m.transferActionHint(entry.Status)),
 	}
 	if strings.TrimSpace(entry.Error) != "" {
-		lines = append(lines, "", m.renderDetailSectionLine("错误", sectionTitle("错误")), m.detailRow("错误", redStyle.Render(entry.Error)))
+		lines = append(lines, "", m.renderDetailSectionLine(m.t("Error", "错误"), sectionTitle(m.t("Error", "错误"))), m.detailRow(m.t("Error", "错误"), redStyle.Render(entry.Error)))
 	}
 	return lines
 }
@@ -203,11 +209,11 @@ func transferEntryConnection(entry config.TransferEntry) string {
 	return fmt.Sprintf("%s@%s:%s", user, host, port)
 }
 
-func transferDirectionText(entry config.TransferEntry) string {
+func (m Model) transferDirectionText(entry config.TransferEntry) string {
 	if entry.Kind == "download" {
-		return "远程 → 本地"
+		return m.t("Remote → Local", "远程 → 本地")
 	}
-	return "本地 → 远程"
+	return m.t("Local → Remote", "本地 → 远程")
 }
 
 func transferRemotePath(entry config.TransferEntry) string {
@@ -267,22 +273,22 @@ func transferQueueText(entries []config.TransferEntry, entry config.TransferEntr
 	return fmt.Sprintf("%d/%d", position, total)
 }
 
-func transferActionHint(status string) string {
+func (m Model) transferActionHint(status string) string {
 	switch status {
 	case config.TransferStatusQueued:
-		return "Enter 开始，c 取消，x 删除"
+		return m.t("Enter start, c cancel, x delete", "Enter 开始，c 取消，x 删除")
 	case config.TransferStatusPending:
-		return "p 全部暂停，等待自动开始"
+		return m.t("p pause all, waiting to start", "p 全部暂停，等待自动开始")
 	case config.TransferStatusRunning:
-		return "p 暂停，c 中断"
+		return m.t("p pause, c interrupt", "p 暂停，c 中断")
 	case config.TransferStatusInterrupted:
-		return "Enter 继续，a 全部开始，c 取消，x 删除"
+		return m.t("Enter resume, a start all, c cancel, x delete", "Enter 继续，a 全部开始，c 取消，x 删除")
 	case config.TransferStatusFailed:
-		return "Enter 重试，x 删除"
+		return m.t("Enter retry, x delete", "Enter 重试，x 删除")
 	case config.TransferStatusCanceled:
-		return "x 删除"
+		return m.t("x delete", "x 删除")
 	case config.TransferStatusDone:
-		return "x 删除"
+		return m.t("x delete", "x 删除")
 	default:
 		return "-"
 	}
@@ -318,20 +324,20 @@ func transferProgressSpeedRemain(progress string) (string, string) {
 	return speed, remain
 }
 
-func renderTransferJobsHelp(width int) string {
+func (m Model) renderTransferJobsHelp(width int) string {
 	if width < 1 {
 		width = 1
 	}
 	help := strings.Join([]string{
-		"状态 Tab",
-		"移动 ↑↓←→/hjkl",
-		"开始 Enter",
-		"详情 Space",
-		"全部开始 a",
-		"全部暂停 p",
-		"取消 c",
-		"删除 x",
-		"返回 Esc",
+		m.t("Status Tab", "状态 Tab"),
+		m.t("Move ↑↓←→/hjkl", "移动 ↑↓←→/hjkl"),
+		m.t("Start Enter", "开始 Enter"),
+		m.t("Detail Space", "详情 Space"),
+		m.t("Start all a", "全部开始 a"),
+		m.t("Pause all p", "全部暂停 p"),
+		m.t("Cancel c", "取消 c"),
+		m.t("Delete x", "删除 x"),
+		m.t("Back Esc", "返回 Esc"),
 	}, "  ")
 	return helpStyle.Render(fit(help, width))
 }
@@ -360,9 +366,9 @@ func (m Model) transferStatusFilterValue() string {
 func (m Model) transferStatusFilterName() string {
 	status := m.transferStatusFilterValue()
 	if status == "" {
-		return "全部"
+		return m.t("All", "全部")
 	}
-	return transferStatusText(status)
+	return m.transferStatusText(status)
 }
 
 func (m Model) filteredTransferIndexes() []int {
@@ -408,7 +414,7 @@ func (m Model) transferJobGridLines(width int) ([]string, int, int) {
 			if entryIndex == m.transferIndex {
 				selectedTop = len(lines)
 			}
-			block := renderTransferJobCard(m.transferHistory.Entries[entryIndex], cardWidth, entryIndex == m.transferIndex, rowHasError)
+			block := m.renderTransferJobCard(m.transferHistory.Entries[entryIndex], cardWidth, entryIndex == m.transferIndex, rowHasError)
 			rowBlocks[col] = block
 			if height := blockLineCount(block); height > rowHeight {
 				rowHeight = height
@@ -468,7 +474,7 @@ func padBlockHeight(block string, width int, height int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderTransferJobCard(entry config.TransferEntry, width int, selected bool, reserveErrorLine bool) string {
+func (m Model) renderTransferJobCard(entry config.TransferEntry, width int, selected bool, reserveErrorLine bool) string {
 	cardWidth := width
 	if cardWidth < 34 {
 		cardWidth = 34
@@ -478,10 +484,10 @@ func renderTransferJobCard(entry config.TransferEntry, width int, selected bool,
 		borderStyle = selectedCardBorderStyle
 	}
 
-	title := transferEntryHostTitle(entry)
-	meta := transferJobMeta(entry)
+	title := m.transferEntryHostTitle(entry)
+	meta := m.transferJobMeta(entry)
 	dot := transferJobDot(entry.Status)
-	nameLine := transferFileLine(entry, cardWidth-4, selected)
+	nameLine := m.transferFileLine(entry, cardWidth-4, selected)
 	sourceLine := transferPathLine(transferSourceSymbol(entry), entry.Source)
 	targetLine := transferPathLine("→", transferJobTarget(entry))
 
@@ -499,14 +505,14 @@ func renderTransferJobCard(entry config.TransferEntry, width int, selected bool,
 	return strings.Join(lines, "\n")
 }
 
-func transferEntryHostTitle(entry config.TransferEntry) string {
+func (m Model) transferEntryHostTitle(entry config.TransferEntry) string {
 	category := strings.TrimSpace(entry.HostCategory)
 	if category == "" {
-		category = "未分类"
+		category = m.t("Uncategorized", "未分类")
 	}
 	name := strings.TrimSpace(entry.HostName)
 	if name == "" {
-		name = "服务器"
+		name = m.t("Server", "服务器")
 	}
 	return cardMutedStyle.Render("["+category+"]") + " " + detailValueStyle.Render(name)
 }
@@ -536,9 +542,9 @@ func transferJobTarget(entry config.TransferEntry) string {
 	return entry.TargetDir
 }
 
-func transferJobMeta(entry config.TransferEntry) string {
+func (m Model) transferJobMeta(entry config.TransferEntry) string {
 	style := lipgloss.NewStyle().Foreground(transferStatusColor(entry.Status)).Bold(true)
-	return style.Render(transferStatusText(entry.Status))
+	return style.Render(m.transferStatusText(entry.Status))
 }
 
 func transferJobDot(status string) string {
@@ -562,13 +568,13 @@ func transferArrowStyle(label string) lipgloss.Style {
 	}
 }
 
-func transferFileLine(entry config.TransferEntry, width int, selected bool) string {
+func (m Model) transferFileLine(entry config.TransferEntry, width int, selected bool) string {
 	nameStyle := detailValueStyle
 	if selected {
 		nameStyle = blueStyle.Bold(true)
 	}
-	left := cardMutedStyle.Render(transferEntryTypeLabel(entry)+" ") + nameStyle.Render(transferEntryName(entry))
-	right := cardMutedStyle.Render(transferEntryKindText(entry) + " " + transferTimeText(entry))
+	left := cardMutedStyle.Render(m.transferEntryTypeLabel(entry)+" ") + nameStyle.Render(transferEntryName(entry))
+	right := cardMutedStyle.Render(m.transferEntryKindText(entry) + " " + transferTimeText(entry))
 	gap := width - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if gap < 2 {
 		maxLeft := width - ansi.StringWidth(right) - 2
@@ -581,11 +587,11 @@ func transferFileLine(entry config.TransferEntry, width int, selected bool) stri
 	return left + strings.Repeat(" ", gap) + right
 }
 
-func transferEntryTypeLabel(entry config.TransferEntry) string {
+func (m Model) transferEntryTypeLabel(entry config.TransferEntry) string {
 	if entry.IsDir {
-		return "目录"
+		return m.t("Dir", "目录")
 	}
-	return "文件"
+	return m.t("File", "文件")
 }
 
 func transferJobError(entry config.TransferEntry) string {
@@ -627,7 +633,11 @@ func transferProgressBarLine(entry config.TransferEntry, width int) string {
 			filled = barWidth
 		}
 	}
-	bar := style.Render(strings.Repeat("▰", filled)) + barEmptyStyle.Render(strings.Repeat("▱", barWidth-filled))
+	filledChar, emptyChar := "▰", "▱"
+	if asciiModeEnabled {
+		filledChar, emptyChar = "#", "-"
+	}
+	bar := style.Render(strings.Repeat(filledChar, filled)) + barEmptyStyle.Render(strings.Repeat(emptyChar, barWidth-filled))
 	return bar + " " + suffix
 }
 
@@ -737,25 +747,32 @@ func transferStatusColor(status string) lipgloss.Color {
 	}
 }
 
-func transferStatusText(status string) string {
+func (m Model) transferStatusText(status string) string {
 	switch status {
 	case config.TransferStatusQueued:
-		return "等待中"
+		return m.t("Queued", "等待中")
 	case config.TransferStatusPending:
-		return "排队中"
+		return m.t("Pending", "排队中")
 	case config.TransferStatusRunning:
-		return "运行中"
+		return m.t("Running", "运行中")
 	case config.TransferStatusDone:
-		return "已完成"
+		return m.t("Done", "已完成")
 	case config.TransferStatusFailed:
-		return "失败"
+		return m.t("Failed", "失败")
 	case config.TransferStatusCanceled:
-		return "已取消"
+		return m.t("Canceled", "已取消")
 	case config.TransferStatusInterrupted:
-		return "中断"
+		return m.t("Interrupted", "中断")
 	default:
 		return status
 	}
+}
+
+func (m Model) transferEntryKindText(entry config.TransferEntry) string {
+	if entry.Kind == "download" {
+		return m.t("Download", "下载")
+	}
+	return m.t("Upload", "上传")
 }
 
 func transferTimeText(entry config.TransferEntry) string {
@@ -795,7 +812,7 @@ func (m Model) useSingleTransferPane(width int) bool {
 	return width < 70
 }
 
-func renderTransferPane(title string, choices []choice, index int, width int, height int, active bool, selected map[string]bool) string {
+func (m Model) renderTransferPane(title string, choices []choice, index int, width int, height int, active bool, selected map[string]bool) string {
 	if width < 34 {
 		width = 34
 	}
@@ -806,7 +823,7 @@ func renderTransferPane(title string, choices []choice, index int, width int, he
 	innerWidth := width - 4
 	lines := []string{titleStyle.Render(title)}
 	if len(choices) == 0 {
-		lines = append(lines, mutedStyle.Render("没有可选择的项目"))
+		lines = append(lines, mutedStyle.Render(m.t("No selectable items", "没有可选择的项目")))
 	} else {
 		maxRows := height - 2
 		if maxRows < 3 {

@@ -129,6 +129,16 @@ brew install rsync
 
 If the remote server is missing rsync, sshm asks whether to try installing it. Without sudo permission, install rsync manually.
 
+## Transfer Picker Shows Root Directories
+
+The settings page has a custom transfer directories switch.
+
+- Custom directories disabled: sshm lists directories directly under `/`.
+- Custom directories enabled with empty local or remote values: sshm also lists directories directly under `/`.
+- Custom directories enabled with values: those paths are shown as upload/download shortcuts.
+
+On macOS, paths such as `/etc`, `/tmp`, and `/var` are symlink directories. sshm follows local symlinks when deciding whether an entry can be expanded and deduplicates entries that point to the same real path.
+
 ## GitHub Fetch Fails
 
 Common errors:

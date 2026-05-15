@@ -34,7 +34,7 @@ func (m Model) renderDeploymentConfirm() string {
 		Padding(0, 1).
 		Width(width).
 		Render(strings.Join(fitLines(lines, bodyWidth), "\n"))
-	return strings.Join([]string{titleStyle.Render(fit("确认部署", width)), box, renderHelp(width, m.deploymentConfirmHelp())}, "\n")
+	return strings.Join([]string{titleStyle.Render(fit(m.t("Confirm Deployment", "确认部署"), width)), box, renderHelp(width, m.deploymentConfirmHelp())}, "\n")
 }
 
 func (m Model) deploymentConfirmBorderColor() lipgloss.Color {
@@ -61,49 +61,49 @@ func (m Model) deploymentConfirmLines(hostName string, bodyWidth int) []string {
 
 func (m Model) deploymentConfirmHelp() string {
 	if m.activeDeployment.Running {
-		return "滚动 ↑↓/jk  执行中"
+		return m.t("Scroll ↑↓/jk  Running", "滚动 ↑↓/jk  执行中")
 	}
 	if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.QueueFailed >= 0 && m.activeDeployment.ExitCode != 0 {
-		return "滚动 ↑↓/jk  重试失败 r  重新部署 a  返回 q/Esc"
+		return m.t("Scroll ↑↓/jk  Retry failed r  Redeploy a  Back q/Esc", "滚动 ↑↓/jk  重试失败 r  重新部署 a  返回 q/Esc")
 	}
 	if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.Output != "" {
-		return "滚动 ↑↓/jk  重新部署 a  返回 q/Esc"
+		return m.t("Scroll ↑↓/jk  Redeploy a  Back q/Esc", "滚动 ↑↓/jk  重新部署 a  返回 q/Esc")
 	}
-	return "滚动 ↑↓/jk  开始 Enter  重试失败 r  重新部署 a  返回 q/Esc"
+	return m.t("Scroll ↑↓/jk  Start Enter  Retry failed r  Redeploy a  Back q/Esc", "滚动 ↑↓/jk  开始 Enter  重试失败 r  重新部署 a  返回 q/Esc")
 }
 
 func (m Model) deploymentQueueConfirmLines(queue []config.DeploymentApp, bodyWidth int) []string {
 	current := m.deploymentQueueCurrentApp(queue)
 	lines := []string{}
 	if len(queue) == 1 {
-		lines = append(lines, detailSubTitle("部署信息"))
-		lines = append(lines, deploymentInfoLines(current, bodyWidth)...)
+		lines = append(lines, detailSubTitle(m.t("Deployment Info", "部署信息")))
+		lines = append(lines, m.deploymentInfoLines(current, bodyWidth)...)
 	} else {
 		lines = append(lines,
-			detailSubTitle("部署队列"),
-			mutedStyle.Render(fit("按下面顺序串行执行；每个应用完成后按自己的等待时间进入下一个。", bodyWidth)),
+			detailSubTitle(m.t("Deployment Queue", "部署队列")),
+			mutedStyle.Render(fit(m.t("Run serially in the order below; after each app, wait its configured seconds before the next one.", "按下面顺序串行执行；每个应用完成后按自己的等待时间进入下一个。"), bodyWidth)),
 			"",
 		)
 		for i, app := range queue {
-			lines = append(lines, deploymentQueueLine(m.activeDeployment, i, app, bodyWidth))
+			lines = append(lines, m.deploymentQueueLine(m.activeDeployment, i, app, bodyWidth))
 		}
 	}
-	lines = append(lines, "", detailSubTitle("当前流程"), fit(deploymentQueueFlowText(current), bodyWidth))
+	lines = append(lines, "", detailSubTitle(m.t("Current Flow", "当前流程")), fit(m.deploymentQueueFlowText(current), bodyWidth))
 	if len(m.activeDeployment.Queue) > 0 {
-		lines = append(lines, "", detailSubTitle("执行输出"))
+		lines = append(lines, "", detailSubTitle(m.t("Output", "执行输出")))
 		lines = append(lines, m.deploymentOutputContentLines(bodyWidth)...)
 		if !m.activeDeployment.Running && m.activeDeployment.Output != "" {
-			lines = append(lines, "", fmt.Sprintf("退出码 %d", m.activeDeployment.ExitCode))
+			lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.activeDeployment.ExitCode))
 		}
 	}
 	if len(queue) == 1 {
 		records := m.deploymentRecordsForApp(current, 50)
-		lines = append(lines, "", detailSubTitle(fmt.Sprintf("历史 %d条", len(records))))
+		lines = append(lines, "", detailSubTitle(fmt.Sprintf("%s %d%s", m.t("History", "历史"), len(records), m.t(" records", "条"))))
 		if len(records) == 0 {
-			lines = append(lines, mutedStyle.Render("暂无记录"))
+			lines = append(lines, mutedStyle.Render(m.t("No records", "暂无记录")))
 		} else {
 			for _, record := range records {
-				lines = append(lines, deploymentDetailHistoryLine(record, bodyWidth))
+				lines = append(lines, m.deploymentDetailHistoryLine(record, bodyWidth))
 			}
 		}
 	}
@@ -113,14 +113,14 @@ func (m Model) deploymentQueueConfirmLines(queue []config.DeploymentApp, bodyWid
 	return lines
 }
 
-func deploymentQueueLine(active activeDeployment, index int, app config.DeploymentApp, width int) string {
+func (m Model) deploymentQueueLine(active activeDeployment, index int, app config.DeploymentApp, width int) string {
 	icon := deploymentQueueStatusStyle(active, index).Render(deploymentQueueStatusIcon(active, index))
 	seq := cardMutedStyle.Render(fmt.Sprintf("%02d", index+1))
 	name := deploymentQueueNameStyle(active, index).Render(padVisible(emptyDash(app.Name), 14))
 	server := cardMutedStyle.Render(padVisible(emptyDash(app.Server), 18))
 	source := detailValueStyle.Render(padVisible(deploySourceText(app.Source), 7))
 	target := cardMutedStyle.Render(padVisible(deploymentAppTarget(app), 10))
-	wait := cardMutedStyle.Render(fmt.Sprintf("等待 %d秒", maxInt(0, app.WaitSeconds)))
+	wait := cardMutedStyle.Render(fmt.Sprintf("%s %d%s", m.t("Wait", "等待"), maxInt(0, app.WaitSeconds), m.t("s", "秒")))
 	return fitANSI(icon+" "+strings.Join([]string{seq, name, server, source, target, wait}, "  "), width)
 }
 
@@ -149,17 +149,17 @@ func deploymentAppTarget(app config.DeploymentApp) string {
 	return target
 }
 
-func deploymentInfoLines(app config.DeploymentApp, bodyWidth int) []string {
+func (m Model) deploymentInfoLines(app config.DeploymentApp, bodyWidth int) []string {
 	return []string{
-		deploymentDetailRow("应用", emptyDash(app.Name), bodyWidth),
-		deploymentDetailRow("服务器", deploymentDisplayServerText(app.Server), bodyWidth),
-		deploymentDetailRow("来源", deploySourceText(app.Source), bodyWidth),
-		deploymentDetailRow("仓库", emptyDash(app.Repo), bodyWidth),
-		deploymentDetailRow("目录", emptyDash(app.Path), bodyWidth),
-		deploymentDetailRow("凭证", deployCredentialText(app.Credential), bodyWidth),
-		deploymentDetailRow("凭证参数", emptyDash(app.CredentialName), bodyWidth),
-		deploymentDetailRow("收藏", yesNo(app.Favorite), bodyWidth),
-		deploymentDetailRow("置顶", yesNo(app.Pinned), bodyWidth),
+		deploymentDetailRow(m.t("App", "应用"), emptyDash(app.Name), bodyWidth),
+		deploymentDetailRow(m.t("Server", "服务器"), deploymentDisplayServerText(app.Server), bodyWidth),
+		deploymentDetailRow(m.t("Source", "来源"), deploySourceText(app.Source), bodyWidth),
+		deploymentDetailRow(m.t("Repo", "仓库"), emptyDash(app.Repo), bodyWidth),
+		deploymentDetailRow(m.t("Path", "目录"), emptyDash(app.Path), bodyWidth),
+		deploymentDetailRow(m.t("Credential", "凭证"), m.deployCredentialText(app.Credential), bodyWidth),
+		deploymentDetailRow(m.t("Credential param", "凭证参数"), emptyDash(app.CredentialName), bodyWidth),
+		deploymentDetailRow(m.t("Favorite", "收藏"), yesNoLang(app.Favorite, m.isChineseUI()), bodyWidth),
+		deploymentDetailRow(m.t("Pinned", "置顶"), yesNoLang(app.Pinned, m.isChineseUI()), bodyWidth),
 	}
 }
 
@@ -227,33 +227,33 @@ func deploymentQueueItemStatus(active activeDeployment, index int) string {
 	return "pending"
 }
 
-func deploymentQueueFlowText(app config.DeploymentApp) string {
+func (m Model) deploymentQueueFlowText(app config.DeploymentApp) string {
 	parts := []string{}
 	if len(app.BeforeCommands) > 0 {
-		parts = append(parts, fmt.Sprintf("更新前 %d步", len(app.BeforeCommands)))
+		parts = append(parts, fmt.Sprintf("%s %d%s", m.t("Before", "更新前"), len(app.BeforeCommands), m.t(" steps", "步")))
 	}
-	parts = append(parts, fmt.Sprintf("获取资源 %d步", len(app.ResourceCommands)))
+	parts = append(parts, fmt.Sprintf("%s %d%s", m.t("Fetch", "获取资源"), len(app.ResourceCommands), m.t(" steps", "步")))
 	if len(app.UpdateCommands) > 0 {
-		parts = append(parts, fmt.Sprintf("更新 %d步", len(app.UpdateCommands)))
+		parts = append(parts, fmt.Sprintf("%s %d%s", m.t("Update", "更新"), len(app.UpdateCommands), m.t(" steps", "步")))
 	}
 	if len(app.AfterCommands) > 0 {
-		parts = append(parts, fmt.Sprintf("更新后 %d步", len(app.AfterCommands)))
+		parts = append(parts, fmt.Sprintf("%s %d%s", m.t("After", "更新后"), len(app.AfterCommands), m.t(" steps", "步")))
 	}
 	if len(app.HealthCommands) > 0 {
-		parts = append(parts, fmt.Sprintf("健康检查 %d步", len(app.HealthCommands)))
+		parts = append(parts, fmt.Sprintf("%s %d%s", m.t("Health", "健康检查"), len(app.HealthCommands), m.t(" steps", "步")))
 	}
 	return strings.Join(parts, "  ")
 }
 
-func deploymentHistoryLine(record config.DeploymentRecord, width int) string {
+func (m Model) deploymentHistoryLine(record config.DeploymentRecord, width int) string {
 	version := deploymentRecordVersionText(record)
 	exit := ""
 	if record.Status == config.DeployStatusFailed && record.ExitCode != 0 {
-		exit = fmt.Sprintf("  退出码 %d", record.ExitCode)
+		exit = fmt.Sprintf("  %s %d", m.t("exit", "退出码"), record.ExitCode)
 	}
 	line := fmt.Sprintf("%s  %s  %s%s",
 		padVisible(deploymentRecordDateTimeText(record.Time), 11),
-		padVisible(deploymentRecordActionStatusText(record), 8),
+		padVisible(m.deploymentRecordActionStatusText(record), 14),
 		version,
 		exit,
 	)
@@ -305,18 +305,18 @@ func (m Model) renderDeploymentRollbackConfirm() string {
 		Padding(0, 1).
 		Width(width).
 		Render(strings.Join(fitLines(lines, bodyWidth), "\n"))
-	return strings.Join([]string{titleStyle.Render(fit("确认回滚", width)), box, renderHelp(width, "滚动 ↑↓/jk  执行 Enter  返回 Esc")}, "\n")
+	return strings.Join([]string{titleStyle.Render(fit(m.t("Confirm Rollback", "确认回滚"), width)), box, renderHelp(width, m.t("Scroll ↑↓/jk  Run Enter  Back Esc", "滚动 ↑↓/jk  执行 Enter  返回 Esc"))}, "\n")
 }
 
 func (m Model) deploymentRollbackConfirmLines(bodyWidth int) []string {
 	app := m.activeDeployment.App
 	lines := []string{
-		modalLine("服务器", m.activeDeploymentServerName(), bodyWidth),
-		modalLine("应用", app.Name, bodyWidth),
-		modalLine("上一版本", emptyDash(m.activeDeployment.PreviousVersion), bodyWidth),
-		modalLine("当前版本", emptyDash(m.activeDeployment.CurrentVersion), bodyWidth),
+		modalLine(m.t("Server", "服务器"), m.activeDeploymentServerName(), bodyWidth),
+		modalLine(m.t("App", "应用"), app.Name, bodyWidth),
+		modalLine(m.t("Previous version", "上一版本"), emptyDash(m.activeDeployment.PreviousVersion), bodyWidth),
+		modalLine(m.t("Current version", "当前版本"), emptyDash(m.activeDeployment.CurrentVersion), bodyWidth),
 		"",
-		detailSubTitle("回滚命令"),
+		detailSubTitle(m.t("Rollback commands", "回滚命令")),
 	}
 	for _, command := range app.RollbackCommands {
 		lines = appendWrappedCommandPreview(lines, command, bodyWidth)
@@ -372,14 +372,14 @@ func (m Model) renderDeploymentOutput() string {
 	if bodyWidth < 32 {
 		bodyWidth = 32
 	}
-	help := "滚动 ↑↓/jk  回滚 r  返回 q/Esc"
-	title := "部署输出  " + m.activeDeployment.App.Name
+	help := m.t("Scroll ↑↓/jk  Rollback r  Back q/Esc", "滚动 ↑↓/jk  回滚 r  返回 q/Esc")
+	title := m.t("Deployment Output  ", "部署输出  ") + m.activeDeployment.App.Name
 	lines := []string{
-		modalLine("应用", m.activeDeployment.App.Name, bodyWidth),
-		modalLine("来源", deploySourceText(m.activeDeployment.App.Source), bodyWidth),
-		modalLine("队列", deploymentQueueProgressText(m.activeDeployment), bodyWidth),
-		modalLine("上一版本", emptyDash(m.activeDeployment.PreviousVersion), bodyWidth),
-		modalLine("当前版本", emptyDash(m.activeDeployment.CurrentVersion), bodyWidth),
+		modalLine(m.t("App", "应用"), m.activeDeployment.App.Name, bodyWidth),
+		modalLine(m.t("Source", "来源"), deploySourceText(m.activeDeployment.App.Source), bodyWidth),
+		modalLine(m.t("Queue", "队列"), deploymentQueueProgressText(m.activeDeployment), bodyWidth),
+		modalLine(m.t("Previous version", "上一版本"), emptyDash(m.activeDeployment.PreviousVersion), bodyWidth),
+		modalLine(m.t("Current version", "当前版本"), emptyDash(m.activeDeployment.CurrentVersion), bodyWidth),
 		"",
 	}
 	lines = append(lines, m.deploymentOutputContentLines(bodyWidth)...)
@@ -429,9 +429,9 @@ func (m Model) deploymentOutputContentLines(width int) []string {
 	sections, loose, lastStage := deploymentOutputSections(output)
 	if len(stages) == 0 {
 		if output == "" {
-			return []string{mutedStyle.Render("(无输出)")}
+			return []string{mutedStyle.Render(m.t("(no output)", "(无输出)"))}
 		}
-		return deploymentOutputLines(output, width)
+		return m.deploymentOutputLines(output, width)
 	}
 	currentIndex := 0
 	if lastStage != "" {
@@ -444,7 +444,7 @@ func (m Model) deploymentOutputContentLines(width int) []string {
 	}
 	lines := []string{}
 	if len(loose) > 0 {
-		lines = append(lines, detailSubTitle("输出"))
+		lines = append(lines, detailSubTitle(m.t("Output", "输出")))
 		for _, line := range loose {
 			lines = append(lines, fit(line, width))
 		}
@@ -469,10 +469,10 @@ func (m Model) deploymentOutputContentLines(width int) []string {
 				status = "done"
 			}
 		}
-		lines = append(lines, deploymentOutputStageLine(stage, status, width))
+		lines = append(lines, m.deploymentOutputStageLine(stage, status, width))
 		stageLines := sections[stage]
 		if len(stageLines) == 0 && status == "running" {
-			lines = append(lines, mutedStyle.Render("  正在执行..."))
+			lines = append(lines, mutedStyle.Render("  "+m.t("Running...", "正在执行...")))
 		}
 		for _, line := range stageLines {
 			lines = append(lines, fit("  "+line, width))
@@ -521,6 +521,20 @@ func deploymentOutputStageLine(stage string, status string, width int) string {
 	}
 }
 
+func (m Model) deploymentOutputStageLine(stage string, status string, width int) string {
+	text := m.deploymentStageText(stage)
+	switch status {
+	case "running":
+		return blueStyle.Bold(true).Render(fit("▶ "+text, width))
+	case "done":
+		return greenStyle.Render(fit("✓ "+text, width))
+	case "failed":
+		return redStyle.Render(fit("✕ "+text, width))
+	default:
+		return mutedStyle.Render(fit("· "+text, width))
+	}
+}
+
 func deploymentQueueProgressText(active activeDeployment) string {
 	if len(active.Queue) <= 1 {
 		return "-"
@@ -554,7 +568,7 @@ func deploymentOutputSections(output string) (map[string][]string, []string, str
 	return sections, loose, current
 }
 
-func deploymentOutputLines(output string, width int) []string {
+func (m Model) deploymentOutputLines(output string, width int) []string {
 	rawLines := strings.Split(output, "\n")
 	lines := []string{}
 	for _, line := range rawLines {
@@ -565,12 +579,36 @@ func deploymentOutputLines(output string, width int) []string {
 			if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
 				lines = append(lines, "")
 			}
-			lines = append(lines, detailSubTitle(title))
+			lines = append(lines, detailSubTitle(m.deploymentStageText(title)))
 			continue
 		}
 		lines = append(lines, fit(line, width))
 	}
 	return lines
+}
+
+func (m Model) deploymentStageText(stage string) string {
+	if m.isChineseUI() {
+		return stage
+	}
+	switch stage {
+	case "更新前":
+		return "Before"
+	case "获取资源":
+		return "Fetch"
+	case "上传资源":
+		return "Upload resource"
+	case "更新":
+		return "Update"
+	case "更新后":
+		return "After"
+	case "健康检查":
+		return "Health"
+	case "回滚":
+		return "Rollback"
+	default:
+		return stage
+	}
 }
 
 func isDeploymentVersionMarker(line string) bool {
@@ -604,6 +642,13 @@ func deployFetchModeText(value string) string {
 	return "本地拉取后上传"
 }
 
+func (m Model) deployFetchModeText(value string) string {
+	if value == config.DeployFetchRemote {
+		return m.t("Remote fetch", "服务器拉取")
+	}
+	return m.t("Local fetch + upload", "本地拉取后上传")
+}
+
 func deployCredentialText(value string) string {
 	switch value {
 	case config.DeployCredentialSSH:
@@ -612,5 +657,16 @@ func deployCredentialText(value string) string {
 		return "Token"
 	default:
 		return "不配置"
+	}
+}
+
+func (m Model) deployCredentialText(value string) string {
+	switch value {
+	case config.DeployCredentialSSH:
+		return "SSH Key"
+	case config.DeployCredentialToken:
+		return "Token"
+	default:
+		return m.t("None", "不配置")
 	}
 }

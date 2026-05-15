@@ -253,13 +253,14 @@ Press `.` on the dashboard to open settings. Common settings can be edited in th
 | Setting | Description |
 | --- | --- |
 | Language | `en` / `zh`. Default is English |
-| ASCII mode | Reserved for terminals that need plain ASCII display |
+| ASCII mode | Use ASCII progress bars for terminals that render Unicode poorly |
 | Refresh interval | Dashboard collection interval, for example `5s`, `30s`, or `1m` |
 | Connect timeout | SSH connection timeout, for example `2s` or `5s` |
-| Command timeout | Monitoring and remote-command timeout, for example `6s` or `30s` |
-| CPU / memory / disk thresholds | Warning and critical colors used by dashboard and detail pages |
-| Local roots | Local shortcut directories used by the transfer picker, comma-separated |
-| Remote roots | Remote shortcut directories used by the transfer picker, comma-separated |
+| Command timeout | Monitoring, command templates, batch commands, deployment, rollback, and rsync check timeout |
+| CPU / memory / disk thresholds | Warning and critical colors used by dashboard, detail pages, anomaly overview, risk checks, and problem filter |
+| Custom transfer directories | When enabled, local and remote roots become upload/download shortcuts. When disabled or empty, sshm lists directories under `/` |
+| Local roots | Local shortcut directories used by the transfer picker when custom transfer directories are enabled |
+| Remote roots | Remote shortcut directories used by the transfer picker when custom transfer directories are enabled |
 
 <details>
 <summary>More Configuration Details</summary>

@@ -10,7 +10,7 @@ import (
 
 func (m Model) renderDeleteConfirm() string {
 	if m.deleteIndex < 0 || m.deleteIndex >= len(m.states) {
-		return "没有选中的服务器"
+		return m.t("No selected server", "没有选中的服务器")
 	}
 	h := m.states[m.deleteIndex].Host
 	width := detailFrameWidth(m.width)
@@ -19,12 +19,12 @@ func (m Model) renderDeleteConfirm() string {
 		bodyWidth = 32
 	}
 	lines := []string{
-		wrapPlainLine("服务器："+h.Name, bodyWidth),
-		wrapPlainLine("文件："+h.File, bodyWidth),
+		wrapPlainLine(m.t("Server: ", "服务器：")+h.Name, bodyWidth),
+		wrapPlainLine(m.t("File: ", "文件：")+h.File, bodyWidth),
 		"",
-		"将删除该服务器配置。",
+		m.t("This server configuration will be deleted.", "将删除该服务器配置。"),
 	}
-	return renderDangerConfirm("确认删除服务器", lines, width)
+	return m.renderDangerConfirm(m.t("Delete Server", "确认删除服务器"), lines, width)
 }
 
 func (m Model) renderConfirmAction() string {
@@ -37,10 +37,10 @@ func (m Model) renderConfirmAction() string {
 	for _, line := range m.confirm.Lines {
 		lines = append(lines, wrapPlainLine(line, bodyWidth))
 	}
-	return renderDangerConfirm(m.confirm.Title, lines, width)
+	return m.renderDangerConfirm(m.confirm.Title, lines, width)
 }
 
-func renderDangerConfirm(title string, lines []string, width int) string {
+func (m Model) renderDangerConfirm(title string, lines []string, width int) string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(red).
@@ -50,23 +50,23 @@ func renderDangerConfirm(title string, lines []string, width int) string {
 	return strings.Join([]string{
 		titleStyle.Render(fit(title, width)),
 		box,
-		renderHelp(width, "确认 Enter/y  取消 Esc/n"),
+		renderHelp(width, m.t("Confirm Enter/y  Cancel Esc/n", "确认 Enter/y  取消 Esc/n")),
 	}, "\n")
 }
 
 func (m Model) renderDetail() string {
 	lines, ok := m.detailLines()
 	if !ok {
-		return "没有选中的服务器"
+		return m.t("No selected server", "没有选中的服务器")
 	}
 	idx, _ := m.selectedRealIndex()
 	width := detailFrameWidth(m.width)
-	headerText := "服务器详情  " + hostDisplayName(m.states[idx].Host)
+	headerText := m.t("Server Detail  ", "服务器详情  ") + hostDisplayName(m.states[idx].Host)
 	if checks := m.currentDetailChecks(); len(checks) > 0 {
-		headerText += "  " + riskSummaryText(checks)
+		headerText += "  " + m.riskSummaryText(checks)
 	}
 	header := titleStyle.Render(fitANSI(headerText, width))
-	help := renderHelp(width, "滚动 ↑↓/jk  分类 ←→/Tab  登录 l  命令 m  上传 u  下载 d  刷新 r  返回 q/Esc")
+	help := renderHelp(width, m.t("Scroll ↑↓/jk  Section ←→/Tab  Login l  Command m  Upload u  Download d  Refresh r  Back q/Esc", "滚动 ↑↓/jk  分类 ←→/Tab  登录 l  命令 m  上传 u  下载 d  刷新 r  返回 q/Esc"))
 	tabs := m.renderDetailSectionTabs(width)
 	viewportHeight := m.detailViewportHeight()
 	if viewportHeight < len(lines) {
@@ -134,6 +134,20 @@ func shortDetailSectionName(section string) string {
 		return "登录"
 	case "风险提示":
 		return "风险"
+	case "Basic":
+		return "Basic"
+	case "Resources":
+		return "Res"
+	case "Services":
+		return "Svc"
+	case "Login Records":
+		return "Login"
+	case "Risks":
+		return "Risk"
+	case "Containers":
+		return "Cont"
+	case "Recent Error":
+		return "Error"
 	default:
 		return section
 	}
@@ -148,97 +162,98 @@ func (m Model) detailLines() ([]string, bool) {
 	h := state.Host
 	metrics := state.Metrics
 
-	status := "离线"
+	status := m.t("Offline", "离线")
 	if state.Loading {
-		status = "采集中"
+		status = m.t("Loading", "采集中")
 	} else if metrics.Online {
-		status = "在线"
+		status = m.t("Online", "在线")
 	}
 
 	lines := []string{
-		sectionTitle("基础信息"),
-		m.detailRow("状态", colorStatus(status, state.Loading, metrics.Online)),
-		m.detailRow("地址", h.Address()),
-		m.detailRow("用户", h.User),
-		m.detailRow("端口", h.Port),
-		m.detailRow("分类", emptyDash(h.Category)),
-		m.detailRow("收藏", yesNo(h.Favorite)),
-		m.detailRow("置顶", yesNo(h.Pinned)),
-		m.detailRow("认证方式", authText(h)),
-		m.detailRow("跳板机", jumpDetailText(h)),
-		m.detailRow("跳板机密钥", jumpKeyText(h)),
-		m.detailRow("主机名", emptyDash(metrics.RemoteHostname)),
-		m.detailRow("系统", emptyDash(metrics.OS)),
-		m.detailRow("内核", emptyDash(metrics.Kernel)),
-		m.detailRow("架构", emptyDash(metrics.Arch)),
-		m.detailRow("来源", h.File),
-		m.detailRow("到期时间", emptyDash(h.ExpireAt)),
-		m.detailRow("剩余时间", expireDetailText(h.ExpireAt)),
-		m.detailRow("备注", emptyDash(h.Note)),
-		m.detailRow("最近登录", lastLoginDetail(m.lastLogin(h))),
+		sectionTitle(m.t("Basic", "基础信息")),
+		m.detailRow(m.t("Status", "状态"), colorStatus(status, state.Loading, metrics.Online)),
+		m.detailRow(m.t("Address", "地址"), h.Address()),
+		m.detailRow(m.t("User", "用户"), h.User),
+		m.detailRow(m.t("Port", "端口"), h.Port),
+		m.detailRow(m.t("Category", "分类"), emptyDash(h.Category)),
+		m.detailRow(m.t("Favorite", "收藏"), yesNoLang(h.Favorite, m.isChineseUI())),
+		m.detailRow(m.t("Pinned", "置顶"), yesNoLang(h.Pinned, m.isChineseUI())),
+		m.detailRow(m.t("Auth", "认证方式"), m.authText(h)),
+		m.detailRow(m.t("Bastion", "跳板机"), m.jumpDetailText(h)),
+		m.detailRow(m.t("Bastion key", "跳板机密钥"), m.jumpKeyText(h)),
+		m.detailRow(m.t("Hostname", "主机名"), emptyDash(metrics.RemoteHostname)),
+		m.detailRow(m.t("OS", "系统"), emptyDash(metrics.OS)),
+		m.detailRow(m.t("Kernel", "内核"), emptyDash(metrics.Kernel)),
+		m.detailRow(m.t("Arch", "架构"), emptyDash(metrics.Arch)),
+		m.detailRow(m.t("Source", "来源"), h.File),
+		m.detailRow(m.t("Expire at", "到期时间"), emptyDash(h.ExpireAt)),
+		m.detailRow(m.t("Remaining", "剩余时间"), m.expireDetailText(h.ExpireAt)),
+		m.detailRow(m.t("Note", "备注"), emptyDash(h.Note)),
+		m.detailRow(m.t("Last login", "最近登录"), m.lastLoginDetail(m.lastLogin(h))),
 	}
-	checks := buildChecks(state)
+	thresholds := m.metricThresholds()
+	checks := m.buildChecks(state)
 	lines = append(lines,
 		"",
-		sectionTitle("资源监控"),
+		sectionTitle(m.t("Resources", "资源监控")),
 		detailSubTitle("CPU"),
-		m.detailRow("使用率", percentBar(metrics.CPUPercent)),
-		m.detailRow("核心数", cpuCoresText(metrics)),
-		m.detailRow("型号", emptyDash(metrics.CPUModel)),
+		m.detailRow(m.t("Usage", "使用率"), percentBarWithThreshold(metrics.CPUPercent, thresholds.CPUWarn, thresholds.CPUCrit)),
+		m.detailRow(m.t("Cores", "核心数"), m.cpuCoresText(metrics)),
+		m.detailRow(m.t("Model", "型号"), emptyDash(metrics.CPUModel)),
 		"",
-		detailSubTitle("内存"),
-		m.detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBar(metrics.MemPercent()), bytesHuman(metrics.MemUsed), bytesHuman(metrics.MemTotal))),
-		m.detailRow("可用", bytesHuman(metrics.MemAvailable)),
-		m.detailRow("Swap", swapUsageText(metrics)),
-		m.detailRow("Swap可用", swapFreeText(metrics)),
+		detailSubTitle(m.t("Memory", "内存")),
+		m.detailRow(m.t("Usage", "使用率"), fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.MemPercent(), thresholds.MemWarn, thresholds.MemCrit), bytesHuman(metrics.MemUsed), bytesHuman(metrics.MemTotal))),
+		m.detailRow(m.t("Available", "可用"), bytesHuman(metrics.MemAvailable)),
+		m.detailRow("Swap", m.swapUsageText(metrics)),
+		m.detailRow(m.t("Swap free", "Swap可用"), swapFreeText(metrics)),
 		"",
-		detailSubTitle("磁盘"),
-		m.detailRow("挂载点", emptyDash(metrics.DiskMountpoint)),
-		m.detailRow("文件系统", emptyDash(metrics.DiskFilesystem)),
-		m.detailRow("类型", emptyDash(metrics.DiskType)),
-		m.detailRow("使用率", fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.DiskPercent(), 80, 90), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
-		m.detailRow("可用", bytesHuman(metrics.DiskAvailable)),
+		detailSubTitle(m.t("Disk", "磁盘")),
+		m.detailRow(m.t("Mount", "挂载点"), emptyDash(metrics.DiskMountpoint)),
+		m.detailRow(m.t("Filesystem", "文件系统"), emptyDash(metrics.DiskFilesystem)),
+		m.detailRow(m.t("Type", "类型"), emptyDash(metrics.DiskType)),
+		m.detailRow(m.t("Usage", "使用率"), fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.DiskPercent(), thresholds.DiskWarn, thresholds.DiskCrit), bytesHuman(metrics.DiskUsed), bytesHuman(metrics.DiskTotal))),
+		m.detailRow(m.t("Available", "可用"), bytesHuman(metrics.DiskAvailable)),
 		m.diskListText(metrics),
-		m.detailRow("索引节点", inodeUsageText(metrics)),
-		m.detailRow("可用节点", countHuman(metrics.InodeAvailable)),
+		m.detailRow(m.t("Inodes", "索引节点"), m.inodeUsageText(metrics)),
+		m.detailRow(m.t("Free inodes", "可用节点"), countHuman(metrics.InodeAvailable)),
 		"",
-		detailSubTitle("系统"),
-		m.detailRow("负载", fmt.Sprintf("%s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))),
-		m.detailRow("运行时间", uptimeCN(metrics.Uptime)),
+		detailSubTitle(m.t("System", "系统")),
+		m.detailRow(m.t("Load", "负载"), fmt.Sprintf("%s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))),
+		m.detailRow(m.t("Uptime", "运行时间"), m.uptimeText(metrics.Uptime)),
 		"",
-		sectionTitle("服务状态"),
-		detailSubTitle("健康"),
-		m.detailRow("健康端口", healthPortsText(metrics)),
+		sectionTitle(m.t("Services", "服务状态")),
+		detailSubTitle(m.t("Health", "健康")),
+		m.detailRow(m.t("Health ports", "健康端口"), healthPortsText(metrics)),
 		"",
-		detailSubTitle("服务"),
+		detailSubTitle(m.t("Services", "服务")),
 	)
 	lines = append(lines, serviceDetailSummaryRows(m, metrics, state)...)
 	lines = append(lines,
 		"",
-		detailSubTitle("服务详情"),
+		detailSubTitle(m.t("Service details", "服务详情")),
 	)
 	lines = append(lines, serviceDetailRows(m, metrics, state)...)
 	lines = append(lines,
 		"",
-		detailSubTitle("端口"),
+		detailSubTitle(m.t("Ports", "端口")),
 	)
 	lines = append(lines, portDetailRows(m, state)...)
 	lines = append(lines,
 		"",
-		sectionTitle("容器"),
-		detailSubTitle("状态"),
+		sectionTitle(m.t("Containers", "容器")),
+		detailSubTitle(m.t("Status", "状态")),
 	)
 	lines = append(lines, dockerDetailRows(m, metrics, state)...)
-	lines = append(lines, "", detailSubTitle("详情"))
+	lines = append(lines, "", detailSubTitle(m.t("Details", "详情")))
 	lines = append(lines, containerDetailRows(m, state)...)
 	if metrics.Error != "" {
-		lines = append(lines, "", sectionTitle("最近错误"), m.detailRow("错误", metrics.Error))
+		lines = append(lines, "", sectionTitle(m.t("Recent Error", "最近错误")), m.detailRow(m.t("Error", "错误"), metrics.Error))
 	}
-	lines = append(lines, "", sectionTitle("登录记录"), detailSuccessSubTitle("成功"))
+	lines = append(lines, "", sectionTitle(m.t("Login Records", "登录记录")), detailSuccessSubTitle(m.t("Success", "成功")))
 	lines = append(lines, loginSummaryDetailRows(m, state.LoginLoading, state.LoginSummary, state.LoginError, false)...)
-	lines = append(lines, "", detailDangerSubTitle("失败"))
+	lines = append(lines, "", detailDangerSubTitle(m.t("Failed", "失败")))
 	lines = append(lines, loginSummaryDetailRows(m, state.LoginLoading, state.FailedLoginSummary, state.FailedLoginError, true)...)
-	lines = append(lines, "", sectionTitle("风险提示"))
+	lines = append(lines, "", sectionTitle(m.t("Risks", "风险提示")))
 	lines = append(lines, checkSuggestionRows(m, state, checks)...)
 	lines = m.activeDetailSectionLines(lines)
 	return lines, true
@@ -249,7 +264,7 @@ func (m Model) currentDetailChecks() []checkItem {
 	if !ok {
 		return nil
 	}
-	return buildChecks(m.states[idx])
+	return m.buildChecks(m.states[idx])
 }
 
 func (m Model) activeDetailSectionLines(lines []string) []string {
@@ -279,7 +294,7 @@ func (m Model) activeDetailSectionLines(lines []string) []string {
 		}
 	}
 	if len(out) == 0 {
-		return []string{m.renderDetailSectionLine(target, sectionTitle(target)), m.detailRow("状态", "暂无内容")}
+		return []string{m.renderDetailSectionLine(target, sectionTitle(target)), m.detailRow(m.t("Status", "状态"), m.t("No content", "暂无内容"))}
 	}
 	return out
 }

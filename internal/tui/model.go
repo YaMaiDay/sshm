@@ -55,6 +55,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	deploymentFile, _, _ := config.LoadDeployments(home)
 	_ = config.MarkRunningTransfersInterrupted(home)
 	transferHistory, _, _ := config.LoadTransfers(home)
+	setASCIIMode(appConfig.ASCIIMode)
 	states := make([]hostState, len(hosts))
 	for i, h := range hosts {
 		states[i] = hostState{Host: h, Loading: true}
@@ -63,7 +64,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	collector := monitor.NewCollector(passwords)
 	collector.Timeout = appConfig.CommandDuration()
 	collector.ConnectTimeout = appConfig.ConnectDuration()
-	return Model{
+	m := Model{
 		states:          states,
 		collector:       collector,
 		passwords:       passwords,
@@ -74,10 +75,12 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 		deploymentFile:  deploymentFile,
 		transferHistory: transferHistory,
 		categories:      categories,
-		status:          "正在采集服务器状态...",
+		status:          "",
 		collectRound:    1,
 		pendingByRound:  pendingByRound,
 	}
+	m.status = m.t("Collecting server status...", "正在采集服务器状态...")
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -103,13 +106,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pendingByRound[msg.Round] <= 0 {
 			delete(m.pendingByRound, msg.Round)
 			if msg.Manual && msg.Round == m.manualRound {
-				m.refreshStatus = fmt.Sprintf("手动刷新完成：%s", time.Now().Format("15:04:05"))
+				m.refreshStatus = fmt.Sprintf("%s%s", m.t("Manual refresh done: ", "手动刷新完成："), time.Now().Format("15:04:05"))
 				if !m.activeTransfer.Active {
 					m.status = m.refreshStatus
 				}
 			} else {
-				m.refreshStatus = fmt.Sprintf("最后刷新：%s", time.Now().Format("15:04:05"))
-				if m.status == "正在采集服务器状态..." {
+				m.refreshStatus = fmt.Sprintf("%s%s", m.t("Last refresh: ", "最后刷新："), time.Now().Format("15:04:05"))
+				if m.status == m.t("Collecting server status...", "正在采集服务器状态...") {
 					m.status = ""
 				}
 			}
@@ -122,22 +125,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reloadTransfers()
 		if status, ok := m.transferEntryStatus(msg.ID); ok {
 			if status == config.TransferStatusInterrupted {
-				m.status = msg.Kind + "已中断。"
+				m.status = fmt.Sprintf(m.t("%s interrupted.", "%s已中断。"), msg.Kind)
 				return m, clearStatusAfter(3 * time.Second)
 			}
 			if status == config.TransferStatusCanceled {
-				m.status = msg.Kind + "已取消。"
+				m.status = fmt.Sprintf(m.t("%s canceled.", "%s已取消。"), msg.Kind)
 				return m, clearStatusAfter(3 * time.Second)
 			}
 		}
 		if msg.Err != nil {
-			m.status = msg.Kind + "失败：" + transferErrorText(msg.Err, msg.Output)
+			m.status = fmt.Sprintf(m.t("%s failed: %s", "%s失败：%s"), msg.Kind, transferErrorText(msg.Err, msg.Output))
 			if m.transferRunAll {
 				return m.startNextQueuedTransfer()
 			}
 			return m, clearStatusAfter(3 * time.Second)
 		} else {
-			m.status = fmt.Sprintf("%s完成：%s -> %s", msg.Kind, filepath.Base(msg.Source), msg.Target)
+			m.status = fmt.Sprintf(m.t("%s complete: %s -> %s", "%s完成：%s -> %s"), msg.Kind, filepath.Base(msg.Source), msg.Target)
 			if m.transferRunAll {
 				return m.startNextQueuedTransfer()
 			}
@@ -146,28 +149,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case rsyncCheckMsg:
 		if msg.Missing {
 			m.panel.NeedsInstall = true
-			m.status = "远程未安装 rsync。按 i 尝试安装并继续，Esc 取消。"
+			m.status = m.t("Remote rsync is not installed. Press i to install and continue, Esc to cancel.", "远程未安装 rsync。按 i 尝试安装并继续，Esc 取消。")
 			return m, nil
 		}
 		if msg.ErrText != "" {
-			m.status = "检测 rsync 失败：" + msg.ErrText
+			m.status = m.t("Rsync check failed: ", "检测 rsync 失败：") + msg.ErrText
 			return m, nil
 		}
 		return m.createTransferJobsFromPanel()
 	case rsyncInstallMsg:
 		if msg.ErrText != "" {
-			m.status = "安装 rsync 失败：" + msg.ErrText
+			m.status = m.t("Rsync install failed: ", "安装 rsync 失败：") + msg.ErrText
 			return m, nil
 		}
 		m.panel.NeedsInstall = false
-		m.status = "rsync 安装成功，开始传输。"
+		m.status = m.t("Rsync installed, starting transfer.", "rsync 安装成功，开始传输。")
 		return m.createTransferJobsFromPanel()
 	case transferProgressMsg:
 		if !m.activeTransfer.Active {
 			return m, nil
 		}
 		m.reloadTransfers()
-		m.status = transferProgressText(m.activeTransfer, m.states)
+		m.status = m.transferProgressText(m.activeTransfer)
 		return m, transferProgressAfter(500 * time.Millisecond)
 	case clearStatusMsg:
 		if !m.activeTransfer.Active {
@@ -317,7 +320,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.sortBy = (m.sortBy + 1) % 5
 			m.selected = 0
-			m.status = "排序：" + m.sortName()
+			m.status = m.t("Sort: ", "排序：") + m.sortName()
 		case "o":
 			if m.filter == filterOnline {
 				m.filter = filterAll
@@ -354,9 +357,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.favoriteOnly = !m.favoriteOnly
 			m.selected = 0
 			if m.favoriteOnly {
-				m.status = "筛选：收藏"
+				m.status = m.t("Filter: favorites", "筛选：收藏")
 			} else {
-				m.status = "已取消收藏筛选"
+				m.status = m.t("Favorites filter cleared", "已取消收藏筛选")
 			}
 		case "tab":
 			m.cycleCategory()
@@ -415,7 +418,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.status = ""
 		case "r":
-			m.status = "正在刷新全部服务器..."
+			m.status = m.t("Refreshing all servers...", "正在刷新全部服务器...")
 			m.collectRound++
 			m.manualRound = m.collectRound
 			m.pendingByRound[m.collectRound] = len(m.states)
@@ -446,7 +449,7 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q", "ctrl+c":
 		m.mode = modeDashboard
 		m.copying = false
-		m.status = "已取消。"
+		m.status = m.t("Canceled.", "已取消。")
 	case "tab":
 		m.formPane = 1
 	case "down":
@@ -574,12 +577,12 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					oldName = m.categories[m.categoryIndex]
 				}
 				if err := config.RenameCategory(m.home, oldName, m.categoryDraft); err != nil {
-					m.status = "重命名分类失败：" + categoryErrorText(err)
+					m.status = m.t("Rename category failed: ", "重命名分类失败：") + m.categoryErrorText(err)
 				} else {
 					newName := strings.TrimSpace(m.categoryDraft)
 					hosts, err := config.LoadHosts(m.home)
 					if err != nil {
-						m.status = "重命名后重新读取失败：" + err.Error()
+						m.status = m.t("Reload after rename failed: ", "重命名后重新读取失败：") + err.Error()
 					} else {
 						m.reloadHosts(hosts)
 					}
@@ -588,15 +591,15 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if m.category == oldName {
 						m.category = newName
 					}
-					m.status = "分类已重命名。"
+					m.status = m.t("Category renamed.", "分类已重命名。")
 				}
 			} else {
 				if err := config.AddCategory(m.home, m.categoryDraft); err != nil {
-					m.status = "添加分类失败：" + categoryErrorText(err)
+					m.status = m.t("Add category failed: ", "添加分类失败：") + m.categoryErrorText(err)
 				} else {
 					m.reloadCategories(m.categoryDraft)
 					m.form.Category = m.categories[m.categoryIndex]
-					m.status = "分类已添加。"
+					m.status = m.t("Category added.", "分类已添加。")
 				}
 			}
 			m.addingCategory = false
@@ -615,7 +618,7 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q", "ctrl+c":
 		m.mode = modeDashboard
-		m.status = "已取消。"
+		m.status = m.t("Canceled.", "已取消。")
 	case "tab", "shift+tab":
 		m.formPane = 0
 	case "j", "down":
@@ -626,20 +629,20 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addingCategory = true
 		m.renamingCategory = false
 		m.categoryDraft = ""
-		m.status = "输入新分类名称。"
+		m.status = m.t("Enter new category name.", "输入新分类名称。")
 	case "r":
 		if len(m.categories) == 0 {
 			return m, nil
 		}
 		name := m.categories[m.categoryIndex]
 		if name == config.BastionCategory {
-			m.status = "跳板机分类不能重命名。"
+			m.status = m.t("The bastion category cannot be renamed.", "跳板机分类不能重命名。")
 			return m, nil
 		}
 		m.renamingCategory = true
 		m.addingCategory = false
 		m.categoryDraft = name
-		m.status = "输入新的分类名称。"
+		m.status = m.t("Enter the new category name.", "输入新的分类名称。")
 	case "x":
 		if len(m.categories) == 0 {
 			return m, nil
@@ -647,10 +650,10 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		name := m.categories[m.categoryIndex]
 		m.confirm = confirmAction{
 			Kind:  confirmDeleteCategory,
-			Title: "确认删除分类",
+			Title: m.t("Delete Category", "确认删除分类"),
 			Lines: []string{
-				"分类：" + name,
-				"将删除这个空分类。",
+				m.t("Category: ", "分类：") + name,
+				m.t("This empty category will be deleted.", "将删除这个空分类。"),
 			},
 			Back:  modeAddForm,
 			Value: name,
@@ -735,16 +738,16 @@ func (m *Model) reloadCategories(prefer string) {
 	}
 }
 
-func categoryErrorText(err error) string {
+func (m Model) categoryErrorText(err error) string {
 	switch {
 	case errors.Is(err, os.ErrInvalid):
-		return "至少需要保留一个分类，或分类名称不能为空"
+		return m.t("At least one category is required, and the category name cannot be empty", "至少需要保留一个分类，或分类名称不能为空")
 	case errors.Is(err, os.ErrPermission):
-		return "跳板机分类不能重命名或删除，分类下面还有服务器时也不能删除"
+		return m.t("The bastion category cannot be renamed or deleted; non-empty categories cannot be deleted", "跳板机分类不能重命名或删除，分类下面还有服务器时也不能删除")
 	case errors.Is(err, os.ErrExist):
-		return "分类名称已存在"
+		return m.t("Category already exists", "分类名称已存在")
 	case errors.Is(err, os.ErrNotExist):
-		return "分类不存在"
+		return m.t("Category does not exist", "分类不存在")
 	default:
 		return err.Error()
 	}
@@ -796,13 +799,13 @@ func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			name := m.confirm.Value
 			if err := config.DeleteCategory(m.home, name); err != nil {
 				m.mode = m.confirm.Back
-				m.status = "删除分类失败：" + categoryErrorText(err)
+				m.status = m.t("Delete category failed: ", "删除分类失败：") + m.categoryErrorText(err)
 				return m, nil
 			}
 			m.reloadCategories("")
 			m.form.Category = m.categories[m.categoryIndex]
 			m.mode = modeAddForm
-			m.status = "分类已删除。"
+			m.status = m.t("Category deleted.", "分类已删除。")
 		case confirmDeleteCommand:
 			item := m.confirm.Command
 			m.mode = modeCommandList
@@ -834,21 +837,21 @@ func (m Model) startAddForm() Model {
 	m.renamingCategory = false
 	m.categoryDraft = ""
 	m.form = addForm{Category: m.categories[m.categoryIndex], User: "root", Port: "22"}
-	m.status = "添加服务器"
+	m.status = m.t("Add Server", "添加服务器")
 	return m
 }
 
 func (m Model) copyHostName(category string, name string) string {
 	base := strings.TrimSpace(name)
 	if base == "" {
-		base = "服务器"
+		base = m.t("server", "服务器")
 	}
-	candidate := base + "-副本"
+	candidate := base + m.t("-copy", "-副本")
 	if !m.hostNameExists(category, candidate) {
 		return candidate
 	}
 	for i := 2; ; i++ {
-		candidate = fmt.Sprintf("%s-副本%d", base, i)
+		candidate = fmt.Sprintf("%s%s%d", base, m.t("-copy", "-副本"), i)
 		if !m.hostNameExists(category, candidate) {
 			return candidate
 		}
@@ -897,7 +900,7 @@ func (m Model) startCopyForm(idx int) Model {
 		Note:         input.Note,
 	}
 	m.formCursor = len([]rune(name))
-	m.status = "复制服务器"
+	m.status = m.t("Copy Server", "复制服务器")
 	return m
 }
 
@@ -929,7 +932,7 @@ func (m Model) startEditForm(idx int) Model {
 		ExpireAt:     input.ExpireAt,
 		Note:         input.Note,
 	}
-	m.status = "编辑服务器"
+	m.status = m.t("Edit Server", "编辑服务器")
 	return m
 }
 
@@ -951,7 +954,7 @@ func (m *Model) reloadHosts(hosts []host.Host) {
 func (m *Model) recordLastLogin(h host.Host, at time.Time) {
 	config.SetLastLogin(&m.appState, h, at)
 	if err := config.SaveState(m.home, m.appState); err != nil {
-		m.status = "最近登录保存失败：" + err.Error()
+		m.status = m.t("Failed to save last login: ", "最近登录保存失败：") + err.Error()
 	}
 }
 
@@ -969,14 +972,14 @@ func (m Model) toggleFavorite(index int) (tea.Model, tea.Cmd) {
 	}
 	hosts[index].Favorite = !hosts[index].Favorite
 	if err := config.SaveServerHosts(m.home, hosts); err != nil {
-		m.status = "收藏更新失败：" + err.Error()
+		m.status = m.t("Failed to update favorite: ", "收藏更新失败：") + err.Error()
 		return m, nil
 	}
 	m.states[index].Host.Favorite = hosts[index].Favorite
 	if hosts[index].Favorite {
-		m.status = "已收藏：" + hosts[index].Name
+		m.status = m.t("Favorited: ", "已收藏：") + hosts[index].Name
 	} else {
-		m.status = "已取消收藏：" + hosts[index].Name
+		m.status = m.t("Unfavorited: ", "已取消收藏：") + hosts[index].Name
 	}
 	if m.favoriteOnly && !hosts[index].Favorite {
 		m.selected = 0
@@ -1000,15 +1003,15 @@ func (m Model) togglePinned(index int) (tea.Model, tea.Cmd) {
 		hosts[index].PinnedOrder = nextPinnedOrder(hosts)
 	}
 	if err := config.SaveServerHosts(m.home, hosts); err != nil {
-		m.status = "置顶更新失败：" + err.Error()
+		m.status = m.t("Failed to update pin: ", "置顶更新失败：") + err.Error()
 		return m, nil
 	}
 	m.states[index].Host.Pinned = hosts[index].Pinned
 	m.states[index].Host.PinnedOrder = hosts[index].PinnedOrder
 	if hosts[index].Pinned {
-		m.status = "已置顶：" + hosts[index].Name
+		m.status = m.t("Pinned: ", "已置顶：") + hosts[index].Name
 	} else {
-		m.status = "已取消置顶：" + hosts[index].Name
+		m.status = m.t("Unpinned: ", "已取消置顶：") + hosts[index].Name
 	}
 	return m, nil
 }
@@ -1527,11 +1530,16 @@ func (m *Model) moveDetailSection(delta int) {
 }
 
 func (m Model) detailSectionNames() []string {
-	sections := []string{"基础信息", "资源监控", "服务状态", "容器"}
-	if idx, ok := m.selectedRealIndex(); ok && strings.TrimSpace(m.states[idx].Metrics.Error) != "" {
-		sections = append(sections, "最近错误")
+	sections := []string{
+		m.t("Basic", "基础信息"),
+		m.t("Resources", "资源监控"),
+		m.t("Services", "服务状态"),
+		m.t("Containers", "容器"),
 	}
-	sections = append(sections, "登录记录", "风险提示")
+	if idx, ok := m.selectedRealIndex(); ok && strings.TrimSpace(m.states[idx].Metrics.Error) != "" {
+		sections = append(sections, m.t("Recent Error", "最近错误"))
+	}
+	sections = append(sections, m.t("Login Records", "登录记录"), m.t("Risks", "风险提示"))
 	return sections
 }
 
@@ -1616,7 +1624,7 @@ func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.choices = nil
 		m.remoteTree = remoteTree{}
 		m.pickIndex = 0
-		m.status = "已取消。"
+		m.status = m.t("Canceled.", "已取消。")
 	case "j", "down":
 		m.movePick(1)
 	case "k", "up":
@@ -1640,16 +1648,16 @@ func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func transferProgressText(t activeTransfer, states []hostState) string {
+func (m Model) transferProgressText(t activeTransfer) string {
 	if t.Kind == "" {
 		return ""
 	}
 	if t.Total <= 0 {
-		return fmt.Sprintf("%s中：%s", t.Kind, filepath.Base(t.Source))
+		return fmt.Sprintf(m.t("%s: %s", "%s中：%s"), t.Kind, filepath.Base(t.Source))
 	}
 	current := int64(0)
-	if t.Kind == "上传" && t.HostIndex >= 0 && t.HostIndex < len(states) && t.RemotePath != "" {
-		current = remoteSizeBytes(states[t.HostIndex].Host, t.RemotePath)
+	if (t.Kind == "上传" || t.Kind == "Upload") && t.HostIndex >= 0 && t.HostIndex < len(m.states) && t.RemotePath != "" {
+		current = remoteSizeBytes(m.states[t.HostIndex].Host, t.RemotePath)
 	} else {
 		current = localPathSize(t.LocalPath)
 	}
@@ -1660,7 +1668,7 @@ func transferProgressText(t activeTransfer, states []hostState) string {
 	if percent > 99 {
 		percent = 99
 	}
-	return fmt.Sprintf("%s中：%s  %d%%", t.Kind, filepath.Base(t.Source), percent)
+	return fmt.Sprintf(m.t("%s: %s  %d%%", "%s中：%s  %d%%"), t.Kind, filepath.Base(t.Source), percent)
 }
 
 func remoteJoin(dir, name string) string {
@@ -1716,7 +1724,7 @@ func (m *Model) moveDashboardDown() {
 		m.move(1)
 		return
 	}
-	if m.dashboardMode == dashboardCards && !m.searching {
+	if m.dashboardMode == dashboardCards {
 		m.move(m.dashboardColumns())
 		return
 	}
@@ -1732,7 +1740,7 @@ func (m *Model) moveDashboardUp() {
 		m.move(-1)
 		return
 	}
-	if m.dashboardMode == dashboardCards && !m.searching {
+	if m.dashboardMode == dashboardCards {
 		m.move(-m.dashboardColumns())
 		return
 	}
@@ -1839,7 +1847,7 @@ func (m Model) filteredIndexes() []int {
 		if m.filter == filterOnline && !state.Metrics.Online {
 			continue
 		}
-		if m.filter == filterProblem && !isProblem(state) {
+		if m.filter == filterProblem && !m.isProblem(state) {
 			continue
 		}
 		text := strings.ToLower(strings.Join([]string{
@@ -1885,36 +1893,37 @@ func (m Model) sortCategoryBeforePinned() bool {
 	return m.dashboardMode == dashboardGrouped || m.category != ""
 }
 
-func isProblem(state hostState) bool {
+func (m Model) isProblem(state hostState) bool {
 	if !state.Metrics.Online && !state.Loading {
 		return true
 	}
-	return state.Metrics.CPUPercent >= 85 || state.Metrics.MemPercent() >= 85 || state.Metrics.DiskPercent() >= 90 || state.Metrics.FailedServices > 0
+	thresholds := m.metricThresholds()
+	return state.Metrics.CPUPercent >= thresholds.CPUCrit || state.Metrics.MemPercent() >= thresholds.MemCrit || state.Metrics.DiskPercent() >= thresholds.DiskCrit || state.Metrics.FailedServices > 0
 }
 
 func (m Model) sortName() string {
 	switch m.sortBy {
 	case sortState:
-		return "状态"
+		return m.t("Status", "状态")
 	case sortCPU:
 		return "CPU"
 	case sortMem:
-		return "内存"
+		return m.t("Memory", "内存")
 	case sortDisk:
-		return "磁盘"
+		return m.t("Disk", "磁盘")
 	default:
-		return "默认"
+		return m.t("Default", "默认")
 	}
 }
 
 func (m Model) filterName() string {
 	switch m.filter {
 	case filterOnline:
-		return "在线"
+		return m.t("Online", "在线")
 	case filterProblem:
-		return "异常"
+		return m.t("Problems", "异常")
 	default:
-		return "全部"
+		return m.t("All", "全部")
 	}
 }
 
@@ -1939,9 +1948,9 @@ func (m *Model) cycleCategory() {
 	}
 	m.category = categories[(current+1)%len(categories)]
 	if m.category == "" {
-		m.status = "分类：全部"
+		m.status = m.t("Category: All", "分类：全部")
 	} else {
-		m.status = "分类：" + m.category
+		m.status = m.t("Category: ", "分类：") + m.category
 	}
 }
 
@@ -2084,31 +2093,31 @@ func (m Model) View() string {
 	}
 
 	indexes := m.filteredIndexes()
-	headerParts := []string{"sshm", fmt.Sprintf("服务器 %d", len(indexes))}
-	headerParts = append(headerParts, "视图："+dashboardModeName(m.dashboardMode))
+	headerParts := []string{"sshm", fmt.Sprintf("%s %d", m.t("Servers", "服务器"), len(indexes))}
+	headerParts = append(headerParts, m.t("View: ", "视图：")+m.dashboardModeName(m.dashboardMode))
 	if m.dashboardMode == dashboardCategory {
-		headerParts = append(headerParts, "分类："+m.dashboardCategoryActiveLabel())
+		headerParts = append(headerParts, m.t("Category: ", "分类：")+m.dashboardCategoryActiveLabel())
 	}
 	if m.searching {
 		searchWidth := m.width / 3
 		if searchWidth < 8 {
 			searchWidth = 8
 		}
-		headerParts = append(headerParts, "搜索："+inlineCursorText(m.query, searchWidth, len([]rune(m.query))))
+		headerParts = append(headerParts, m.t("Search: ", "搜索：")+inlineCursorText(m.query, searchWidth, len([]rune(m.query))))
 	} else if m.query != "" {
-		headerParts = append(headerParts, "搜索："+m.query)
+		headerParts = append(headerParts, m.t("Search: ", "搜索：")+m.query)
 	}
 	if m.category != "" && m.dashboardMode != dashboardCategory {
-		headerParts = append(headerParts, "分类："+m.category)
+		headerParts = append(headerParts, m.t("Category: ", "分类：")+m.category)
 	}
 	if m.filter != filterAll {
-		headerParts = append(headerParts, "筛选："+m.filterName())
+		headerParts = append(headerParts, m.t("Filter: ", "筛选：")+m.filterName())
 	}
 	if m.favoriteOnly {
-		headerParts = append(headerParts, "只看收藏")
+		headerParts = append(headerParts, m.t("Favorites only", "只看收藏"))
 	}
 	if m.sortBy != sortDefault {
-		headerParts = append(headerParts, "排序："+m.sortName())
+		headerParts = append(headerParts, m.t("Sort: ", "排序：")+m.sortName())
 	}
 	if m.refreshStatus != "" {
 		headerParts = append(headerParts, m.refreshStatus)
@@ -2130,9 +2139,9 @@ func (m Model) View() string {
 	}
 
 	if len(m.states) == 0 {
-		lines = append(lines, mutedStyle.Render("没有服务器。按 a 添加服务器。"))
+		lines = append(lines, mutedStyle.Render(m.t("No servers. Press a to add one.", "没有服务器。按 a 添加服务器。")))
 	} else if len(indexes) == 0 {
-		lines = append(lines, mutedStyle.Render("没有匹配的服务器"))
+		lines = append(lines, mutedStyle.Render(m.t("No matching servers", "没有匹配的服务器")))
 	} else {
 		lines = append(lines, m.renderDashboard(indexes))
 	}
@@ -2143,9 +2152,9 @@ func (m Model) View() string {
 	}
 	helpBlock := m.renderDashboardHelp(helpWidth)
 	pageDots := ""
-	if m.dashboardMode == dashboardCards && !m.searching {
+	if m.dashboardMode == dashboardCards {
 		pageDots = m.dashboardPageDots(indexes)
-	} else if m.dashboardMode == dashboardGrouped && !m.searching {
+	} else if m.dashboardMode == dashboardGrouped {
 		pageDots = m.dashboardGroupedDots(indexes)
 	}
 	reservedBottomLines := strings.Count(helpBlock, "\n") + 1

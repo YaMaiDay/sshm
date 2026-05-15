@@ -87,7 +87,7 @@ func dockerDetailRows(m Model, metrics monitor.Metrics, state hostState) []strin
 	}
 	lines := []string{}
 	if total == 0 {
-		lines = append(lines, m.detailRow("状态", "未发现"))
+		lines = append(lines, m.detailRow(m.t("Status", "状态"), m.t("None found", "未发现")))
 	} else {
 		running, stopped, failed := containerDetailCounts(state.ContainerDetails)
 		if len(state.ContainerDetails) == 0 && (metrics.DockerRunning > 0 || metrics.DockerStopped > 0 || metrics.DockerFailed > 0) {
@@ -96,10 +96,10 @@ func dockerDetailRows(m Model, metrics monitor.Metrics, state hostState) []strin
 			failed = metrics.DockerFailed
 		}
 		lines = append(lines,
-			m.detailRow("总数", fmt.Sprintf("%d", total)),
-			m.detailRow("运行", fmt.Sprintf("%d", running)),
-			m.detailRow("停止", fmt.Sprintf("%d", stopped)),
-			m.detailRow("故障", fmt.Sprintf("%d", failed)),
+			m.detailRow(m.t("Total", "总数"), fmt.Sprintf("%d", total)),
+			m.detailRow(m.t("Running", "运行"), fmt.Sprintf("%d", running)),
+			m.detailRow(m.t("Stopped", "停止"), fmt.Sprintf("%d", stopped)),
+			m.detailRow(m.t("Failed", "故障"), fmt.Sprintf("%d", failed)),
 		)
 	}
 	return lines
@@ -107,28 +107,28 @@ func dockerDetailRows(m Model, metrics monitor.Metrics, state hostState) []strin
 
 func serviceDetailSummaryRows(m Model, metrics monitor.Metrics, state hostState) []string {
 	if state.LoginLoading {
-		return []string{m.detailRow("状态", "加载中")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
 	}
 	if strings.TrimSpace(state.ServiceError) != "" {
-		return []string{m.detailRow("状态", redStyle.Render(state.ServiceError))}
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(state.ServiceError))}
 	}
 	failed, running, active, stopped := serviceDetailCounts(state.ServiceDetails)
 	if len(state.ServiceDetails) == 0 {
 		if metrics.FailedServices > 0 {
-			return []string{m.detailRow("异常", redStyle.Render(failedServiceText(metrics, 8)))}
+			return []string{m.detailRow(m.t("Failed", "异常"), redStyle.Render(failedServiceText(metrics, 8)))}
 		}
-		return []string{m.detailRow("状态", "未发现异常")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("No problems found", "未发现异常"))}
 	}
 	other := len(state.ServiceDetails) - failed - running - active - stopped
 	lines := []string{
-		m.detailRow("总数", fmt.Sprintf("%d", len(state.ServiceDetails))),
-		m.detailRow("异常", serviceCountText(failed, true)),
-		m.detailRow("运行", serviceCountText(running, false)),
-		m.detailRow("活动", serviceCountText(active, false)),
-		m.detailRow("停止", serviceCountText(stopped, false)),
+		m.detailRow(m.t("Total", "总数"), fmt.Sprintf("%d", len(state.ServiceDetails))),
+		m.detailRow(m.t("Failed", "异常"), serviceCountText(failed, true)),
+		m.detailRow(m.t("Running", "运行"), serviceCountText(running, false)),
+		m.detailRow(m.t("Active", "活动"), serviceCountText(active, false)),
+		m.detailRow(m.t("Stopped", "停止"), serviceCountText(stopped, false)),
 	}
 	if other > 0 {
-		lines = append(lines, m.detailRow("其他", fmt.Sprintf("%d", other)))
+		lines = append(lines, m.detailRow(m.t("Other", "其他"), fmt.Sprintf("%d", other)))
 	}
 	return lines
 }
@@ -143,16 +143,16 @@ func serviceCountText(count int, danger bool) string {
 
 func serviceDetailRows(m Model, metrics monitor.Metrics, state hostState) []string {
 	if state.LoginLoading {
-		return []string{m.detailRow("状态", "加载中")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
 	}
 	if strings.TrimSpace(state.ServiceError) != "" {
-		return []string{m.detailRow("状态", redStyle.Render(state.ServiceError))}
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(state.ServiceError))}
 	}
 	if len(state.ServiceDetails) == 0 {
 		if metrics.FailedServices > 0 {
 			return failedServiceFallbackRows(m, metrics)
 		}
-		return []string{m.detailRow("状态", "未发现异常")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("No problems found", "未发现异常"))}
 	}
 	lines := []string{}
 	groups := []struct {
@@ -160,11 +160,11 @@ func serviceDetailRows(m Model, metrics monitor.Metrics, state hostState) []stri
 		Kind  string
 		Style lipgloss.Style
 	}{
-		{"异常", "failed", detailDangerStyle},
-		{"运行", "running", detailSubTitleStyle},
-		{"活动", "active", detailSubTitleStyle},
-		{"停止", "stopped", detailSubTitleStyle},
-		{"其他", "other", detailSubTitleStyle},
+		{m.t("Failed", "异常"), "failed", detailDangerStyle},
+		{m.t("Running", "运行"), "running", detailSubTitleStyle},
+		{m.t("Active", "活动"), "active", detailSubTitleStyle},
+		{m.t("Stopped", "停止"), "stopped", detailSubTitleStyle},
+		{m.t("Other", "其他"), "other", detailSubTitleStyle},
 	}
 	firstGroup := true
 	for _, group := range groups {
@@ -186,9 +186,9 @@ func serviceDetailRows(m Model, metrics monitor.Metrics, state hostState) []stri
 }
 
 func failedServiceFallbackRows(m Model, metrics monitor.Metrics) []string {
-	lines := []string{detailDangerStyle.Render(fmt.Sprintf("· 异常 %d", metrics.FailedServices))}
+	lines := []string{detailDangerStyle.Render(fmt.Sprintf("· %s %d", m.t("Failed", "异常"), metrics.FailedServices))}
 	if len(metrics.FailedUnits) == 0 {
-		lines = append(lines, m.detailRow("异常服务", failedServiceText(metrics, 8)))
+		lines = append(lines, m.detailRow(m.t("Failed services", "异常服务"), failedServiceText(metrics, 8)))
 		return lines
 	}
 	unitWidth := 10
@@ -234,20 +234,20 @@ func serviceUnitWidth(items []serviceDetail) int {
 }
 
 func serviceDetailItemRows(m Model, item serviceDetail, unitWidth int, index int) []string {
-	state := coloredServiceStatus(serviceStatusText(item), serviceDetailKind(item))
+	state := coloredServiceStatus(m.serviceStatusText(item), serviceDetailKind(item))
 	prefix := detailLabelStyle.Render(fmt.Sprintf("%02d  ", index))
 	unit := detailValueStyle.Render(padVisible(fit(item.Unit, unitWidth), unitWidth))
 	line := fitANSI(prefix+unit+"  "+state, m.detailContentWidth())
 	lines := []string{line}
 	indent := strings.Repeat(" ", 4)
 	if serviceRawState(item) != "" {
-		lines = append(lines, containerIndentedLine(m, indent, "状态", serviceRawState(item)))
+		lines = append(lines, containerIndentedLine(m, indent, m.t("State", "状态"), serviceRawState(item)))
 	}
 	if strings.TrimSpace(item.Load) != "" {
-		lines = append(lines, containerIndentedLine(m, indent, "加载", item.Load))
+		lines = append(lines, containerIndentedLine(m, indent, m.t("Load", "加载"), item.Load))
 	}
 	if strings.TrimSpace(item.Description) != "" {
-		lines = append(lines, containerIndentedLine(m, indent, "说明", item.Description))
+		lines = append(lines, containerIndentedLine(m, indent, m.t("Desc", "说明"), item.Description))
 	}
 	return lines
 }
@@ -324,6 +324,28 @@ func serviceStatusText(item serviceDetail) string {
 	}
 }
 
+func (m Model) serviceStatusText(item serviceDetail) string {
+	if m.isChineseUI() {
+		return serviceStatusText(item)
+	}
+	switch serviceDetailKind(item) {
+	case "failed":
+		return "Failed"
+	case "running":
+		return "Running"
+	case "active":
+		return "Active"
+	case "stopped":
+		return "Stopped"
+	default:
+		state := serviceRawState(item)
+		if state == "" {
+			return "Unknown"
+		}
+		return state
+	}
+}
+
 func serviceRawState(item serviceDetail) string {
 	parts := []string{}
 	if strings.TrimSpace(item.Active) != "" {
@@ -344,13 +366,13 @@ func coloredServiceStatus(status string, kind string) string {
 
 func portDetailRows(m Model, state hostState) []string {
 	if state.LoginLoading {
-		return []string{m.detailRow("状态", "加载中")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
 	}
 	if strings.TrimSpace(state.PortDetailsError) != "" {
-		return []string{m.detailRow("状态", redStyle.Render(state.PortDetailsError))}
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(state.PortDetailsError))}
 	}
 	if len(state.PortDetails) == 0 {
-		return []string{m.detailRow("状态", "未发现")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("None found", "未发现"))}
 	}
 	groups := groupedPortDetails(state.PortDetails)
 	lines := []string{}
@@ -358,9 +380,9 @@ func portDetailRows(m Model, state hostState) []string {
 		Title string
 		Key   string
 	}{
-		{"系统端口", "system"},
-		{"Docker端口", "docker"},
-		{"应用端口", "app"},
+		{m.t("System ports", "系统端口"), "system"},
+		{m.t("Docker ports", "Docker端口"), "docker"},
+		{m.t("App ports", "应用端口"), "app"},
 	}
 	first := true
 	for _, group := range groupDefs {
@@ -405,7 +427,7 @@ func portDetailItemRows(m Model, items []portDetail) []string {
 			pid = "-"
 		}
 		if item.Count > 1 {
-			pid = fmt.Sprintf("%s 等%d个", pid, item.Count)
+			pid = fmt.Sprintf("%s %s", pid, m.t(fmt.Sprintf("%d total", item.Count), fmt.Sprintf("等%d个", item.Count)))
 		}
 		label := strings.TrimSpace(item.Protocol + "/" + item.Port)
 		processPadding := processWidth - runewidth.StringWidth(process) + 2
@@ -471,13 +493,13 @@ func detailAlignedRow(m Model, label, value string, labelWidth int) string {
 
 func containerDetailRows(m Model, state hostState) []string {
 	if state.LoginLoading {
-		return []string{m.detailRow("状态", "加载中")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
 	}
 	if strings.TrimSpace(state.ContainerError) != "" {
-		return []string{m.detailRow("状态", redStyle.Render(state.ContainerError))}
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(state.ContainerError))}
 	}
 	if len(state.ContainerDetails) == 0 {
-		return []string{m.detailRow("状态", "未发现")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("None found", "未发现"))}
 	}
 	lines := []string{}
 	groups := []struct {
@@ -485,9 +507,9 @@ func containerDetailRows(m Model, state hostState) []string {
 		Kind  string
 		Style lipgloss.Style
 	}{
-		{"故障", "failed", detailDangerStyle},
-		{"运行", "running", detailSubTitleStyle},
-		{"停止", "stopped", detailSubTitleStyle},
+		{m.t("Failed", "故障"), "failed", detailDangerStyle},
+		{m.t("Running", "运行"), "running", detailSubTitleStyle},
+		{m.t("Stopped", "停止"), "stopped", detailSubTitleStyle},
 	}
 	firstGroup := true
 	for _, group := range groups {
@@ -527,20 +549,20 @@ func containerDetailItemRows(m Model, item containerDetail, nameWidth int, index
 		status = "-"
 	}
 	ports := item.Ports
-	state := coloredContainerStatus(containerStatusSummary(status), containerDetailKind(item))
+	state := coloredContainerStatus(m.containerStatusSummary(status), containerDetailKind(item))
 	prefix := detailLabelStyle.Render(fmt.Sprintf("%02d  ", index))
 	name := detailValueStyle.Render(padVisible(fit(item.Name, nameWidth), nameWidth))
 	line := fitANSI(prefix+name+"  "+state, m.detailContentWidth())
 	lines := []string{line}
 	indent := strings.Repeat(" ", 4)
 	if strings.TrimSpace(item.Status) != "" {
-		lines = append(lines, containerIndentedLine(m, indent, "状态", item.Status))
+		lines = append(lines, containerIndentedLine(m, indent, m.t("Status", "状态"), item.Status))
 	}
 	if strings.TrimSpace(item.Image) != "" {
-		lines = append(lines, containerIndentedLine(m, indent, "镜像", item.Image))
+		lines = append(lines, containerIndentedLine(m, indent, m.t("Image", "镜像"), item.Image))
 	}
 	if simplified := simplifyDockerPorts(ports); simplified != "" {
-		lines = append(lines, containerIndentedLine(m, indent, "端口", simplified))
+		lines = append(lines, containerIndentedLine(m, indent, m.t("Ports", "端口"), simplified))
 	}
 	return lines
 }
@@ -585,6 +607,77 @@ func containerStatusSummary(status string) string {
 	default:
 		return raw
 	}
+}
+
+func (m Model) containerStatusSummary(status string) string {
+	if m.isChineseUI() {
+		return containerStatusSummary(status)
+	}
+	raw := strings.TrimSpace(status)
+	lower := strings.ToLower(raw)
+	switch {
+	case strings.Contains(lower, "unhealthy"):
+		return strings.TrimSpace("Unhealthy " + dockerStatusAgeEN(raw, "Up"))
+	case strings.HasPrefix(lower, "up "):
+		age := dockerStatusAgeEN(raw, "Up")
+		if strings.Contains(lower, "healthy") {
+			return strings.TrimSpace("Healthy " + age)
+		}
+		return strings.TrimSpace("Running " + age)
+	case strings.HasPrefix(lower, "restarting"):
+		return strings.TrimSpace("Restarting " + dockerStatusAgoEN(raw))
+	case strings.HasPrefix(lower, "exited"):
+		return strings.TrimSpace("Exited " + dockerStatusAgoEN(raw))
+	case strings.HasPrefix(lower, "created"):
+		return strings.TrimSpace("Created " + dockerStatusAgoEN(raw))
+	default:
+		return raw
+	}
+}
+
+func dockerStatusAgeEN(status string, prefix string) string {
+	status = strings.TrimSpace(status)
+	status = strings.TrimPrefix(status, prefix)
+	if idx := strings.Index(status, "("); idx >= 0 {
+		status = status[:idx]
+	}
+	return shortDockerDurationEN(status)
+}
+
+func dockerStatusAgoEN(status string) string {
+	status = strings.TrimSpace(status)
+	if idx := strings.LastIndex(status, ")"); idx >= 0 && idx < len(status)-1 {
+		status = status[idx+1:]
+	}
+	status = strings.TrimSuffix(strings.TrimSpace(status), "ago")
+	return shortDockerDurationEN(status)
+}
+
+func shortDockerDurationEN(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(value, "Created ")
+	fields := strings.Fields(value)
+	if len(fields) < 2 {
+		return value
+	}
+	unit := fields[1]
+	switch {
+	case strings.HasPrefix(unit, "second"):
+		unit = "s"
+	case strings.HasPrefix(unit, "minute"):
+		unit = "m"
+	case strings.HasPrefix(unit, "hour"):
+		unit = "h"
+	case strings.HasPrefix(unit, "day"):
+		unit = "d"
+	case strings.HasPrefix(unit, "week"):
+		unit = "w"
+	case strings.HasPrefix(unit, "month"):
+		unit = "mo"
+	case strings.HasPrefix(unit, "year"):
+		unit = "y"
+	}
+	return fields[0] + unit
 }
 
 func dockerStatusAge(status string, prefix string) string {
@@ -742,13 +835,13 @@ func containerDetailCounts(items []containerDetail) (int, int, int) {
 
 func loginSummaryDetailRows(m Model, loading bool, summary []string, errText string, danger bool) []string {
 	if loading {
-		return []string{m.detailRow("状态", "加载中")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
 	}
 	if strings.TrimSpace(errText) != "" {
-		return []string{m.detailRow("状态", redStyle.Render(errText))}
+		return []string{m.detailRow(m.t("Status", "状态"), redStyle.Render(errText))}
 	}
 	if len(summary) == 0 {
-		return []string{m.detailRow("状态", "未发现")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("None found", "未发现"))}
 	}
 	lines := make([]string, 0, len(summary))
 	for _, line := range summary {
@@ -757,27 +850,61 @@ func loginSummaryDetailRows(m Model, loading bool, summary []string, errText str
 			label = "记录"
 			value = line
 		}
+		value = m.loginSummaryValueText(value)
 		if danger && label == "统计" {
 			value = redStyle.Render(value)
 		}
-		lines = append(lines, m.detailRow(label, value))
+		lines = append(lines, m.detailRow(m.loginSummaryLabel(label), value))
 	}
 	return lines
 }
 
+func (m Model) loginSummaryLabel(label string) string {
+	if m.isChineseUI() {
+		return label
+	}
+	switch label {
+	case "统计":
+		return "Stats"
+	case "来源IP":
+		return "Source IP"
+	case "用户名":
+		return "User"
+	case "最近":
+		return "Latest"
+	case "疑似扫描":
+		return "Scan"
+	case "记录":
+		return "Record"
+	default:
+		return label
+	}
+}
+
+func (m Model) loginSummaryValueText(value string) string {
+	if m.isChineseUI() {
+		return value
+	}
+	value = regexp.MustCompile(`最近(\d+)条`).ReplaceAllString(value, "last $1")
+	value = regexp.MustCompile(`(\d+)次`).ReplaceAllString(value, "$1 times")
+	value = regexp.MustCompile(`尝试(\d+)个用户名`).ReplaceAllString(value, "tried $1 users")
+	value = strings.ReplaceAll(value, "、", ", ")
+	return value
+}
+
 func checkSuggestionRows(m Model, state hostState, checks []checkItem) []string {
 	if state.LoginLoading {
-		return []string{m.detailRow("状态", "检查中")}
+		return []string{m.detailRow(m.t("Status", "状态"), m.t("Checking", "检查中"))}
 	}
 	rows := make([]string, 0, len(checks))
 	for _, check := range checks {
 		if check.Level == "正常" {
 			continue
 		}
-		rows = append(rows, m.detailRow(check.Level, styleCheck(check.Level, check.Text)))
+		rows = append(rows, m.detailRow(m.checkLevelText(check.Level), m.styleCheck(check.Level, m.checkText(check.Text))))
 	}
 	if len(rows) == 0 {
-		rows = append(rows, m.detailRow("正常", "未发现明显风险"))
+		rows = append(rows, m.detailRow(m.t("OK", "正常"), m.t("No obvious risks found", "未发现明显风险")))
 	}
 	return rows
 }
@@ -803,7 +930,31 @@ func riskSummaryText(checks []checkItem) string {
 	return strings.Join(parts, "  ")
 }
 
-func cardRiskText(checks []checkItem, width int) string {
+func (m Model) riskSummaryText(checks []checkItem) string {
+	if m.isChineseUI() {
+		return riskSummaryText(checks)
+	}
+	counts := map[string]int{}
+	for _, check := range checks {
+		counts[check.Level]++
+	}
+	if counts["严重"] == 0 && counts["警告"] == 0 && counts["提示"] == 0 {
+		return greenStyle.Render("OK")
+	}
+	parts := []string{}
+	if counts["严重"] > 0 {
+		parts = append(parts, redStyle.Render(fmt.Sprintf("Critical%d", counts["严重"])))
+	}
+	if counts["警告"] > 0 {
+		parts = append(parts, yellowStyle.Render(fmt.Sprintf("Warn%d", counts["警告"])))
+	}
+	if counts["提示"] > 0 {
+		parts = append(parts, detailValueStyle.Render(fmt.Sprintf("Info%d", counts["提示"])))
+	}
+	return strings.Join(parts, "  ")
+}
+
+func (m Model) cardRiskText(checks []checkItem, width int) string {
 	counts := map[string]int{}
 	for _, check := range checks {
 		counts[check.Level]++
@@ -811,7 +962,7 @@ func cardRiskText(checks []checkItem, width int) string {
 	if counts["严重"] == 0 && counts["警告"] == 0 {
 		return ""
 	}
-	text := cardMutedStyle.Render("风险 ")
+	text := cardMutedStyle.Render(m.t("Risk ", "风险 "))
 	if counts["严重"] > 0 {
 		text += redStyle.Render(fmt.Sprintf("%d", counts["严重"]))
 	}
@@ -829,7 +980,32 @@ type checkItem struct {
 	Text  string
 }
 
-func buildChecks(state hostState) []checkItem {
+type metricThresholds struct {
+	CPUWarn  float64
+	CPUCrit  float64
+	MemWarn  float64
+	MemCrit  float64
+	DiskWarn float64
+	DiskCrit float64
+}
+
+func (m Model) metricThresholds() metricThresholds {
+	cfg := m.appConfig
+	return metricThresholds{
+		CPUWarn:  cfg.Thresholds.CPUWarn,
+		CPUCrit:  cfg.Thresholds.CPUCrit,
+		MemWarn:  cfg.Thresholds.MemWarn,
+		MemCrit:  cfg.Thresholds.MemCrit,
+		DiskWarn: cfg.Thresholds.DiskWarn,
+		DiskCrit: cfg.Thresholds.DiskCrit,
+	}
+}
+
+func (m Model) buildChecks(state hostState) []checkItem {
+	return buildChecksWithThresholds(state, m.metricThresholds())
+}
+
+func buildChecksWithThresholds(state hostState, thresholds metricThresholds) []checkItem {
 	metrics := state.Metrics
 	var checks []checkItem
 	add := func(level string, text string) {
@@ -890,15 +1066,19 @@ func buildChecks(state hostState) []checkItem {
 	if failedScan != "" && failedScan != "-" {
 		add("警告", "失败登录来源IP过多：警告，"+failedScan)
 	}
-	if metrics.DiskPercent() >= 90 {
+	if metrics.DiskPercent() >= thresholds.DiskCrit {
 		add("严重", fmt.Sprintf("磁盘容量：风险，使用率%.0f%%，建议尽快清理", metrics.DiskPercent()))
-	} else if metrics.DiskPercent() >= 80 {
+	} else if metrics.DiskPercent() >= thresholds.DiskWarn {
 		add("警告", fmt.Sprintf("磁盘容量：警告，使用率%.0f%%，建议关注容量", metrics.DiskPercent()))
 	}
-	if metrics.MemPercent() >= 90 {
+	if metrics.MemPercent() >= thresholds.MemCrit {
+		add("严重", fmt.Sprintf("内存使用：风险，使用率%.0f%%，建议尽快排查进程", metrics.MemPercent()))
+	} else if metrics.MemPercent() >= thresholds.MemWarn {
 		add("警告", fmt.Sprintf("内存使用：警告，使用率%.0f%%，建议排查进程", metrics.MemPercent()))
 	}
-	if metrics.CPUPercent >= 90 {
+	if metrics.CPUPercent >= thresholds.CPUCrit {
+		add("严重", fmt.Sprintf("CPU使用：风险，使用率%.0f%%，建议尽快排查负载", metrics.CPUPercent))
+	} else if metrics.CPUPercent >= thresholds.CPUWarn {
 		add("警告", fmt.Sprintf("CPU使用：警告，使用率%.0f%%，建议排查负载", metrics.CPUPercent))
 	}
 	_, detailStopped, detailFailed := containerDetailCounts(state.ContainerDetails)
@@ -956,6 +1136,142 @@ func styleCheck(level string, text string) string {
 	}
 }
 
+func (m Model) styleCheck(level string, text string) string {
+	return styleCheck(level, text)
+}
+
+func (m Model) checkLevelText(level string) string {
+	if m.isChineseUI() {
+		return level
+	}
+	switch level {
+	case "严重":
+		return "Critical"
+	case "警告":
+		return "Warn"
+	case "提示":
+		return "Info"
+	case "正常":
+		return "OK"
+	default:
+		return level
+	}
+}
+
+func (m Model) checkText(text string) string {
+	if m.isChineseUI() {
+		return text
+	}
+	if strings.Contains(text, "允许密码登录：") {
+		return "Password login: risk, disable PasswordAuthentication"
+	}
+	if strings.Contains(text, "允许root登录：风险") {
+		return "Root login: risk, set PermitRootLogin no"
+	}
+	if strings.Contains(text, "允许root登录：警告") {
+		return "Root login: warning, not fully disabled; set PermitRootLogin no"
+	}
+	if strings.Contains(text, "密钥登录：") {
+		return "Key login: warning, SSH key login is disabled"
+	}
+	if strings.Contains(text, "SSH配置检查：") {
+		return "SSH config: " + afterLastColon(text)
+	}
+	if strings.Contains(text, "SSH端口：") {
+		port := extractFirstNumber(text)
+		if port == "" {
+			port = "-"
+		}
+		return "SSH port: current port " + port + ", restrict security group to your IP"
+	}
+	if strings.Contains(text, "失败登录来源IP过多：") {
+		num := extractFirstNumber(text)
+		if strings.Contains(text, "fail2ban") {
+			return "Failed logins: risk, " + num + " recent failed logins; restrict security group or enable fail2ban"
+		}
+		if strings.Contains(text, "来源IP") {
+			return "Failed logins: warning, " + num + " source IPs found"
+		}
+		return "Failed logins: warning, " + num + " recent failed logins"
+	}
+	if strings.Contains(text, "磁盘容量：") {
+		return "Disk usage: " + englishRiskSeverity(text) + ", usage " + extractPercent(text)
+	}
+	if strings.Contains(text, "内存使用：") {
+		return "Memory usage: warning, usage " + extractPercent(text)
+	}
+	if strings.Contains(text, "CPU使用：") {
+		return "CPU usage: warning, usage " + extractPercent(text)
+	}
+	if strings.Contains(text, "容器状态：") {
+		num := extractFirstNumber(text)
+		if strings.Contains(text, "故障容器") {
+			return "Containers: warning, " + num + " failed containers"
+		}
+		return "Containers: info, " + num + " stopped containers"
+	}
+	if strings.Contains(text, "容器详情：") {
+		return "Container details: " + afterLastColon(text)
+	}
+	if strings.Contains(text, "端口详情：") {
+		return "Port details: " + afterLastColon(text)
+	}
+	if strings.Contains(text, "系统服务：") {
+		return "System services: warning, " + extractFirstNumber(text) + " failed services"
+	}
+	if strings.Contains(text, "健康端口：") {
+		return "Health ports: warning, " + extractHealthRatio(text) + " healthy"
+	}
+	if strings.Contains(text, "公网端口：") {
+		return "Public ports: info, " + extractFirstNumber(text) + " Docker mapped ports found"
+	}
+	if strings.Contains(text, "服务器到期：") {
+		return "Server expiry: " + englishRiskSeverity(text) + ", " + strings.ReplaceAll(afterLastColon(text), "天", "d")
+	}
+	if strings.Contains(text, "服务器状态：") {
+		return "Server status: offline, monitoring data unavailable"
+	}
+	return text
+}
+
+func afterLastColon(value string) string {
+	if idx := strings.LastIndex(value, "："); idx >= 0 && idx < len(value)-len("：") {
+		return value[idx+len("："):]
+	}
+	return value
+}
+
+func extractFirstNumber(value string) string {
+	return regexp.MustCompile(`\d+`).FindString(value)
+}
+
+func extractPercent(value string) string {
+	if got := regexp.MustCompile(`\d+%`).FindString(value); got != "" {
+		return got
+	}
+	return "-"
+}
+
+func extractHealthRatio(value string) string {
+	if got := regexp.MustCompile(`\d+/\d+`).FindString(value); got != "" {
+		return got
+	}
+	return "-"
+}
+
+func englishRiskSeverity(value string) string {
+	switch {
+	case strings.Contains(value, "风险"):
+		return "risk"
+	case strings.Contains(value, "警告"):
+		return "warning"
+	case strings.Contains(value, "提示"):
+		return "info"
+	default:
+		return "info"
+	}
+}
+
 func loginSummaryCount(summary []string) int {
 	for _, row := range summary {
 		label, value, ok := strings.Cut(row, "\t")
@@ -1004,20 +1320,23 @@ func loginSummaryValue(summary []string, label string) string {
 	return ""
 }
 
-func serviceCardText(metrics monitor.Metrics) string {
+func (m Model) serviceCardText(metrics monitor.Metrics) string {
 	total := dockerTotal(metrics)
-	containerText := cardMutedStyle.Render(fmt.Sprintf("容器 %d/%d/%d", metrics.DockerFailed, metrics.DockerRunning, total))
+	containerLabel := m.t("Ctr", "容器")
+	serviceLabel := m.t("Svc", "服务")
+	healthLabel := m.t("Health", "健康")
+	containerText := cardMutedStyle.Render(fmt.Sprintf("%s %d/%d/%d", containerLabel, metrics.DockerFailed, metrics.DockerRunning, total))
 	if total == 0 {
-		containerText = cardMutedStyle.Render("容器 0")
+		containerText = cardMutedStyle.Render(containerLabel + " 0")
 	}
 	if metrics.DockerFailed > 0 {
-		containerText = cardMutedStyle.Render("容器 ") + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
+		containerText = cardMutedStyle.Render(containerLabel+" ") + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
 	}
 	serviceNumber := cardMutedStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	if metrics.FailedServices > 0 {
 		serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	}
-	serviceText := cardMutedStyle.Render("服务 ") + serviceNumber
+	serviceText := cardMutedStyle.Render(serviceLabel+" ") + serviceNumber
 	if metrics.HealthTotal() > 0 {
 		healthNumber := cardMutedStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
 		switch {
@@ -1028,7 +1347,7 @@ func serviceCardText(metrics monitor.Metrics) string {
 		default:
 			healthNumber = yellowStyle.Render(fmt.Sprintf("%d/%d", metrics.HealthOK(), metrics.HealthTotal()))
 		}
-		healthText := cardMutedStyle.Render("健康 ") + healthNumber
+		healthText := cardMutedStyle.Render(healthLabel+" ") + healthNumber
 		return fmt.Sprintf("%s  %s  %s", healthText, containerText, serviceText)
 	}
 	return fmt.Sprintf("%s  %s", containerText, serviceText)

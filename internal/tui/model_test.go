@@ -14,7 +14,44 @@ import (
 	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
 	"github.com/YaMaiDay/sshm/internal/host"
+	"github.com/YaMaiDay/sshm/internal/monitor"
 )
+
+func TestDashboardCardUsesEnglishLabelsByDefault(t *testing.T) {
+	m := Model{
+		appConfig: config.AppConfig{Language: "en"},
+		states: []hostState{{
+			Host: host.Host{Name: "api", Category: "aws", HostName: "10.0.0.1", User: "root", Port: "22"},
+			Metrics: monitor.Metrics{
+				Online:        true,
+				CPUPercent:    1,
+				CPUCores:      2,
+				MemUsed:       1024 * 1024 * 1024,
+				MemTotal:      4 * 1024 * 1024 * 1024,
+				DiskUsed:      12 * 1024 * 1024 * 1024,
+				DiskTotal:     50 * 1024 * 1024 * 1024,
+				Load1:         "0.01",
+				Load5:         "0.02",
+				Load15:        "0.03",
+				Uptime:        "up 32 days",
+				DockerRunning: 3,
+				DockerTotal:   3,
+			},
+		}},
+	}
+
+	out := ansi.Strip(m.renderCard(0, false, 56, false))
+	for _, want := range []string{"Mem", "Disk", "Load", "Ctr 0/3/3", "Svc 0", "32d"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered card missing %q:\n%s", want, out)
+		}
+	}
+	for _, notWant := range []string{"内存", "磁盘", "负载", "容器", "服务", "风险", "32天"} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("rendered card contains Chinese text %q:\n%s", notWant, out)
+		}
+	}
+}
 
 func TestDashboardCategoryItemsOnlyIncludesRealCategories(t *testing.T) {
 	m := Model{
@@ -190,7 +227,8 @@ func TestBuildDeploymentScriptGitIncludesPipeline(t *testing.T) {
 }
 
 func TestDeploymentOutputLinesRendersStageTitles(t *testing.T) {
-	lines := deploymentOutputLines(strings.Join([]string{
+	m := Model{appConfig: config.AppConfig{Language: "zh"}}
+	lines := m.deploymentOutputLines(strings.Join([]string{
 		"SSHM_PREVIOUS_VERSION=",
 		"== 获取资源 ==",
 		"Cloning into '.'...",
@@ -235,7 +273,7 @@ func TestDeploymentOutputShowsInteractiveStages(t *testing.T) {
 		},
 	}
 	view := m.renderDeploymentOutput()
-	for _, want := range []string{"✓ 更新前", "▶ 获取资源", "· 更新", "Cloning into '.'..."} {
+	for _, want := range []string{"✓ Before", "▶ Fetch", "· Update", "Cloning into '.'..."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("deployment output missing %q:\n%s", want, view)
 		}
@@ -403,13 +441,13 @@ func TestDeploymentConfirmDoesNotShowResourceCommands(t *testing.T) {
 		deploymentConfirm: app,
 	}
 	view := m.renderDeploymentConfirm()
-	if !strings.Contains(view, "部署信息") || strings.Contains(view, "部署队列") || strings.Contains(view, "01") {
+	if !strings.Contains(view, "Deployment Info") || strings.Contains(view, "Deployment Queue") || strings.Contains(view, "01") {
 		t.Fatalf("single confirm should show deployment info, not queue row:\n%s", view)
 	}
-	if strings.Contains(view, "获取资源命令") || strings.Contains(view, "git pull --ff-only") {
+	if strings.Contains(view, "Fetch commands") || strings.Contains(view, "git pull --ff-only") {
 		t.Fatalf("confirm view should not show resource command detail:\n%s", view)
 	}
-	if !strings.Contains(view, "获取资源") || !strings.Contains(view, "1步") {
+	if !strings.Contains(view, "Fetch") || !strings.Contains(view, "1 steps") {
 		t.Fatalf("confirm view should still show resource step summary:\n%s", view)
 	}
 }
@@ -444,10 +482,10 @@ func TestDeploymentConfirmShowsFiftyHistoryRows(t *testing.T) {
 		deploymentConfirm: app,
 	}
 	view := m.renderDeploymentConfirm()
-	if !strings.Contains(view, "历史 50条") {
+	if !strings.Contains(view, "History 50 records") {
 		t.Fatalf("confirm view missing history title:\n%s", view)
 	}
-	if got := strings.Count(view, "部署成功"); got != 50 {
+	if got := strings.Count(view, "Deploy success"); got != 50 {
 		t.Fatalf("history rows = %d, want 50\n%s", got, view)
 	}
 	if strings.Contains(view, "new-50") || strings.Contains(view, "new-51") {
@@ -577,12 +615,12 @@ func TestDeploymentConfirmShowsQueueAndWait(t *testing.T) {
 		deploymentConfirmQueue: apps,
 	}
 	view := m.renderDeploymentConfirm()
-	for _, want := range []string{"部署队列", "01", "web", "等待 3秒", "02", "api", "当前流程", "获取资源 1步", "更新 1步"} {
+	for _, want := range []string{"Deployment Queue", "01", "web", "Wait 3s", "02", "api", "Current Flow", "Fetch 1 steps", "Update 1 steps"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("confirm view missing %q:\n%s", want, view)
 		}
 	}
-	for _, notWant := range []string{"历史 ", "服务器    prod/web", "应用      web", "    流程", "健康检查 1步"} {
+	for _, notWant := range []string{"History ", "Server    prod/web", "App       web", "    Flow", "Health 1 steps"} {
 		if strings.Contains(view, notWant) {
 			t.Fatalf("batch confirm view should not show single-app detail %q:\n%s", notWant, view)
 		}
@@ -610,7 +648,7 @@ func TestDeploymentQueueConfirmShowsCurrentFlowAndStopsOnFailure(t *testing.T) {
 		},
 	}
 	view := m.renderDeploymentConfirm()
-	for _, want := range []string{"✓ 01", "✕ 02", "当前流程", "执行输出", "✕ 获取资源", "fatal: repository not found", "退出码 128", "重试失败 r", "重新部署 a"} {
+	for _, want := range []string{"✓ 01", "✕ 02", "Current Flow", "Output", "✕ Fetch", "fatal: repository not found", "Exit code 128", "Retry failed r", "Redeploy a"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("queue confirm view missing %q:\n%s", want, view)
 		}
@@ -665,7 +703,7 @@ func TestDeploymentListShowsLastRecordActionAndTime(t *testing.T) {
 		},
 	}
 	got := m.deploymentLastRecordText(app)
-	if !strings.Contains(got, "回滚失败") || !strings.Contains(got, "分钟前") {
+	if !strings.Contains(got, "Rollback failed") || !strings.Contains(got, "m ago") {
 		t.Fatalf("last record text = %q", got)
 	}
 }
@@ -704,7 +742,7 @@ func TestDeploymentEditInputWidthsAlign(t *testing.T) {
 	}
 	view := m.renderDeploymentEdit()
 	wantWidth := deploymentInputWidth() + 2
-	for _, label := range []string{"应用名称", "仓库", "分支", "项目目录", "凭证参数", "等待时间"} {
+	for _, label := range []string{"App name", "Repo", "Branch", "App dir", "Cred param", "Wait"} {
 		line := findLineContaining(view, label)
 		if line == "" {
 			t.Fatalf("deployment edit view missing %q:\n%s", label, view)
@@ -801,7 +839,7 @@ func TestHandleDeploymentDoneStopsQueueOnFailure(t *testing.T) {
 	if got.activeDeployment.QueueFailed != 0 || got.activeDeployment.Running {
 		t.Fatalf("active deployment after failure = %+v", got.activeDeployment)
 	}
-	if !strings.Contains(got.status, "部署队列停止") {
+	if !strings.Contains(got.status, "Deployment queue stopped") {
 		t.Fatalf("status = %q, want queue stopped", got.status)
 	}
 }
@@ -815,7 +853,7 @@ func TestContainerDetailRowsShowRawStatus(t *testing.T) {
 		Ports:  "9092/tcp",
 	}, 10, 1)
 	got := strings.Join(rows, "\n")
-	if !strings.Contains(got, "异常 2周") || !strings.Contains(got, "状态 Up 2 weeks (unhealthy)") {
+	if !strings.Contains(got, "Unhealthy 2w") || !strings.Contains(got, "Status Up 2 weeks (unhealthy)") {
 		t.Fatalf("container rows missing summary or raw status:\n%s", got)
 	}
 }
@@ -849,7 +887,7 @@ func TestServiceDetailRowsShowStatusAndDescription(t *testing.T) {
 		Description: "Redis server",
 	}, 14, 1)
 	got := strings.Join(rows, "\n")
-	if !strings.Contains(got, "异常") || !strings.Contains(got, "状态 failed/failed") || !strings.Contains(got, "说明 Redis server") {
+	if !strings.Contains(got, "Failed") || !strings.Contains(got, "State failed/failed") || !strings.Contains(got, "Desc Redis server") {
 		t.Fatalf("service rows missing status or description:\n%s", got)
 	}
 }

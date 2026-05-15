@@ -38,18 +38,13 @@ func (m Model) renderSettings() string {
 }
 
 func (m Model) settingsHeader(width int) string {
-	title := "设置"
-	if !m.isChineseUI() {
-		title = "Settings"
-	}
+	title := m.t("Settings", "设置")
 	status := strings.TrimSpace(m.status)
 	if status == "" || status == title {
 		return title
 	}
 	statusStyle := mutedStyle
-	lowerStatus := strings.ToLower(status)
-	if strings.Contains(status, "失败") || strings.Contains(status, "不能") || strings.Contains(status, "需要") ||
-		strings.Contains(lowerStatus, "failed") || strings.Contains(lowerStatus, "cannot") || strings.Contains(lowerStatus, "must") {
+	if m.hasErrorText(status) {
 		statusStyle = redStyle
 	}
 	return title + "  " + statusStyle.Render(fit(status, width-ansi.StringWidth(title)-2))
@@ -63,9 +58,9 @@ func (m Model) settingsLines(width int) []string {
 			settingsChoiceLine(m, settingsASCIIMode, "ASCII mode", yesNoLang(m.settingsForm.ASCIIMode, false), width),
 			"",
 			deploymentSectionTitle("Monitoring"),
-			settingsInputLine(m, settingsRefreshInterval, "Refresh interval", m.settingsForm.RefreshInterval, width, "e.g. 5s, 30s, 1m"),
-			settingsInputLine(m, settingsConnectTimeout, "Connect timeout", m.settingsForm.ConnectTimeout, width, "e.g. 2s, 5s"),
-			settingsInputLine(m, settingsCommandTimeout, "Command timeout", m.settingsForm.CommandTimeout, width, "e.g. 6s, 30s"),
+			settingsSecondsLine(m, settingsRefreshInterval, "Refresh interval", m.settingsForm.RefreshInterval, width),
+			settingsSecondsLine(m, settingsConnectTimeout, "Connect timeout", m.settingsForm.ConnectTimeout, width),
+			settingsSecondsLine(m, settingsCommandTimeout, "Command timeout", m.settingsForm.CommandTimeout, width),
 			"",
 			deploymentSectionTitle("Alert Thresholds"),
 			settingsInputLine(m, settingsCPUWarn, "CPU warn", m.settingsForm.CPUWarn, width, "percent"),
@@ -76,10 +71,10 @@ func (m Model) settingsLines(width int) []string {
 			settingsInputLine(m, settingsDiskCrit, "Disk critical", m.settingsForm.DiskCrit, width, "percent"),
 			"",
 			deploymentSectionTitle("Directories"),
+			settingsChoiceLine(m, settingsCustomDirs, "Custom dirs", yesNoLang(m.settingsForm.CustomDirs, false), width),
 			settingsInputLine(m, settingsLocalDirs, "Local dirs", m.settingsForm.LocalDirs, width, "comma separated"),
 			settingsInputLine(m, settingsRemoteDirs, "Remote dirs", m.settingsForm.RemoteDirs, width, "comma separated"),
-			"",
-			mutedStyle.Render(fit("Note: English is the default language. Chinese remains available as a secondary language.", width)),
+			mutedStyle.Render(fit("Used as common upload/download directories. No, or Yes with empty values, lists directories under /.", width)),
 		}
 	}
 	return []string{
@@ -88,9 +83,9 @@ func (m Model) settingsLines(width int) []string {
 		settingsChoiceLine(m, settingsASCIIMode, "ASCII 模式", yesNoLang(m.settingsForm.ASCIIMode, true), width),
 		"",
 		deploymentSectionTitle("监控"),
-		settingsInputLine(m, settingsRefreshInterval, "刷新间隔", m.settingsForm.RefreshInterval, width, "例如 5s、30s、1m"),
-		settingsInputLine(m, settingsConnectTimeout, "连接超时", m.settingsForm.ConnectTimeout, width, "例如 2s、5s"),
-		settingsInputLine(m, settingsCommandTimeout, "命令超时", m.settingsForm.CommandTimeout, width, "例如 6s、30s"),
+		settingsSecondsLine(m, settingsRefreshInterval, "刷新间隔", m.settingsForm.RefreshInterval, width),
+		settingsSecondsLine(m, settingsConnectTimeout, "连接超时", m.settingsForm.ConnectTimeout, width),
+		settingsSecondsLine(m, settingsCommandTimeout, "命令超时", m.settingsForm.CommandTimeout, width),
 		"",
 		deploymentSectionTitle("告警阈值"),
 		settingsInputLine(m, settingsCPUWarn, "CPU 警告", m.settingsForm.CPUWarn, width, "百分比"),
@@ -101,10 +96,10 @@ func (m Model) settingsLines(width int) []string {
 		settingsInputLine(m, settingsDiskCrit, "磁盘严重", m.settingsForm.DiskCrit, width, "百分比"),
 		"",
 		deploymentSectionTitle("常用目录"),
+		settingsChoiceLine(m, settingsCustomDirs, "启用自定义", yesNoLang(m.settingsForm.CustomDirs, true), width),
 		settingsInputLine(m, settingsLocalDirs, "本地目录", m.settingsForm.LocalDirs, width, "逗号分隔"),
 		settingsInputLine(m, settingsRemoteDirs, "远程目录", m.settingsForm.RemoteDirs, width, "逗号分隔"),
-		"",
-		mutedStyle.Render(fit("说明：英文是默认语言，中文作为第二语言保留。", width)),
+		mutedStyle.Render(fit("说明：这里配置上传/下载的常用目录；否或启用后为空，则显示 / 下面的目录。", width)),
 	}
 }
 
@@ -138,6 +133,19 @@ func settingsInputLine(m Model, field int, label string, value string, width int
 	return settingsFieldLine(m, field, label, display, width)
 }
 
+func settingsSecondsLine(m Model, field int, label string, value string, width int) string {
+	inputWidth := settingsSecondsInputWidth(width)
+	display := commandInputText(value, m.settingsCursor, m.settingsField == field, inputWidth)
+	if m.settingsField != field && strings.TrimSpace(value) == "" {
+		display = "[" + fit("0", inputWidth) + strings.Repeat(" ", maxInt(0, inputWidth-1)) + "]"
+	}
+	unit := "s"
+	if m.isChineseUI() {
+		unit = "秒"
+	}
+	return settingsFieldLine(m, field, label, display+"  "+unit, width)
+}
+
 func settingsFieldLine(m Model, field int, label string, value string, width int) string {
 	prefix := " "
 	style := lipgloss.NewStyle()
@@ -163,6 +171,17 @@ func settingsInputWidth(width int) int {
 	}
 	if inputWidth < 18 {
 		inputWidth = 18
+	}
+	return inputWidth
+}
+
+func settingsSecondsInputWidth(width int) int {
+	inputWidth := settingsInputWidth(width) - runewidth.StringWidth("  s")
+	if inputWidth < 8 {
+		inputWidth = 8
+	}
+	if inputWidth > 20 {
+		inputWidth = 20
 	}
 	return inputWidth
 }

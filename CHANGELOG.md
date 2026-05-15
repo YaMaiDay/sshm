@@ -2,6 +2,16 @@
 
 This file records user-visible changes. Historical release notes are available in GitHub Releases.
 
+## v0.1.44 - 2026-05-15
+
+### Changed
+
+- Complete English-by-default UI coverage across dashboard, server details, transfers, command templates, deployment, settings, and anomaly views.
+- Make settings fully active: ASCII mode changes progress bars, command timeout applies to commands and deployment, and warning thresholds drive dashboard colors, risks, and problem filters.
+- Keep dashboard search in the current view instead of switching cards to list view.
+- Clarify custom transfer directory behavior: disabled or empty custom directories list `/` entries; enabled values become upload/download shortcuts.
+- Treat local symlink directories as expandable directories in transfer pickers and deduplicate entries by real path.
+
 ## v0.1.43 - 2026-05-15
 
 ### Changed

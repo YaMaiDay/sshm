@@ -14,9 +14,6 @@ import (
 )
 
 func (m Model) renderDashboard(indexes []int) string {
-	if m.searching {
-		return m.renderDashboardList(indexes, m.width)
-	}
 	if m.dashboardMode == dashboardCategory {
 		return m.renderDashboardCategory(indexes)
 	}
@@ -26,14 +23,14 @@ func (m Model) renderDashboard(indexes []int) string {
 	return m.renderDashboardGrid(indexes)
 }
 
-func dashboardModeName(mode dashboardMode) string {
+func (m Model) dashboardModeName(mode dashboardMode) string {
 	switch mode {
 	case dashboardCategory:
-		return "分类"
+		return m.t("Category", "分类")
 	case dashboardGrouped:
-		return "分组"
+		return m.t("Group", "分组")
 	default:
-		return "卡片"
+		return m.t("Cards", "卡片")
 	}
 }
 
@@ -143,11 +140,11 @@ func (m Model) dashboardListLine(index int, selected bool, width int) string {
 		prefix = "▶"
 		nameStyle = blueStyle.Bold(true)
 	}
-	status := "离线"
+	status := m.t("Offline", "离线")
 	if state.Loading {
-		status = "采集"
+		status = m.t("Loading", "采集")
 	} else if metrics.Online {
-		status = "在线"
+		status = m.t("Online", "在线")
 	}
 	nameWidth := 28
 	if width < 110 {
@@ -158,9 +155,9 @@ func (m Model) dashboardListLine(index int, selected bool, width int) string {
 	}
 	name := nameStyle.Render(padVisible(fitANSI(dashboardHostDisplayName(h), nameWidth), nameWidth))
 	statusText := padVisible(colorStatus(status, state.Loading, metrics.Online), 6)
-	cpu, mem, disk := dashboardListResourceColumns(state)
-	containerText, serviceText := dashboardListServiceColumns(metrics)
-	expire := padVisible(expireCardTextOrDash(h.ExpireAt), 10)
+	cpu, mem, disk := m.dashboardListResourceColumns(state)
+	containerText, serviceText := m.dashboardListServiceColumns(metrics)
+	expire := padVisible(m.expireCardTextOrDash(h.ExpireAt), 10)
 	addressWidth := 22
 	if width < 100 {
 		addressWidth = 16
@@ -201,7 +198,7 @@ func (m Model) groupedLines(indexes []int, width int) ([]string, int, int) {
 	for i, index := range indexes {
 		category := strings.TrimSpace(m.states[index].Host.Category)
 		if category == "" {
-			category = "未分类"
+			category = m.t("Uncategorized", "未分类")
 		}
 		if i == 0 || category != lastCategory {
 			if len(lines) > 0 {
@@ -234,13 +231,13 @@ func (m Model) groupedCategoryHeader(category string, indexes []int, width int) 
 	for _, index := range indexes {
 		cat := strings.TrimSpace(m.states[index].Host.Category)
 		if cat == "" {
-			cat = "未分类"
+			cat = m.t("Uncategorized", "未分类")
 		}
 		if cat == category {
 			count++
 		}
 	}
-	countText := fmt.Sprintf("%d台", count)
+	countText := fmt.Sprintf("%d%s", count, m.t(" servers", "台"))
 	nameWidth := width - runewidth.StringWidth(countText) - 2
 	if nameWidth < 1 {
 		nameWidth = 1
@@ -279,10 +276,10 @@ func (m Model) renderGroupedCard(index int, selected bool, width int) string {
 	}
 	title := pinnedMark + favoriteMark + h.Name
 	recentLabel := ""
-	if recent := lastLoginCard(m.lastLogin(h)); recent != "" {
+	if recent := m.lastLoginCard(m.lastLogin(h)); recent != "" {
 		recentLabel = cardMutedStyle.Render(recent)
 	}
-	uptimeLabel := cardHeaderMeta(h, metrics)
+	uptimeLabel := m.cardHeaderMeta(h, metrics)
 	stateMark := colorStatus("●", state.Loading, metrics.Online)
 
 	userPort := h.User
@@ -296,12 +293,13 @@ func (m Model) renderGroupedCard(index int, selected bool, width int) string {
 	addressLine := fmt.Sprintf("%s %s:%s", h.Address(), userPort, port)
 
 	barWidth := 8
-	cpuLine := groupedMetricText("CPU", metrics.CPUPercent, cpuCoresText(metrics), barWidth, 70, 85)
-	memLine := groupedMetricText("内存", metrics.MemPercent(), bytesPair(metrics.MemUsed, metrics.MemTotal), barWidth, 70, 85)
-	diskLine := groupedMetricText("磁盘", metrics.DiskPercent(), diskSummaryText(metrics), barWidth, 80, 90)
-	loadLine := fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))
-	serviceLine := serviceCardText(metrics)
-	if riskText := cardRiskText(buildChecks(state), innerWidth); riskText != "" {
+	thresholds := m.metricThresholds()
+	cpuLine := groupedMetricText("CPU", metrics.CPUPercent, m.cpuCoresText(metrics), barWidth, thresholds.CPUWarn, thresholds.CPUCrit)
+	memLine := groupedMetricText(m.t("Mem", "内存"), metrics.MemPercent(), bytesPair(metrics.MemUsed, metrics.MemTotal), barWidth, thresholds.MemWarn, thresholds.MemCrit)
+	diskLine := groupedMetricText(m.t("Disk", "磁盘"), metrics.DiskPercent(), diskSummaryText(metrics), barWidth, thresholds.DiskWarn, thresholds.DiskCrit)
+	loadLine := fmt.Sprintf("%s %s / %s / %s", m.t("Load", "负载"), emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15))
+	serviceLine := m.serviceCardText(metrics)
+	if riskText := m.cardRiskText(m.buildChecks(state), innerWidth); riskText != "" {
 		serviceLine += "  " + riskText
 	}
 	noteLine := groupedNoteText(h.Note)
@@ -468,26 +466,29 @@ func groupedAdaptiveLine(width int, parts []groupedAdaptivePart) string {
 	return line
 }
 
-func dashboardListResourceColumns(state hostState) (string, string, string) {
+func (m Model) dashboardListResourceColumns(state hostState) (string, string, string) {
 	metrics := state.Metrics
 	if state.Loading || !metrics.Online {
 		return detailValueStyle.Render(padVisible("CPU -", 7)),
-			detailValueStyle.Render(padVisible("内存 -", 8)),
-			detailValueStyle.Render(padVisible("磁盘 -", 8))
+			detailValueStyle.Render(padVisible(m.t("Mem -", "内存 -"), 8)),
+			detailValueStyle.Render(padVisible(m.t("Disk -", "磁盘 -"), 8))
 	}
-	cpu := "CPU " + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%3.0f%%", metrics.CPUPercent))
-	mem := "内存 " + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%3.0f%%", metrics.MemPercent()))
-	disk := "磁盘 " + diskMountPercentText(metrics)
+	thresholds := m.metricThresholds()
+	cpu := "CPU " + metricValueStyle(metrics.CPUPercent, thresholds.CPUWarn, thresholds.CPUCrit).Render(fmt.Sprintf("%3.0f%%", metrics.CPUPercent))
+	mem := m.t("Mem ", "内存 ") + metricValueStyle(metrics.MemPercent(), thresholds.MemWarn, thresholds.MemCrit).Render(fmt.Sprintf("%3.0f%%", metrics.MemPercent()))
+	disk := m.t("Disk ", "磁盘 ") + m.diskMountPercentText(metrics)
 	return padVisible(cpu, 7), padVisible(mem, 8), padVisible(disk, 14)
 }
 
-func dashboardListServiceColumns(metrics monitor.Metrics) (string, string) {
+func (m Model) dashboardListServiceColumns(metrics monitor.Metrics) (string, string) {
 	total := dockerTotal(metrics)
-	containerRaw := fmt.Sprintf("容器 %d/%d/%d", metrics.DockerFailed, metrics.DockerRunning, total)
+	containerLabel := m.t("Ctr", "容器")
+	serviceLabel := m.t("Svc", "服务")
+	containerRaw := fmt.Sprintf("%s %d/%d/%d", containerLabel, metrics.DockerFailed, metrics.DockerRunning, total)
 	if total == 0 {
-		containerRaw = "容器 0"
+		containerRaw = containerLabel + " 0"
 	}
-	container := cardMutedStyle.Render("容器 ")
+	container := cardMutedStyle.Render(containerLabel + " ")
 	if metrics.DockerFailed > 0 {
 		container += redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
 	} else if total == 0 {
@@ -499,30 +500,35 @@ func dashboardListServiceColumns(metrics monitor.Metrics) (string, string) {
 	if metrics.FailedServices > 0 {
 		serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	}
-	service := cardMutedStyle.Render("服务 ") + serviceNumber
+	service := cardMutedStyle.Render(serviceLabel+" ") + serviceNumber
 	return padVisible(container, maxInt(12, ansi.StringWidth(containerRaw))), padVisible(service, 7)
 }
 
-func compactResourceTriplet(state hostState) (string, string, string) {
+func (m Model) compactResourceTriplet(state hostState) (string, string, string) {
 	metrics := state.Metrics
+	memLabel := m.t("M", "内")
+	diskLabel := m.t("D", "磁")
 	if state.Loading || !metrics.Online {
 		return cardMutedStyle.Render("CPU") + detailValueStyle.Render("-"),
-			cardMutedStyle.Render("内") + detailValueStyle.Render("-"),
-			cardMutedStyle.Render("磁") + detailValueStyle.Render("-")
+			cardMutedStyle.Render(memLabel) + detailValueStyle.Render("-"),
+			cardMutedStyle.Render(diskLabel) + detailValueStyle.Render("-")
 	}
-	return cardMutedStyle.Render("CPU") + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%.0f", metrics.CPUPercent)),
-		cardMutedStyle.Render("内") + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%.0f", metrics.MemPercent())),
-		cardMutedStyle.Render("磁") + metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%.0f", metrics.DiskPercent()))
+	thresholds := m.metricThresholds()
+	return cardMutedStyle.Render("CPU") + metricValueStyle(metrics.CPUPercent, thresholds.CPUWarn, thresholds.CPUCrit).Render(fmt.Sprintf("%.0f", metrics.CPUPercent)),
+		cardMutedStyle.Render(memLabel) + metricValueStyle(metrics.MemPercent(), thresholds.MemWarn, thresholds.MemCrit).Render(fmt.Sprintf("%.0f", metrics.MemPercent())),
+		cardMutedStyle.Render(diskLabel) + metricValueStyle(metrics.DiskPercent(), thresholds.DiskWarn, thresholds.DiskCrit).Render(fmt.Sprintf("%.0f", metrics.DiskPercent()))
 }
 
-func compactServicePair(metrics monitor.Metrics) (string, string) {
+func (m Model) compactServicePair(metrics monitor.Metrics) (string, string) {
 	total := dockerTotal(metrics)
-	container := "容器0"
+	containerLabel := m.t("Ctr", "容器")
+	serviceLabel := m.t("Svc", "服务")
+	container := containerLabel + "0"
 	if total > 0 {
 		if metrics.DockerFailed > 0 {
-			container = cardMutedStyle.Render("容器") + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
+			container = cardMutedStyle.Render(containerLabel) + redStyle.Render(fmt.Sprintf("%d", metrics.DockerFailed)) + cardMutedStyle.Render(fmt.Sprintf("/%d/%d", metrics.DockerRunning, total))
 		} else {
-			container = cardMutedStyle.Render(fmt.Sprintf("容器0/%d/%d", metrics.DockerRunning, total))
+			container = cardMutedStyle.Render(fmt.Sprintf("%s0/%d/%d", containerLabel, metrics.DockerRunning, total))
 		}
 	} else {
 		container = cardMutedStyle.Render(container)
@@ -531,21 +537,21 @@ func compactServicePair(metrics monitor.Metrics) (string, string) {
 	if metrics.FailedServices > 0 {
 		serviceNumber = redStyle.Render(fmt.Sprintf("%d", metrics.FailedServices))
 	}
-	return container, cardMutedStyle.Render("服务") + serviceNumber
+	return container, cardMutedStyle.Render(serviceLabel) + serviceNumber
 }
 
-func compactExpireText(value string) string {
+func (m Model) compactExpireText(value string) string {
 	if strings.TrimSpace(value) == "" {
-		return cardMutedStyle.Render("到期-")
+		return cardMutedStyle.Render(m.t("Exp-", "到期-"))
 	}
-	return expireCardText(value)
+	return m.expireCardText(value)
 }
 
-func expireCardTextOrDash(value string) string {
+func (m Model) expireCardTextOrDash(value string) string {
 	if strings.TrimSpace(value) == "" {
-		return cardMutedStyle.Render("到期 -")
+		return cardMutedStyle.Render(m.t("Exp -", "到期 -"))
 	}
-	return expireCardText(value)
+	return m.expireCardText(value)
 }
 
 func (m Model) renderDashboardCategory(indexes []int) string {
@@ -684,7 +690,7 @@ func (m Model) dashboardCategoryGroupedServerLines(indexes []int, width int) ([]
 	for i, index := range indexes {
 		category := strings.TrimSpace(m.states[index].Host.Category)
 		if category == "" {
-			category = "未分类"
+			category = m.t("Uncategorized", "未分类")
 		}
 		if i == 0 || category != lastCategory {
 			if len(lines) > 0 {
@@ -710,13 +716,13 @@ func (m Model) dashboardCategoryGroupHeader(category string, indexes []int, widt
 	for _, index := range indexes {
 		cat := strings.TrimSpace(m.states[index].Host.Category)
 		if cat == "" {
-			cat = "未分类"
+			cat = m.t("Uncategorized", "未分类")
 		}
 		if cat == category {
 			count++
 		}
 	}
-	countText := fmt.Sprintf("%d台", count)
+	countText := fmt.Sprintf("%d%s", count, m.t(" servers", "台"))
 	nameWidth := width - runewidth.StringWidth(countText) - 2
 	if nameWidth < 1 {
 		nameWidth = 1
@@ -755,7 +761,7 @@ func dashboardCategoryNameWidth(width int) int {
 	return nameWidth
 }
 
-func dashboardCategoryHostName(h host.Host, selected bool, width int, showCategory bool, fixedMarkSlots bool) string {
+func (m Model) dashboardCategoryHostName(h host.Host, selected bool, width int, showCategory bool, fixedMarkSlots bool) string {
 	marks := ""
 	if fixedMarkSlots {
 		if h.Pinned {
@@ -780,7 +786,7 @@ func dashboardCategoryHostName(h host.Host, selected bool, width int, showCatego
 	}
 	category := strings.TrimSpace(h.Category)
 	if category == "" {
-		category = "未分类"
+		category = m.t("Uncategorized", "未分类")
 	}
 	categoryText := ""
 	if showCategory {
@@ -827,18 +833,18 @@ func (m Model) dashboardCategoryServerLineWithOptions(index int, selected bool, 
 	state := m.states[index]
 	h := state.Host
 	metrics := state.Metrics
-	status := "离线"
+	status := m.t("Offline", "离线")
 	if state.Loading {
-		status = "采集"
+		status = m.t("Loading", "采集")
 	} else if metrics.Online {
-		status = "在线"
+		status = m.t("Online", "在线")
 	}
 	nameWidth := dashboardCategoryNameWidth(width)
-	name := dashboardCategoryHostName(h, selected, nameWidth, showCategory, fixedMarkSlots)
+	name := m.dashboardCategoryHostName(h, selected, nameWidth, showCategory, fixedMarkSlots)
 	statusText := colorStatus(status, state.Loading, metrics.Online)
-	cpu, mem, disk := compactResourceTriplet(state)
-	container, service := compactServicePair(metrics)
-	timeText := cardHeaderMeta(h, metrics)
+	cpu, mem, disk := m.compactResourceTriplet(state)
+	container, service := m.compactServicePair(metrics)
+	timeText := m.cardHeaderMeta(h, metrics)
 	cell := func(value string, cellWidth int) string {
 		return padVisible(fitANSI(value, cellWidth), cellWidth)
 	}
@@ -868,7 +874,7 @@ func (m Model) renderDashboardCategoryPane(width int, height int) string {
 	if contentWidth < 10 {
 		contentWidth = 10
 	}
-	lines := []string{titleStyle.Render(fit("分类", contentWidth))}
+	lines := []string{titleStyle.Render(fit(m.t("Category", "分类"), contentWidth))}
 	listHeight := height - 2
 	if listHeight < 1 {
 		listHeight = 1
@@ -917,7 +923,7 @@ type dashboardCategoryItem struct {
 
 func (m Model) dashboardCategoryItems() []dashboardCategoryItem {
 	items := []dashboardCategoryItem{
-		{Label: "全部", Kind: "all", Count: len(m.states)},
+		{Label: m.t("All", "全部"), Kind: "all", Count: len(m.states)},
 	}
 	seen := map[string]bool{}
 	categories := []string{}
@@ -978,11 +984,11 @@ func (m Model) dashboardCategorySelectedIndex(items []dashboardCategoryItem) int
 func (m Model) dashboardCategoryActiveLabel() string {
 	items := m.dashboardCategoryItems()
 	if len(items) == 0 {
-		return "全部"
+		return m.t("All", "全部")
 	}
 	index := m.dashboardCategorySelectedIndex(items)
 	if index < 0 || index >= len(items) {
-		return "全部"
+		return m.t("All", "全部")
 	}
 	return items[index].Label
 }
@@ -1224,7 +1230,7 @@ func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine b
 	}
 	category := h.Category
 	if category == "" {
-		category = "未分类"
+		category = m.t("Uncategorized", "未分类")
 	}
 	favoriteMark := ""
 	if h.Favorite {
@@ -1245,17 +1251,18 @@ func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine b
 	if innerWidth < 42 {
 		barWidth = 8
 	}
-	cpu := percentBarWidth(metrics.CPUPercent, barWidth)
-	mem := percentBarWidth(metrics.MemPercent(), barWidth)
-	disk := percentBarWidthWithThreshold(metrics.DiskPercent(), barWidth, 80, 90)
+	thresholds := m.metricThresholds()
+	cpu := percentBarWidthWithThreshold(metrics.CPUPercent, barWidth, thresholds.CPUWarn, thresholds.CPUCrit)
+	mem := percentBarWidthWithThreshold(metrics.MemPercent(), barWidth, thresholds.MemWarn, thresholds.MemCrit)
+	disk := percentBarWidthWithThreshold(metrics.DiskPercent(), barWidth, thresholds.DiskWarn, thresholds.DiskCrit)
 
-	cpuLine := cardMetricLine("CPU", cpu, cpuCoresText(metrics), innerWidth)
-	memLine := cardMetricLine("内存", mem, bytesPair(metrics.MemUsed, metrics.MemTotal), innerWidth)
-	diskLine := cardMetricLine(diskMetricLabel(metrics), disk, bytesPair(metrics.DiskUsed, metrics.DiskTotal), innerWidth)
-	uptimeLabel := cardHeaderMeta(h, metrics)
-	loadLine := fit(fmt.Sprintf("负载 %s / %s / %s", emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15)), innerWidth)
-	serviceLine := ansi.Truncate(serviceCardText(metrics), innerWidth, "…")
-	riskText := cardRiskText(buildChecks(state), innerWidth)
+	cpuLine := cardMetricLine("CPU", cpu, m.cpuCoresText(metrics), innerWidth)
+	memLine := cardMetricLine(m.t("Mem", "内存"), mem, bytesPair(metrics.MemUsed, metrics.MemTotal), innerWidth)
+	diskLine := cardMetricLine(m.diskMetricLabel(metrics), disk, bytesPair(metrics.DiskUsed, metrics.DiskTotal), innerWidth)
+	uptimeLabel := m.cardHeaderMeta(h, metrics)
+	loadLine := fit(fmt.Sprintf("%s %s / %s / %s", m.t("Load", "负载"), emptyDash(metrics.Load1), emptyDash(metrics.Load5), emptyDash(metrics.Load15)), innerWidth)
+	serviceLine := ansi.Truncate(m.serviceCardText(metrics), innerWidth, "…")
+	riskText := m.cardRiskText(m.buildChecks(state), innerWidth)
 	if riskText != "" {
 		serviceLine = ansi.Truncate(serviceLine+"  "+riskText, innerWidth, "…")
 	}
@@ -1279,7 +1286,7 @@ func (m Model) renderCard(index int, selected bool, width int, reserveNoteLine b
 	}
 	userPort += ":" + port
 	addressText := fmt.Sprintf("%s %s", h.Address(), userPort)
-	if recent := lastLoginCard(m.lastLogin(h)); recent != "" {
+	if recent := m.lastLoginCard(m.lastLogin(h)); recent != "" {
 		addressText += "  " + recent
 	}
 	addressLine := fit(addressText, innerWidth)

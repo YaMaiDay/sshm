@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -13,16 +14,17 @@ import (
 
 const (
 	settingsLanguage = iota
+	settingsASCIIMode
 	settingsRefreshInterval
 	settingsConnectTimeout
 	settingsCommandTimeout
-	settingsASCIIMode
 	settingsCPUWarn
 	settingsCPUCrit
 	settingsMemWarn
 	settingsMemCrit
 	settingsDiskWarn
 	settingsDiskCrit
+	settingsCustomDirs
 	settingsLocalDirs
 	settingsRemoteDirs
 )
@@ -39,6 +41,7 @@ type settingsForm struct {
 	MemCrit         string
 	DiskWarn        string
 	DiskCrit        string
+	CustomDirs      bool
 	LocalDirs       string
 	RemoteDirs      string
 }
@@ -47,9 +50,9 @@ func settingsFormFromConfig(cfg config.AppConfig) settingsForm {
 	cfg = config.NormalizeAppConfig(cfg)
 	return settingsForm{
 		Language:        cfg.Language,
-		RefreshInterval: cfg.RefreshInterval,
-		ConnectTimeout:  cfg.ConnectTimeout,
-		CommandTimeout:  cfg.CommandTimeout,
+		RefreshInterval: formatSettingSeconds(cfg.RefreshInterval),
+		ConnectTimeout:  formatSettingSeconds(cfg.ConnectTimeout),
+		CommandTimeout:  formatSettingSeconds(cfg.CommandTimeout),
 		ASCIIMode:       cfg.ASCIIMode,
 		CPUWarn:         formatSettingPercent(cfg.Thresholds.CPUWarn),
 		CPUCrit:         formatSettingPercent(cfg.Thresholds.CPUCrit),
@@ -57,6 +60,7 @@ func settingsFormFromConfig(cfg config.AppConfig) settingsForm {
 		MemCrit:         formatSettingPercent(cfg.Thresholds.MemCrit),
 		DiskWarn:        formatSettingPercent(cfg.Thresholds.DiskWarn),
 		DiskCrit:        formatSettingPercent(cfg.Thresholds.DiskCrit),
+		CustomDirs:      cfg.CustomDirs,
 		LocalDirs:       strings.Join(cfg.LocalDirs, ", "),
 		RemoteDirs:      strings.Join(cfg.RemoteDirs, ", "),
 	}
@@ -86,13 +90,13 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab", "up", "k":
 		m.moveSettingsField(-1)
 	case "left", "h":
-		if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode {
+		if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode || m.settingsField == settingsCustomDirs {
 			m.toggleSettingChoice()
 		} else {
 			m.moveSettingsCursor(-1)
 		}
 	case "right", "l":
-		if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode {
+		if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode || m.settingsField == settingsCustomDirs {
 			m.toggleSettingChoice()
 		} else {
 			m.moveSettingsCursor(1)
@@ -108,6 +112,7 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.appConfig = cfg
+		setASCIIMode(cfg.ASCIIMode)
 		m.collector.Timeout = cfg.CommandDuration()
 		m.collector.ConnectTimeout = cfg.ConnectDuration()
 		m.mode = modeDashboard
@@ -115,7 +120,7 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace":
 		m.settingsBackspace()
 	default:
-		if len(msg.Runes) > 0 && m.settingsField != settingsLanguage && m.settingsField != settingsASCIIMode {
+		if len(msg.Runes) > 0 && m.settingsField != settingsLanguage && m.settingsField != settingsASCIIMode && m.settingsField != settingsCustomDirs {
 			m.settingsAppend(string(msg.Runes))
 		}
 	}
@@ -123,10 +128,7 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) settingsText(en string, zh string) string {
-	if m.isChineseUI() {
-		return zh
-	}
-	return en
+	return m.t(en, zh)
 }
 
 func (m *Model) moveSettingsField(delta int) {
@@ -146,6 +148,8 @@ func (m *Model) toggleSettingChoice() {
 		}
 	case settingsASCIIMode:
 		m.settingsForm.ASCIIMode = !m.settingsForm.ASCIIMode
+	case settingsCustomDirs:
+		m.settingsForm.CustomDirs = !m.settingsForm.CustomDirs
 	}
 }
 
@@ -221,7 +225,7 @@ func (m *Model) settingsAppend(s string) {
 }
 
 func (m *Model) settingsBackspace() {
-	if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode {
+	if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode || m.settingsField == settingsCustomDirs {
 		return
 	}
 	value := []rune(m.settingsValue())
@@ -245,20 +249,23 @@ func (m Model) settingsConfigFromForm() (config.AppConfig, error) {
 	if cfg.Language != "zh" && cfg.Language != "en" {
 		return cfg, fmt.Errorf("%s", m.settingsText("language must be zh or en", "语言只能是 zh 或 en"))
 	}
-	if err := validateSettingDuration(m.settingsText("refresh interval", "刷新间隔"), m.settingsForm.RefreshInterval, m.isChineseUI()); err != nil {
+	refreshInterval, err := parseSettingSeconds(m.settingsText("refresh interval", "刷新间隔"), m.settingsForm.RefreshInterval, m.isChineseUI())
+	if err != nil {
 		return cfg, err
 	}
-	if err := validateSettingDuration(m.settingsText("connect timeout", "连接超时"), m.settingsForm.ConnectTimeout, m.isChineseUI()); err != nil {
+	connectTimeout, err := parseSettingSeconds(m.settingsText("connect timeout", "连接超时"), m.settingsForm.ConnectTimeout, m.isChineseUI())
+	if err != nil {
 		return cfg, err
 	}
-	if err := validateSettingDuration(m.settingsText("command timeout", "命令超时"), m.settingsForm.CommandTimeout, m.isChineseUI()); err != nil {
+	commandTimeout, err := parseSettingSeconds(m.settingsText("command timeout", "命令超时"), m.settingsForm.CommandTimeout, m.isChineseUI())
+	if err != nil {
 		return cfg, err
 	}
-	cfg.RefreshInterval = strings.TrimSpace(m.settingsForm.RefreshInterval)
-	cfg.ConnectTimeout = strings.TrimSpace(m.settingsForm.ConnectTimeout)
-	cfg.CommandTimeout = strings.TrimSpace(m.settingsForm.CommandTimeout)
+	cfg.RefreshInterval = refreshInterval
+	cfg.ConnectTimeout = connectTimeout
+	cfg.CommandTimeout = commandTimeout
 	cfg.ASCIIMode = m.settingsForm.ASCIIMode
-	var err error
+	cfg.CustomDirs = m.settingsForm.CustomDirs
 	if cfg.Thresholds.CPUWarn, err = parseSettingPercent(m.settingsText("CPU warn", "CPU 警告"), m.settingsForm.CPUWarn, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
@@ -286,27 +293,48 @@ func (m Model) settingsConfigFromForm() (config.AppConfig, error) {
 	if cfg.Thresholds.DiskWarn > cfg.Thresholds.DiskCrit {
 		return cfg, fmt.Errorf("%s", m.settingsText("disk warn threshold cannot exceed critical threshold", "磁盘警告阈值不能大于严重阈值"))
 	}
-	defaults := config.DefaultAppConfig()
 	cfg.LocalDirs = splitSettingList(m.settingsForm.LocalDirs)
-	if len(cfg.LocalDirs) == 0 {
-		cfg.LocalDirs = defaults.LocalDirs
-	}
 	cfg.RemoteDirs = splitSettingList(m.settingsForm.RemoteDirs)
-	if len(cfg.RemoteDirs) == 0 {
-		cfg.RemoteDirs = defaults.RemoteDirs
-	}
 	return config.NormalizeAppConfig(cfg), nil
 }
 
-func validateSettingDuration(label string, value string, zh bool) error {
-	d, err := time.ParseDuration(strings.TrimSpace(value))
+func parseSettingSeconds(label string, value string, zh bool) (string, error) {
+	text := strings.TrimSpace(value)
+	d, err := time.ParseDuration(text)
+	if err != nil && !strings.ContainsAny(text, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+		seconds, parseErr := strconv.ParseFloat(text, 64)
+		if parseErr == nil {
+			d = time.Duration(seconds * float64(time.Second))
+			err = nil
+		}
+	}
 	if err != nil || d <= 0 {
 		if !zh {
-			return fmt.Errorf("%s must be a valid duration, for example 5s, 30s, or 1m", label)
+			return "", fmt.Errorf("%s must be a positive number of seconds", label)
 		}
-		return fmt.Errorf("%s需要填写有效时间，例如 5s、30s、1m", label)
+		return "", fmt.Errorf("%s需要填写大于 0 的秒数", label)
 	}
-	return nil
+	return formatDurationSeconds(d), nil
+}
+
+func formatSettingSeconds(value string) string {
+	d, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil || d <= 0 {
+		return strings.TrimSpace(value)
+	}
+	seconds := d.Seconds()
+	if math.Trunc(seconds) == seconds {
+		return strconv.FormatInt(int64(seconds), 10)
+	}
+	return strconv.FormatFloat(seconds, 'f', -1, 64)
+}
+
+func formatDurationSeconds(d time.Duration) string {
+	seconds := d.Seconds()
+	if math.Trunc(seconds) == seconds {
+		return strconv.FormatInt(int64(seconds), 10) + "s"
+	}
+	return strconv.FormatFloat(seconds, 'f', -1, 64) + "s"
 }
 
 func parseSettingPercent(label string, value string, zh bool) (float64, error) {

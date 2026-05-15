@@ -23,7 +23,7 @@ func (m Model) renderDeploymentList() string {
 	if bodyWidth < 32 {
 		bodyWidth = 32
 	}
-	help := "移动 ↑↓←→/hjkl  详情 Space  选择 s  分类 Tab  视图 z  置顶 t  收藏 f  只看收藏 v  部署 Enter  新增 a  编辑 e  删除 x  返回 Esc"
+	help := m.t("Move ↑↓←→/hjkl  Detail Space  Select s  Category Tab  View z  Pin t  Favorite f  Favorites v  Deploy Enter  Add a  Edit e  Delete x  Back Esc", "移动 ↑↓←→/hjkl  详情 Space  选择 s  分类 Tab  视图 z  置顶 t  收藏 f  只看收藏 v  部署 Enter  新增 a  编辑 e  删除 x  返回 Esc")
 	header := titleStyle.Render(fit(strings.Join(m.deploymentHeaderParts(), "  "), pageWidth))
 	if m.deploymentView == deploymentViewCards {
 		bodyHeight := deploymentCardsHeight(m.height, false)
@@ -45,7 +45,7 @@ func (m Model) renderDeploymentList() string {
 	}
 	lines := []string{}
 	if len(m.deploymentItems) == 0 {
-		lines = append(lines, mutedStyle.Render("没有部署应用。按 a 添加。"))
+		lines = append(lines, mutedStyle.Render(m.t("No deployment apps. Press a to add one.", "没有部署应用。按 a 添加。")))
 	} else {
 		start, end := visibleRange(len(m.deploymentItems), m.deploymentIndex, contentHeight)
 		for i := start; i < end; i++ {
@@ -66,27 +66,27 @@ func (m Model) renderDeploymentList() string {
 }
 
 func (m Model) deploymentHeaderParts() []string {
-	parts := []string{"应用部署", fmt.Sprintf("应用 %d", len(m.deploymentItems)), "视图：" + deploymentViewName(m.deploymentView)}
+	parts := []string{m.t("Deployments", "应用部署"), fmt.Sprintf("%s %d", m.t("Apps", "应用"), len(m.deploymentItems)), m.t("View: ", "视图：") + m.deploymentViewName(m.deploymentView)}
 	if m.deploymentCategory != "" {
-		parts = append(parts, "分类："+m.deploymentCategory)
+		parts = append(parts, m.t("Category: ", "分类：")+m.deploymentCategory)
 	}
 	if len(m.deploymentSelected) > 0 {
-		parts = append(parts, fmt.Sprintf("已选 %d", len(m.deploymentSelected)))
+		parts = append(parts, fmt.Sprintf("%s %d", m.t("Selected", "已选"), len(m.deploymentSelected)))
 	}
 	if m.deploymentFavoriteOnly {
-		parts = append(parts, "只看收藏")
+		parts = append(parts, m.t("Favorites only", "只看收藏"))
 	}
-	if m.status != "" && m.status != "应用部署" && !strings.HasPrefix(m.status, "部署视图：") {
+	if m.status != "" && m.status != m.t("Deployments", "应用部署") && !strings.HasPrefix(m.status, "部署视图：") {
 		parts = append(parts, m.status)
 	}
 	return parts
 }
 
-func deploymentViewName(view deploymentViewMode) string {
+func (m Model) deploymentViewName(view deploymentViewMode) string {
 	if view == deploymentViewList {
-		return "列表"
+		return m.t("List", "列表")
 	}
-	return "卡片"
+	return m.t("Cards", "卡片")
 }
 
 func deploymentCardsHeight(totalHeight int, withDots bool) int {
@@ -103,7 +103,7 @@ func deploymentCardsHeight(totalHeight int, withDots bool) int {
 func (m Model) renderDeploymentCards(width int, bodyHeight int) string {
 	lines := []string{}
 	if len(m.deploymentItems) == 0 {
-		lines = append(lines, mutedStyle.Render("没有部署应用。按 a 添加。"))
+		lines = append(lines, mutedStyle.Render(m.t("No deployment apps. Press a to add one.", "没有部署应用。按 a 添加。")))
 		for len(lines) < bodyHeight {
 			lines = append(lines, "")
 		}
@@ -199,10 +199,10 @@ func (m Model) renderDeploymentAppCard(item deploymentItem, width int, selected 
 	title := deploymentAppMarks(app) + mark + detailValueStyle.Render(emptyDash(app.Name))
 	meta := m.deploymentLastRecordMeta(app)
 	dot := m.deploymentLastRecordDot(app)
-	sourceLine := deploymentCardSourceLine(app, innerWidth)
+	sourceLine := m.deploymentCardSourceLine(app, innerWidth)
 	serverLine := deploymentCardServerLine(app.Server, innerWidth)
-	pathLine := cardMutedStyle.Render("目录 ") + detailValueStyle.Render(emptyDash(app.Path))
-	fetchLine := cardMutedStyle.Render("方式 ") + detailValueStyle.Render(deployFetchModeText(app.FetchMode))
+	pathLine := cardMutedStyle.Render(m.t("Path ", "目录 ")) + detailValueStyle.Render(emptyDash(app.Path))
+	fetchLine := cardMutedStyle.Render(m.t("Mode ", "方式 ")) + detailValueStyle.Render(m.deployFetchModeText(app.FetchMode))
 	timeLine := m.deploymentLastRecordTimeLine(app, innerWidth)
 	lines := []string{
 		cardTopLine(cardWidth, title, meta, dot, borderStyle),
@@ -217,9 +217,9 @@ func (m Model) renderDeploymentAppCard(item deploymentItem, width int, selected 
 	return strings.Join(lines, "\n")
 }
 
-func deploymentCardSourceLine(app config.DeploymentApp, width int) string {
+func (m Model) deploymentCardSourceLine(app config.DeploymentApp, width int) string {
 	left := cardMutedStyle.Render(deploySourceText(app.Source)+" ") + detailValueStyle.Render(deploymentAppTarget(app))
-	right := cardMutedStyle.Render(deployCredentialText(app.Credential))
+	right := cardMutedStyle.Render(m.deployCredentialText(app.Credential))
 	gap := width - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if gap < 2 {
 		maxLeft := width - ansi.StringWidth(right) - 2
@@ -257,13 +257,13 @@ func deploymentCardServerLine(server string, width int) string {
 func (m Model) deploymentLastRecordMeta(app config.DeploymentApp) string {
 	record, ok := m.latestDeploymentRecord(app)
 	if !ok {
-		return cardMutedStyle.Render("未部署")
+		return cardMutedStyle.Render(m.t("Not deployed", "未部署"))
 	}
 	style := greenStyle
 	if record.Status == config.DeployStatusFailed {
 		style = redStyle
 	}
-	return style.Render(deploymentRecordActionStatusText(record))
+	return style.Render(m.deploymentRecordActionStatusText(record))
 }
 
 func (m Model) deploymentLastRecordDot(app config.DeploymentApp) string {
@@ -280,7 +280,7 @@ func (m Model) deploymentLastRecordDot(app config.DeploymentApp) string {
 func (m Model) deploymentLastRecordTimeLine(app config.DeploymentApp, width int) string {
 	record, ok := m.latestDeploymentRecord(app)
 	if !ok {
-		return cardMutedStyle.Render("时间 暂无记录")
+		return cardMutedStyle.Render(m.t("Time no records", "时间 暂无记录"))
 	}
-	return cardMutedStyle.Render("时间 ") + detailValueStyle.Render(fit(deploymentRecordTimeText(record.Time), width-5))
+	return cardMutedStyle.Render(m.t("Time ", "时间 ")) + detailValueStyle.Render(fit(m.deploymentRecordTimeText(record.Time), width-5))
 }

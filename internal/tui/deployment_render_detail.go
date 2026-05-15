@@ -36,7 +36,7 @@ func (m Model) renderDeploymentDetail() string {
 		Padding(0, 1).
 		Width(width).
 		Render(strings.Join(fitLines(lines, bodyWidth), "\n"))
-	return strings.Join([]string{titleStyle.Render(fit("部署详情", width)), box, renderHelp(width, "滚动 ↑↓/jk  部署 Enter  编辑 e  返回 Esc")}, "\n")
+	return strings.Join([]string{titleStyle.Render(fit(m.t("Deployment Detail", "部署详情"), width)), box, renderHelp(width, m.t("Scroll ↑↓/jk  Deploy Enter  Edit e  Back Esc", "滚动 ↑↓/jk  部署 Enter  编辑 e  返回 Esc"))}, "\n")
 }
 
 func (m Model) deploymentDetailMaxScroll() int {
@@ -55,46 +55,46 @@ func (m Model) deploymentDetailMaxScroll() int {
 func (m Model) deploymentDetailLines(bodyWidth int) []string {
 	app := deploymentAppWithResourceDefaults(m.deploymentDetail)
 	lines := []string{
-		detailSubTitle("基础"),
-		deploymentDetailRow("应用", emptyDash(app.Name), bodyWidth),
-		deploymentDetailRow("服务器", deploymentDisplayServerText(app.Server), bodyWidth),
-		deploymentDetailRow("来源", deploySourceText(app.Source), bodyWidth),
-		deploymentDetailRow("获取方式", deployFetchModeText(app.FetchMode), bodyWidth),
-		deploymentDetailRow("仓库", emptyDash(app.Repo), bodyWidth),
-		deploymentDetailRow("目标", deploymentAppTarget(app), bodyWidth),
-		deploymentDetailRow("资源匹配", emptyDash(app.Asset), bodyWidth),
-		deploymentDetailRow("下载地址", emptyDash(app.ReleaseURL), bodyWidth),
-		deploymentDetailRow("目录", emptyDash(app.Path), bodyWidth),
-		deploymentDetailRow("凭证", deployCredentialText(app.Credential), bodyWidth),
-		deploymentDetailRow("凭证参数", emptyDash(app.CredentialName), bodyWidth),
-		deploymentDetailRow("等待", fmt.Sprintf("%d秒", maxInt(0, app.WaitSeconds)), bodyWidth),
-		deploymentDetailRow("收藏", yesNo(app.Favorite), bodyWidth),
-		deploymentDetailRow("置顶", yesNo(app.Pinned), bodyWidth),
+		detailSubTitle(m.t("Basic", "基础")),
+		deploymentDetailRow(m.t("App", "应用"), emptyDash(app.Name), bodyWidth),
+		deploymentDetailRow(m.t("Server", "服务器"), deploymentDisplayServerText(app.Server), bodyWidth),
+		deploymentDetailRow(m.t("Source", "来源"), deploySourceText(app.Source), bodyWidth),
+		deploymentDetailRow(m.t("Fetch mode", "获取方式"), m.deployFetchModeText(app.FetchMode), bodyWidth),
+		deploymentDetailRow(m.t("Repo", "仓库"), emptyDash(app.Repo), bodyWidth),
+		deploymentDetailRow(m.t("Target", "目标"), deploymentAppTarget(app), bodyWidth),
+		deploymentDetailRow(m.t("Asset match", "资源匹配"), emptyDash(app.Asset), bodyWidth),
+		deploymentDetailRow(m.t("Download URL", "下载地址"), emptyDash(app.ReleaseURL), bodyWidth),
+		deploymentDetailRow(m.t("Path", "目录"), emptyDash(app.Path), bodyWidth),
+		deploymentDetailRow(m.t("Credential", "凭证"), m.deployCredentialText(app.Credential), bodyWidth),
+		deploymentDetailRow(m.t("Credential param", "凭证参数"), emptyDash(app.CredentialName), bodyWidth),
+		deploymentDetailRow(m.t("Wait", "等待"), fmt.Sprintf("%d%s", maxInt(0, app.WaitSeconds), m.t("s", "秒")), bodyWidth),
+		deploymentDetailRow(m.t("Favorite", "收藏"), yesNoLang(app.Favorite, m.isChineseUI()), bodyWidth),
+		deploymentDetailRow(m.t("Pinned", "置顶"), yesNoLang(app.Pinned, m.isChineseUI()), bodyWidth),
 		"",
-		detailSubTitle("流程代码"),
+		detailSubTitle(m.t("Flow commands", "流程代码")),
 	}
 	records := m.deploymentRecordsForApp(app, 50)
-	lines = appendDeploymentDetailCommands(lines, "更新前", app.BeforeCommands, bodyWidth)
-	lines = appendDeploymentDetailCommands(lines, "获取资源", app.ResourceCommands, bodyWidth)
-	lines = appendDeploymentDetailCommands(lines, "更新", app.UpdateCommands, bodyWidth)
-	lines = appendDeploymentDetailCommands(lines, "更新后", app.AfterCommands, bodyWidth)
-	lines = appendDeploymentDetailCommands(lines, "健康检查", app.HealthCommands, bodyWidth)
-	lines = appendDeploymentDetailCommands(lines, "回滚", app.RollbackCommands, bodyWidth)
-	lines = append(lines, "", detailSubTitle(fmt.Sprintf("历史 %d条", len(records))))
+	lines = m.appendDeploymentDetailCommands(lines, m.t("Before update", "更新前"), app.BeforeCommands, bodyWidth)
+	lines = m.appendDeploymentDetailCommands(lines, m.t("Fetch resource", "获取资源"), app.ResourceCommands, bodyWidth)
+	lines = m.appendDeploymentDetailCommands(lines, m.t("Update", "更新"), app.UpdateCommands, bodyWidth)
+	lines = m.appendDeploymentDetailCommands(lines, m.t("After update", "更新后"), app.AfterCommands, bodyWidth)
+	lines = m.appendDeploymentDetailCommands(lines, m.t("Health check", "健康检查"), app.HealthCommands, bodyWidth)
+	lines = m.appendDeploymentDetailCommands(lines, m.t("Rollback", "回滚"), app.RollbackCommands, bodyWidth)
+	lines = append(lines, "", detailSubTitle(fmt.Sprintf("%s %d", m.t("History", "历史"), len(records))))
 	if len(records) == 0 {
-		lines = append(lines, mutedStyle.Render("暂无记录"))
+		lines = append(lines, mutedStyle.Render(m.t("No records", "暂无记录")))
 		return lines
 	}
 	for _, record := range records {
-		lines = append(lines, deploymentDetailHistoryLine(record, bodyWidth))
+		lines = append(lines, m.deploymentDetailHistoryLine(record, bodyWidth))
 	}
 	return lines
 }
 
-func appendDeploymentDetailCommands(lines []string, title string, commands []string, width int) []string {
+func (m Model) appendDeploymentDetailCommands(lines []string, title string, commands []string, width int) []string {
 	lines = append(lines, deploymentDetailStageLine(title, len(commands), width))
 	if len(commands) == 0 {
-		lines = append(lines, mutedStyle.Render("    未配置"))
+		lines = append(lines, mutedStyle.Render("    "+m.t("Not configured", "未配置")))
 		return append(lines, "")
 	}
 	for _, command := range commands {
@@ -115,7 +115,7 @@ func deploymentDetailRow(label string, value string, width int) string {
 
 func deploymentDetailStageLine(title string, count int, width int) string {
 	label := detailLabelStyle.Render(padVisible(title, 10))
-	countText := cardMutedStyle.Render(fmt.Sprintf("%d步", count))
+	countText := cardMutedStyle.Render(fmt.Sprintf("%d", count))
 	return fitANSI(label+countText, width)
 }
 
@@ -128,8 +128,8 @@ func appendWrappedCommandIndented(lines []string, command string, width int) []s
 	return lines
 }
 
-func deploymentDetailHistoryLine(record config.DeploymentRecord, width int) string {
-	statusText := deploymentRecordActionStatusText(record)
+func (m Model) deploymentDetailHistoryLine(record config.DeploymentRecord, width int) string {
+	statusText := m.deploymentRecordActionStatusText(record)
 	statusStyle := greenStyle
 	if record.Status == config.DeployStatusFailed {
 		statusStyle = redStyle
@@ -137,10 +137,10 @@ func deploymentDetailHistoryLine(record config.DeploymentRecord, width int) stri
 	version := cardMutedStyle.Render(deploymentRecordVersionText(record))
 	exit := ""
 	if record.Status == config.DeployStatusFailed && record.ExitCode != 0 {
-		exit = "  " + redStyle.Render(fmt.Sprintf("退出码 %d", record.ExitCode))
+		exit = "  " + redStyle.Render(fmt.Sprintf("%s %d", m.t("exit", "退出码"), record.ExitCode))
 	}
 	line := cardMutedStyle.Render(padVisible(deploymentRecordDateTimeText(record.Time), 11)) +
-		"  " + statusStyle.Render(padVisible(statusText, 8)) +
+		"  " + statusStyle.Render(padVisible(statusText, 14)) +
 		"  " + version + exit
 	return fitANSI(line, width)
 }
@@ -164,7 +164,7 @@ func (m Model) deploymentAppListLine(item deploymentItem, width int, selected bo
 	server := cardMutedStyle.Render(padVisible(deploymentDisplayServerText(app.Server), 18))
 	source := detailValueStyle.Render(padVisible(deploySourceText(app.Source), 7))
 	target := cardMutedStyle.Render(padVisible(deploymentAppTarget(app), 10))
-	credential := cardMutedStyle.Render(padVisible(deployCredentialText(app.Credential), 8))
+	credential := cardMutedStyle.Render(padVisible(m.deployCredentialText(app.Credential), 8))
 	record := m.deploymentLastRecordListText(app)
 	return fitANSI(strings.Join([]string{prefix, mark, flags, name, server, source, target, credential, record}, "  "), width)
 }
@@ -199,21 +199,21 @@ func deploymentAppListMarks(app config.DeploymentApp) string {
 func (m Model) deploymentLastRecordText(app config.DeploymentApp) string {
 	record, ok := m.latestDeploymentRecord(app)
 	if !ok {
-		return "未部署"
+		return m.t("Not deployed", "未部署")
 	}
-	return deploymentRecordActionStatusText(record) + "  " + deploymentRecordTimeText(record.Time)
+	return m.deploymentRecordActionStatusText(record) + "  " + m.deploymentRecordTimeText(record.Time)
 }
 
 func (m Model) deploymentLastRecordListText(app config.DeploymentApp) string {
 	record, ok := m.latestDeploymentRecord(app)
 	if !ok {
-		return cardMutedStyle.Render("未部署")
+		return cardMutedStyle.Render(m.t("Not deployed", "未部署"))
 	}
 	style := greenStyle
 	if record.Status == config.DeployStatusFailed {
 		style = redStyle
 	}
-	return style.Render(deploymentRecordActionStatusText(record)) + "  " + cardMutedStyle.Render(deploymentRecordTimeText(record.Time))
+	return style.Render(m.deploymentRecordActionStatusText(record)) + "  " + cardMutedStyle.Render(m.deploymentRecordTimeText(record.Time))
 }
 
 func (m Model) latestDeploymentRecord(app config.DeploymentApp) (config.DeploymentRecord, bool) {
@@ -238,17 +238,17 @@ func (m Model) deploymentRecordsForApp(app config.DeploymentApp, limit int) []co
 	return records
 }
 
-func deploymentRecordActionStatusText(record config.DeploymentRecord) string {
-	action := "部署"
+func (m Model) deploymentRecordActionStatusText(record config.DeploymentRecord) string {
+	action := m.t("Deploy", "部署")
 	if record.Action == config.DeployActionRollback {
-		action = "回滚"
+		action = m.t("Rollback", "回滚")
 	}
-	status := "成功"
+	status := m.t(" success", "成功")
 	if record.Status == config.DeployStatusFailed {
-		status = "失败"
+		status = m.t(" failed", "失败")
 	}
 	if record.Status == config.DeployStatusRunning {
-		status = "运行中"
+		status = m.t(" running", "运行中")
 	}
 	return action + status
 }
@@ -261,7 +261,7 @@ func splitDeploymentServer(server string) (string, string) {
 	return "", server
 }
 
-func deploymentRecordTimeText(value string) string {
+func (m Model) deploymentRecordTimeText(value string) string {
 	t, err := time.Parse(time.RFC3339, strings.TrimSpace(value))
 	if err != nil {
 		return "-"
@@ -272,16 +272,16 @@ func deploymentRecordTimeText(value string) string {
 	}
 	d := now.Sub(t)
 	if d < time.Minute {
-		return "刚刚"
+		return m.t("just now", "刚刚")
 	}
 	if d < time.Hour {
-		return fmt.Sprintf("%d分钟前", int(d.Minutes()))
+		return fmt.Sprintf("%d%s", int(d.Minutes()), m.t("m ago", "分钟前"))
 	}
 	if d < 24*time.Hour {
-		return fmt.Sprintf("%d小时前", int(d.Hours()))
+		return fmt.Sprintf("%d%s", int(d.Hours()), m.t("h ago", "小时前"))
 	}
 	if d < 7*24*time.Hour {
-		return fmt.Sprintf("%d天前", int(d.Hours()/24))
+		return fmt.Sprintf("%d%s", int(d.Hours()/24), m.t("d ago", "天前"))
 	}
 	if t.Year() == now.Year() {
 		return t.Format("01-02")

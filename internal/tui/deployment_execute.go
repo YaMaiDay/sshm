@@ -22,7 +22,7 @@ func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q", "ctrl+c":
 		if m.activeDeployment.Running {
-			m.status = "部署执行中，完成或失败后再返回"
+			m.status = m.t("Deployment is running; go back after it finishes or fails.", "部署执行中，完成或失败后再返回")
 			return m, nil
 		}
 		m.mode = modeDeploymentList
@@ -32,11 +32,11 @@ func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentConfirmMaxScroll())
 	case "enter":
 		if m.activeDeployment.Running {
-			m.status = "部署执行中"
+			m.status = m.t("Deployment is running.", "部署执行中")
 			return m, nil
 		}
 		if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.Output != "" {
-			m.status = "当前部署已执行，按 r 重试，或按 a 重新部署"
+			m.status = m.t("This deployment has already run. Press r to retry, or a to redeploy.", "当前部署已执行，按 r 重试，或按 a 重新部署")
 			return m, nil
 		}
 		queue := m.deploymentConfirmQueue
@@ -45,7 +45,7 @@ func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		for _, app := range queue {
 			if m.deploymentServerIndex(app.Server) < 0 {
-				m.status = "部署服务器不存在：" + emptyDash(app.Server)
+				m.status = m.t("Deployment server does not exist: ", "部署服务器不存在：") + emptyDash(app.Server)
 				return m, nil
 			}
 		}
@@ -55,17 +55,17 @@ func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startQueuedDeployment(0)
 	case "r":
 		if m.activeDeployment.Running {
-			m.status = "部署执行中，不能重试"
+			m.status = m.t("Deployment is running; cannot retry.", "部署执行中，不能重试")
 			return m, nil
 		}
 		if len(m.activeDeployment.Queue) == 0 || m.activeDeployment.QueueFailed < 0 || m.activeDeployment.QueueFailed >= len(m.activeDeployment.Queue) {
-			m.status = "没有失败项可重试"
+			m.status = m.t("No failed item to retry.", "没有失败项可重试")
 			return m, nil
 		}
 		return m.startQueuedDeployment(m.activeDeployment.QueueFailed)
 	case "a":
 		if m.activeDeployment.Running {
-			m.status = "部署执行中，不能重新部署"
+			m.status = m.t("Deployment is running; cannot redeploy.", "部署执行中，不能重新部署")
 			return m, nil
 		}
 		queue := m.activeDeployment.Queue
@@ -85,13 +85,13 @@ func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) startQueuedDeployment(index int) (tea.Model, tea.Cmd) {
 	if index < 0 || index >= len(m.activeDeployment.Queue) {
 		m.activeDeployment.Running = false
-		m.status = "部署队列完成。"
+		m.status = m.t("Deployment queue completed.", "部署队列完成。")
 		return m, nil
 	}
 	app := m.activeDeployment.Queue[index]
 	hostIndex := m.deploymentServerIndex(app.Server)
 	if hostIndex < 0 {
-		m.status = "部署服务器不存在：" + emptyDash(app.Server)
+		m.status = m.t("Deployment server does not exist: ", "部署服务器不存在：") + emptyDash(app.Server)
 		return m, nil
 	}
 	m.activeDeployment.HostIndex = hostIndex
@@ -108,9 +108,9 @@ func (m Model) startQueuedDeployment(index int) (tea.Model, tea.Cmd) {
 	m.deploymentOutputScroll = 0
 	m.mode = modeDeploymentConfirm
 	if len(m.activeDeployment.Queue) > 1 {
-		m.status = fmt.Sprintf("正在部署 %d/%d：%s", index+1, len(m.activeDeployment.Queue), app.Name)
+		m.status = fmt.Sprintf(m.t("Deploying %d/%d: %s", "正在部署 %d/%d：%s"), index+1, len(m.activeDeployment.Queue), app.Name)
 	} else {
-		m.status = "正在部署..."
+		m.status = m.t("Deploying...", "正在部署...")
 	}
 	deploymentProgressStart(m.activeDeployment.ProgressID)
 	return m, tea.Batch(m.runDeployment(), deploymentProgressAfter(m.activeDeployment.ProgressID, 200*time.Millisecond))
@@ -135,7 +135,7 @@ func (m Model) updateDeploymentOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q", "ctrl+c":
 		if m.activeDeployment.Running {
-			m.status = "部署执行中，完成后再返回"
+			m.status = m.t("Deployment is running; go back after it finishes.", "部署执行中，完成后再返回")
 			return m, nil
 		}
 		m.mode = modeDeploymentList
@@ -145,16 +145,16 @@ func (m Model) updateDeploymentOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentOutputMaxScroll())
 	case "r":
 		if m.activeDeployment.Running {
-			m.status = "部署执行中，完成后再回滚"
+			m.status = m.t("Deployment is running; rollback after it finishes.", "部署执行中，完成后再回滚")
 			return m, nil
 		}
 		if len(m.activeDeployment.App.RollbackCommands) == 0 {
-			m.status = "没有配置回滚命令"
+			m.status = m.t("No rollback commands configured.", "没有配置回滚命令")
 			return m, nil
 		}
 		m.deploymentOutputScroll = 0
 		m.mode = modeDeploymentRollbackConfirm
-		m.status = "确认回滚"
+		m.status = m.t("Confirm Rollback", "确认回滚")
 		return m, nil
 	}
 	return m, nil
@@ -177,7 +177,7 @@ func (m Model) updateDeploymentRollbackConfirm(msg tea.KeyMsg) (tea.Model, tea.C
 		m.activeDeployment.ExitCode = 0
 		m.deploymentOutputScroll = 0
 		m.mode = modeDeploymentOutput
-		m.status = "正在执行回滚..."
+		m.status = m.t("Running rollback...", "正在执行回滚...")
 		deploymentProgressStart(m.activeDeployment.ProgressID)
 		return m, tea.Batch(m.runDeploymentRollback(), deploymentProgressAfter(m.activeDeployment.ProgressID, 200*time.Millisecond))
 	}
@@ -190,7 +190,7 @@ func (m Model) runDeployment() tea.Cmd {
 	progressID := m.activeDeployment.ProgressID
 	if index < 0 || index >= len(m.states) {
 		return func() tea.Msg {
-			result := actions.CommandResult{Err: fmt.Errorf("部署服务器不存在：%s", emptyDash(app.Server)), ExitCode: -1}
+			result := actions.CommandResult{Err: fmt.Errorf("%s%s", m.t("Deployment server does not exist: ", "部署服务器不存在："), emptyDash(app.Server)), ExitCode: -1}
 			deploymentProgressFinish(progressID, result.Output)
 			return deploymentDoneMsg{ID: progressID, Result: result}
 		}
@@ -199,9 +199,9 @@ func (m Model) runDeployment() tea.Cmd {
 	onOutput := func(text string) { deploymentProgressAppend(progressID, text) }
 	if app.FetchMode == config.DeployFetchLocal {
 		return func() tea.Msg {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 			defer cancel()
-			result := runLocalFetchDeployment(ctx, h, app, onOutput)
+			result := m.runLocalFetchDeployment(ctx, h, app, onOutput)
 			prev, curr := parseDeploymentVersions(result.Output)
 			deploymentProgressFinish(progressID, result.Output)
 			return deploymentDoneMsg{ID: progressID, Result: result, PreviousVersion: prev, CurrentVersion: curr}
@@ -209,7 +209,7 @@ func (m Model) runDeployment() tea.Cmd {
 	}
 	script := buildDeploymentScript(app, false)
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
 		result, cleanup := actions.RemoteCommandStreamContext(ctx, h, script, onOutput)
 		cleanup()
@@ -225,7 +225,7 @@ func (m Model) runDeploymentRollback() tea.Cmd {
 	progressID := m.activeDeployment.ProgressID
 	if index < 0 || index >= len(m.states) {
 		return func() tea.Msg {
-			result := actions.CommandResult{Err: fmt.Errorf("部署服务器不存在：%s", emptyDash(app.Server)), ExitCode: -1}
+			result := actions.CommandResult{Err: fmt.Errorf("%s%s", m.t("Deployment server does not exist: ", "部署服务器不存在："), emptyDash(app.Server)), ExitCode: -1}
 			deploymentProgressFinish(progressID, result.Output)
 			return deploymentDoneMsg{ID: progressID, Result: result}
 		}
@@ -233,7 +233,7 @@ func (m Model) runDeploymentRollback() tea.Cmd {
 	h := m.states[index].Host
 	script := buildDeploymentScript(app, true)
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
 		result, cleanup := actions.RemoteCommandStreamContext(ctx, h, script, func(text string) { deploymentProgressAppend(progressID, text) })
 		cleanup()
@@ -253,12 +253,12 @@ func (m Model) handleDeploymentDone(msg deploymentDoneMsg) (tea.Model, tea.Cmd) 
 	m.activeDeployment.CurrentVersion = msg.CurrentVersion
 	failed := msg.Result.Err != nil
 	if failed {
-		m.status = fmt.Sprintf("部署失败：退出码 %d", msg.Result.ExitCode)
+		m.status = fmt.Sprintf("%s %d", m.t("Deployment failed: exit", "部署失败：退出码"), msg.Result.ExitCode)
 	} else {
-		m.status = "部署完成。"
+		m.status = m.t("Deployment completed.", "部署完成。")
 	}
 	if err := m.recordDeployment(msg.Result); err != nil {
-		m.status += " 记录保存失败：" + err.Error()
+		m.status += m.t(" Record save failed: ", " 记录保存失败：") + err.Error()
 	}
 	if msg.ID != "" {
 		deploymentProgressClear(msg.ID)
@@ -267,20 +267,20 @@ func (m Model) handleDeploymentDone(msg deploymentDoneMsg) (tea.Model, tea.Cmd) 
 		if failed {
 			m.activeDeployment.QueueFailed = m.activeDeployment.QueueIndex
 			if len(m.activeDeployment.Queue) > 1 {
-				m.status = fmt.Sprintf("部署队列停止：第 %d 个应用失败，按 r 重试失败项，按 a 重新部署", m.activeDeployment.QueueIndex+1)
+				m.status = fmt.Sprintf(m.t("Deployment queue stopped: app %d failed. Press r to retry failed item, a to redeploy.", "部署队列停止：第 %d 个应用失败，按 r 重试失败项，按 a 重新部署"), m.activeDeployment.QueueIndex+1)
 			} else {
-				m.status = "部署失败，按 r 重试，按 a 重新部署"
+				m.status = m.t("Deployment failed. Press r to retry, a to redeploy.", "部署失败，按 r 重试，按 a 重新部署")
 			}
 			return m, nil
 		}
 		next := m.activeDeployment.QueueIndex + 1
 		if next < len(m.activeDeployment.Queue) {
 			wait := maxInt(0, m.activeDeployment.App.WaitSeconds)
-			m.status = fmt.Sprintf("部署完成，等待 %d 秒后执行下一个：%s", wait, m.activeDeployment.Queue[next].Name)
+			m.status = fmt.Sprintf(m.t("Deployment completed. Waiting %d seconds before next: %s", "部署完成，等待 %d 秒后执行下一个：%s"), wait, m.activeDeployment.Queue[next].Name)
 			return m, deploymentQueueNextAfter(time.Duration(wait) * time.Second)
 		}
 		if len(m.activeDeployment.Queue) > 1 {
-			m.status = "部署队列完成。"
+			m.status = m.t("Deployment queue completed.", "部署队列完成。")
 		}
 	}
 	return m, nil
@@ -367,7 +367,7 @@ func buildRemoteDeploymentScript(app config.DeploymentApp, rollback bool, includ
 	return b.String()
 }
 
-func runLocalFetchDeployment(ctx context.Context, h host.Host, app config.DeploymentApp, onOutput func(string)) actions.CommandResult {
+func (m Model) runLocalFetchDeployment(ctx context.Context, h host.Host, app config.DeploymentApp, onOutput func(string)) actions.CommandResult {
 	var output strings.Builder
 	pre := buildLocalFetchPreScript(app)
 	preResult, cleanup := actions.RemoteCommandStreamContext(ctx, h, pre, onOutput)
@@ -389,7 +389,7 @@ func runLocalFetchDeployment(ctx context.Context, h host.Host, app config.Deploy
 		return localResult
 	}
 	cmd, rsyncCleanup := actions.RsyncUploadCommandContext(ctx, h, localResultPath(tmp)+string(os.PathSeparator), app.Path)
-	uploadTitle := "== 上传资源 ==\n"
+	uploadTitle := "== " + m.t("Upload resource", "上传资源") + " ==\n"
 	output.WriteString(uploadTitle)
 	if onOutput != nil {
 		onOutput(uploadTitle)

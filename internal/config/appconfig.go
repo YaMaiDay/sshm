@@ -15,6 +15,7 @@ type AppConfig struct {
 	ConnectTimeout  string   `toml:"connect_timeout"`
 	CommandTimeout  string   `toml:"command_timeout"`
 	ASCIIMode       bool     `toml:"ascii_mode"`
+	CustomDirs      bool     `toml:"custom_dirs"`
 	LocalDirs       []string `toml:"local_dirs"`
 	RemoteDirs      []string `toml:"remote_dirs"`
 	Thresholds      struct {
@@ -69,12 +70,6 @@ func NormalizeAppConfig(cfg AppConfig) AppConfig {
 	}
 	if !validDuration(cfg.CommandTimeout) {
 		cfg.CommandTimeout = defaults.CommandTimeout
-	}
-	if len(cfg.LocalDirs) == 0 {
-		cfg.LocalDirs = defaults.LocalDirs
-	}
-	if len(cfg.RemoteDirs) == 0 {
-		cfg.RemoteDirs = defaults.RemoteDirs
 	}
 	if cfg.Thresholds.CPUWarn <= 0 {
 		cfg.Thresholds.CPUWarn = defaults.Thresholds.CPUWarn

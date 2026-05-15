@@ -21,10 +21,11 @@ func TestSettingsSaveAppConfig(t *testing.T) {
 	}
 	m = m.startSettings()
 	m.settingsForm.Language = "en"
-	m.settingsForm.RefreshInterval = "30s"
-	m.settingsForm.ConnectTimeout = "8s"
-	m.settingsForm.CommandTimeout = "20s"
+	m.settingsForm.RefreshInterval = "30"
+	m.settingsForm.ConnectTimeout = "8"
+	m.settingsForm.CommandTimeout = "20"
 	m.settingsForm.ASCIIMode = true
+	m.settingsForm.CustomDirs = true
 	m.settingsForm.CPUWarn = "60"
 	m.settingsForm.CPUCrit = "90"
 	m.settingsForm.MemWarn = "61"
@@ -40,7 +41,7 @@ func TestSettingsSaveAppConfig(t *testing.T) {
 		t.Fatalf("mode/status = %v/%q", got.mode, got.status)
 	}
 	loaded := config.LoadAppConfig(home)
-	if loaded.Language != "en" || loaded.RefreshInterval != "30s" || loaded.ConnectTimeout != "8s" || loaded.CommandTimeout != "20s" || !loaded.ASCIIMode {
+	if loaded.Language != "en" || loaded.RefreshInterval != "30s" || loaded.ConnectTimeout != "8s" || loaded.CommandTimeout != "20s" || !loaded.ASCIIMode || !loaded.CustomDirs {
 		t.Fatalf("loaded config = %+v", loaded)
 	}
 	if loaded.Thresholds.DiskCrit != 92 || len(loaded.LocalDirs) != 2 || loaded.RemoteDirs[1] != "/data" {
@@ -55,12 +56,53 @@ func TestLocalRootItemsUsesAppConfig(t *testing.T) {
 	mustMkdir(t, first)
 	mustMkdir(t, second)
 	cfg := config.DefaultAppConfig()
+	cfg.CustomDirs = true
 	cfg.LocalDirs = []string{filepath.Join(home, "missing"), first, second, first}
 	m := Model{home: home, appConfig: cfg}
 
 	items := m.localRootItems(true)
 	if len(items) != 2 || items[0].Path != first || items[1].Path != second {
 		t.Fatalf("local roots = %#v", items)
+	}
+}
+
+func TestLocalRootItemsUsesRootDirsWhenCustomDisabled(t *testing.T) {
+	home := t.TempDir()
+	cfg := config.DefaultAppConfig()
+	cfg.CustomDirs = false
+	cfg.LocalDirs = []string{filepath.Join(home, "missing")}
+	m := Model{home: home, appConfig: cfg}
+
+	items := m.localRootItems(true)
+	foundRootChild := false
+	for _, item := range items {
+		if filepath.Dir(item.Path) == "/" {
+			foundRootChild = true
+		}
+		if item.Path == filepath.Join(home, "missing") {
+			t.Fatalf("custom dir was used while custom dirs disabled: %#v", items)
+		}
+	}
+	if !foundRootChild {
+		t.Fatalf("root dirs were not used: %#v", items)
+	}
+}
+
+func TestLocalTreeItemsTreatsSymlinkDirectoryAsDirectoryAndDedupes(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, "target")
+	link := filepath.Join(home, "link")
+	mustMkdir(t, target)
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not available: %v", err)
+	}
+
+	items := localTreeItems(home, true)
+	if len(items) != 1 {
+		t.Fatalf("items = %#v, want one real directory after dedupe", items)
+	}
+	if !items[0].IsDir {
+		t.Fatalf("symlink target should be treated as directory: %#v", items)
 	}
 }
 
@@ -79,6 +121,47 @@ func TestShortcutKeyNormalizesPeriodForSettings(t *testing.T) {
 	}
 	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'。'}}); got != "." {
 		t.Fatalf("shortcutKey(fullwidth period) = %q", got)
+	}
+}
+
+func TestSettingsASCIIModeIsSecondSelectableField(t *testing.T) {
+	m := Model{home: t.TempDir(), appConfig: config.DefaultAppConfig(), collector: monitor.NewCollector(config.PasswordStore{})}
+	m = m.startSettings()
+	m.moveSettingsField(1)
+	if m.settingsField != settingsASCIIMode {
+		t.Fatalf("second settings field = %d, want ASCII mode", m.settingsField)
+	}
+	next, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyRight})
+	got := next.(Model)
+	if !got.settingsForm.ASCIIMode {
+		t.Fatal("ASCII mode should toggle on with right arrow")
+	}
+}
+
+func TestSettingsDisplaysDurationAsSeconds(t *testing.T) {
+	form := settingsFormFromConfig(config.AppConfig{
+		Language:        "en",
+		RefreshInterval: "30s",
+		ConnectTimeout:  "1500ms",
+		CommandTimeout:  "1m",
+	})
+	if form.RefreshInterval != "30" || form.ConnectTimeout != "1.5" || form.CommandTimeout != "60" {
+		t.Fatalf("seconds form = %+v", form)
+	}
+}
+
+func TestSettingsAcceptsSecondsWithoutUnit(t *testing.T) {
+	m := Model{home: t.TempDir(), appConfig: config.DefaultAppConfig(), collector: monitor.NewCollector(config.PasswordStore{})}
+	m = m.startSettings()
+	m.settingsForm.RefreshInterval = "15"
+	m.settingsForm.ConnectTimeout = "3.5"
+	m.settingsForm.CommandTimeout = "40"
+	cfg, err := m.settingsConfigFromForm()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RefreshInterval != "15s" || cfg.ConnectTimeout != "3.5s" || cfg.CommandTimeout != "40s" {
+		t.Fatalf("durations = %q %q %q", cfg.RefreshInterval, cfg.ConnectTimeout, cfg.CommandTimeout)
 	}
 }
 

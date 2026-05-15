@@ -18,12 +18,12 @@ func (m Model) renderCommandList() string {
 	if m.activeCommand.HostIndex >= 0 && m.activeCommand.HostIndex < len(m.states) {
 		hostName = hostDisplayName(m.states[m.activeCommand.HostIndex].Host)
 	}
-	title := "命令模板  " + hostName
+	title := m.t("Command Templates  ", "命令模板  ") + hostName
 	bodyWidth := width - 4
 	if bodyWidth < 30 {
 		bodyWidth = 30
 	}
-	help := "选择 ↑↓/jk  执行 Enter  新增 a  编辑 e  删除 x  返回 Esc"
+	help := m.t("Move ↑↓/jk  Run Enter  Add a  Edit e  Delete x  Back Esc", "选择 ↑↓/jk  执行 Enter  新增 a  编辑 e  删除 x  返回 Esc")
 	bodyHeight := m.height - 2
 	if bodyHeight < 8 {
 		bodyHeight = 8
@@ -38,7 +38,7 @@ func (m Model) renderCommandList() string {
 		listHeight = 1
 	}
 	if len(m.commandItems) == 0 {
-		lines = append(lines, mutedStyle.Render("没有命令模板"))
+		lines = append(lines, mutedStyle.Render(m.t("No command templates", "没有命令模板")))
 	} else {
 		start, end := visibleRange(len(m.commandItems), m.commandIndex, listHeight)
 		for i := start; i < end; i++ {
@@ -47,7 +47,7 @@ func (m Model) renderCommandList() string {
 				if len(lines) > 0 {
 					lines = append(lines, "")
 				}
-				lines = append(lines, detailSubTitle(item.Name))
+				lines = append(lines, detailSubTitle(m.commandDisplayName(item.Name)))
 				continue
 			}
 			if item.Spacer {
@@ -60,7 +60,7 @@ func (m Model) renderCommandList() string {
 				prefix = "▶"
 				style = blueStyle.Bold(true)
 			}
-			label := item.Name
+			label := m.commandDisplayName(item.Name)
 			if item.Temporary {
 				label = "+ " + label
 			}
@@ -89,11 +89,11 @@ func (m Model) renderCommandEdit() string {
 	if innerWidth < 36 {
 		innerWidth = 36
 	}
-	title := "添加命令模板"
+	title := m.t("Add Command Template", "添加命令模板")
 	if m.commandEditing {
-		title = "编辑命令模板"
+		title = m.t("Edit Command Template", "编辑命令模板")
 	}
-	scope := "全局  ←/→"
+	scope := m.t("Global", "全局") + "  ←/→"
 	server := "-"
 	if m.activeCommand.HostIndex >= 0 && m.activeCommand.HostIndex < len(m.states) {
 		h := m.states[m.activeCommand.HostIndex].Host
@@ -107,11 +107,11 @@ func (m Model) renderCommandEdit() string {
 		header += "  " + server
 	}
 	lines := []string{}
-	lines = append(lines, commandFieldLine(m, 0, "范围", scope, innerWidth))
-	lines = append(lines, commandFieldLine(m, 1, "模板名称", commandInputText(m.commandForm.Name, m.commandCursor, m.commandField == 1, 28), innerWidth))
+	lines = append(lines, commandFieldLine(m, 0, m.t("Scope", "范围"), scope, innerWidth))
+	lines = append(lines, commandFieldLine(m, 1, m.t("Template name", "模板名称"), commandInputText(m.commandForm.Name, m.commandCursor, m.commandField == 1, 28), innerWidth))
 	lines = append(lines, "")
-	help := "切换 Tab  保存 Enter  换行 Ctrl+J  返回 Esc"
-	lines = append(lines, detailSubTitle("命令内容"))
+	help := m.t("Switch Tab  Save Enter  New line Ctrl+J  Back Esc", "切换 Tab  保存 Enter  换行 Ctrl+J  返回 Esc")
+	lines = append(lines, detailSubTitle(m.t("Command", "命令内容")))
 	lines = append(lines, commandTextArea(m.commandForm.Command, m.commandCursor, m.commandField == 2, innerWidth, m.commandTextAreaHeight(help)))
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -133,7 +133,10 @@ func commandFieldLine(m Model, index int, label string, value string, width int)
 		prefix = "▶"
 		style = blueStyle.Bold(true)
 	}
-	labelWidth := runewidth.StringWidth("模板名称")
+	labelWidth := runewidth.StringWidth("Template name")
+	if m.isChineseUI() {
+		labelWidth = runewidth.StringWidth("模板名称")
+	}
 	padding := labelWidth - runewidth.StringWidth(label) + 1
 	if padding < 1 {
 		padding = 1
@@ -247,17 +250,17 @@ func cursorTextPosition(runes []rune, cursor int) (int, int) {
 
 func (m Model) renderCommandConfirm() string {
 	width := detailFrameWidth(m.width)
-	help := "滚动 ↑↓/jk  执行 Enter  返回 Esc"
+	help := m.t("Scroll ↑↓/jk  Run Enter  Back Esc", "滚动 ↑↓/jk  执行 Enter  返回 Esc")
 	height := m.height - 4
 	if height < 6 {
 		height = 6
 	}
 	h := m.states[m.activeCommand.HostIndex].Host
 	lines := []string{
-		modalLine("服务器", hostDisplayName(h), width-4),
-		modalLine("模板", m.commandConfirm.Name, width-4),
+		modalLine(m.t("Server", "服务器"), hostDisplayName(h), width-4),
+		modalLine(m.t("Template", "模板"), m.commandConfirm.Name, width-4),
 		"",
-		detailSubTitle("命令"),
+		detailSubTitle(m.t("Command", "命令")),
 	}
 	lines = append(lines, strings.Split(wrapPlainLine(m.commandConfirm.Command, width-4), "\n")...)
 	maxScroll := m.commandConfirmMaxScroll()
@@ -276,7 +279,7 @@ func (m Model) renderCommandConfirm() string {
 		Width(width).
 		Render(strings.Join(fitLines(viewLines, width-4), "\n"))
 	return strings.Join([]string{
-		titleStyle.Render(fit("即将执行", width)),
+		titleStyle.Render(fit(m.t("Run Command", "即将执行"), width)),
 		box,
 		renderHelp(width, help),
 	}, "\n")
@@ -291,7 +294,7 @@ func (m Model) commandConfirmMaxScroll() int {
 		"",
 		"",
 		"",
-		"命令",
+		m.t("Command", "命令"),
 	}
 	lines = append(lines, strings.Split(wrapPlainLine(m.commandConfirm.Command, detailFrameWidth(m.width)-4), "\n")...)
 	maxScroll := len(lines) - height
@@ -312,22 +315,22 @@ func modalLine(label string, value string, width int) string {
 
 func (m Model) renderCommandOutput() string {
 	width := detailFrameWidth(m.width)
-	help := "滚动 ↑↓/jk  返回 q/Esc"
+	help := m.t("Scroll ↑↓/jk  Back q/Esc", "滚动 ↑↓/jk  返回 q/Esc")
 	height := m.height - 4
 	if height < 6 {
 		height = 6
 	}
-	title := "命令输出  " + m.activeCommand.Name
+	title := m.t("Command Output  ", "命令输出  ") + m.activeCommand.Name
 	lines := []string{"$ " + m.activeCommand.Command, ""}
 	if m.activeCommand.Running {
-		lines = append(lines, "正在执行...")
+		lines = append(lines, m.t("Running...", "正在执行..."))
 	} else {
 		output := strings.TrimRight(m.activeCommand.Output, "\n")
 		if output == "" {
-			output = "(无输出)"
+			output = m.t("(no output)", "(无输出)")
 		}
 		lines = append(lines, strings.Split(output, "\n")...)
-		lines = append(lines, "", fmt.Sprintf("退出码 %d", m.activeCommand.ExitCode))
+		lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.activeCommand.ExitCode))
 	}
 	viewLines := lines
 	maxScroll := m.commandOutputMaxScroll()
@@ -357,7 +360,7 @@ func (m Model) renderBatchSelect() string {
 	if bodyWidth < 32 {
 		bodyWidth = 32
 	}
-	help := "移动 ↑↓/jk  选择 Space  全选 a  清空 x  下一步 Enter  返回 Esc"
+	help := m.t("Move ↑↓/jk  Select Space  All a  Clear x  Next Enter  Back Esc", "移动 ↑↓/jk  选择 Space  全选 a  清空 x  下一步 Enter  返回 Esc")
 	bodyHeight := m.height - 2
 	if bodyHeight < 8 {
 		bodyHeight = 8
@@ -368,7 +371,7 @@ func (m Model) renderBatchSelect() string {
 	}
 	lines := []string{}
 	if len(m.batchIndexes) == 0 {
-		lines = append(lines, mutedStyle.Render("没有可选择的服务器"))
+		lines = append(lines, mutedStyle.Render(m.t("No selectable servers", "没有可选择的服务器")))
 	} else {
 		start, end := visibleRange(len(m.batchIndexes), m.batchCursor, contentHeight)
 		for i := start; i < end; i++ {
@@ -391,7 +394,7 @@ func (m Model) renderBatchSelect() string {
 		lines = append(lines, "")
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
-	title := fmt.Sprintf("批量选择服务器  已选%d台", m.batchSelectedCount())
+	title := fmt.Sprintf("%s  %s %d", m.t("Batch Select Servers", "批量选择服务器"), m.t("Selected", "已选"), m.batchSelectedCount())
 	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, help)}, "\n")
 }
 
@@ -401,7 +404,7 @@ func (m Model) renderBatchCommandList() string {
 	if bodyWidth < 32 {
 		bodyWidth = 32
 	}
-	help := "移动 ↑↓/jk  选择 Enter  返回 Esc"
+	help := m.t("Move ↑↓/jk  Select Enter  Back Esc", "移动 ↑↓/jk  选择 Enter  返回 Esc")
 	bodyHeight := m.height - 2
 	if bodyHeight < 8 {
 		bodyHeight = 8
@@ -417,7 +420,7 @@ func (m Model) renderBatchCommandList() string {
 	for i := start; i < end; i++ {
 		item := m.batchCommandItems[i]
 		if item.Header {
-			lines = append(lines, detailSubTitle(item.Name))
+			lines = append(lines, detailSubTitle(m.commandDisplayName(item.Name)))
 			continue
 		}
 		if item.Spacer {
@@ -430,7 +433,7 @@ func (m Model) renderBatchCommandList() string {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
-		label := item.Name
+		label := m.commandDisplayName(item.Name)
 		if item.Temporary {
 			label = "+ " + label
 		}
@@ -440,7 +443,7 @@ func (m Model) renderBatchCommandList() string {
 		lines = append(lines, "")
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
-	title := fmt.Sprintf("选择批量命令  %d台服务器", m.batchSelectedCount())
+	title := fmt.Sprintf("%s  %d %s", m.t("Select Batch Command", "选择批量命令"), m.batchSelectedCount(), m.t("servers", "台服务器"))
 	return strings.Join([]string{titleStyle.Render(fit(title, width)), targets, box, renderHelp(width, help)}, "\n")
 }
 
@@ -450,13 +453,13 @@ func (m Model) renderBatchCommandEdit() string {
 	if innerWidth < 36 {
 		innerWidth = 36
 	}
-	help := "保存 Enter  换行 Ctrl+J  返回 Esc"
+	help := m.t("Save Enter  Newline Ctrl+J  Back Esc", "保存 Enter  换行 Ctrl+J  返回 Esc")
 	targets := m.batchTargetsHeader(width)
 	targetLines := strings.Count(targets, "\n") + 1
-	lines := []string{detailSubTitle("命令内容")}
+	lines := []string{detailSubTitle(m.t("Command", "命令内容"))}
 	lines = append(lines, commandTextArea(m.commandForm.Command, m.commandCursor, true, innerWidth, m.batchCommandTextAreaHeight(targetLines)))
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(blue).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
-	return strings.Join([]string{titleStyle.Render(fit("批量临时命令", width)), targets, box, renderHelp(width, help)}, "\n")
+	return strings.Join([]string{titleStyle.Render(fit(m.t("Batch Temporary Command", "批量临时命令"), width)), targets, box, renderHelp(width, help)}, "\n")
 }
 
 func (m Model) batchCommandTextAreaHeight(targetLines int) int {
@@ -475,9 +478,13 @@ func (m Model) batchTargetsHeader(width int) string {
 		}
 	}
 	if len(names) == 0 {
-		return mutedStyle.Render("目标 -")
+		return mutedStyle.Render(m.t("Targets", "目标") + " -")
 	}
-	return mutedStyle.Render(wrapPlainLine("目标 "+strings.Join(names, "、"), width))
+	sep := ", "
+	if m.isChineseUI() {
+		sep = "、"
+	}
+	return mutedStyle.Render(wrapPlainLine(m.t("Targets ", "目标 ")+strings.Join(names, sep), width))
 }
 
 func (m Model) renderBatchConfirm() string {
@@ -487,15 +494,15 @@ func (m Model) renderBatchConfirm() string {
 		bodyWidth = 32
 	}
 	lines := []string{
-		modalLine("服务器", fmt.Sprintf("%d台", m.batchSelectedCount()), bodyWidth),
-		modalLine("模板", m.batchCommand.Name, bodyWidth),
+		modalLine(m.t("Servers", "服务器"), fmt.Sprintf("%d%s", m.batchSelectedCount(), m.t(" servers", "台")), bodyWidth),
+		modalLine(m.t("Template", "模板"), m.batchCommand.Name, bodyWidth),
 		"",
-		detailSubTitle("目标"),
+		detailSubTitle(m.t("Targets", "目标")),
 	}
 	for _, index := range m.selectedBatchHostIndexes() {
 		lines = append(lines, fit("- "+hostDisplayName(m.states[index].Host), bodyWidth))
 	}
-	lines = append(lines, "", detailSubTitle("命令"))
+	lines = append(lines, "", detailSubTitle(m.t("Command", "命令")))
 	lines = append(lines, strings.Split(wrapPlainLine(m.batchCommand.Command, bodyWidth), "\n")...)
 	scroll := clampInt(m.batchOutputScroll, 0, m.batchConfirmMaxScroll())
 	height := m.height - 4
@@ -506,7 +513,7 @@ func (m Model) renderBatchConfirm() string {
 		lines = lines[scroll:minInt(len(lines), scroll+height)]
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(yellow).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
-	return strings.Join([]string{titleStyle.Render(fit("确认批量执行", width)), box, renderHelp(width, "滚动 ↑↓/jk  确认 Enter  返回 Esc")}, "\n")
+	return strings.Join([]string{titleStyle.Render(fit(m.t("Confirm Batch Run", "确认批量执行"), width)), box, renderHelp(width, m.t("Scroll ↑↓/jk  Confirm Enter  Back Esc", "滚动 ↑↓/jk  确认 Enter  返回 Esc"))}, "\n")
 }
 
 func (m Model) batchConfirmMaxScroll() int {
@@ -540,8 +547,8 @@ func (m Model) renderBatchOutput() string {
 	right := m.batchOutputView(rightWidth)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right)
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(body)
-	title := fmt.Sprintf("批量执行结果  成功%d  失败%d", m.batchSuccessCount(), m.batchFailCount())
-	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, "选择 ↑↓/jk  输出 ←→/hl  重试失败 r  返回 q/Esc")}, "\n")
+	title := fmt.Sprintf("%s  %s%d  %s%d", m.t("Batch Results", "批量执行结果"), m.t("Success", "成功"), m.batchSuccessCount(), m.t("Failed", "失败"), m.batchFailCount())
+	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, m.t("Select ↑↓/jk  Output ←→/hl  Retry failed r  Back q/Esc", "选择 ↑↓/jk  输出 ←→/hl  重试失败 r  返回 q/Esc"))}, "\n")
 }
 
 func (m Model) batchResultList(width int) string {
@@ -558,7 +565,7 @@ func (m Model) batchResultList(width int) string {
 			if len(lines) > 0 {
 				lines = append(lines, "")
 			}
-			lines = append(lines, batchJobGroupTitle(group))
+			lines = append(lines, m.batchJobGroupTitle(group))
 			lastGroup = group
 		}
 		prefix := " "
@@ -567,13 +574,13 @@ func (m Model) batchResultList(width int) string {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
-		state := "等待"
+		state := m.t("Waiting", "等待")
 		if job.Running {
-			state = "执行中"
+			state = m.t("Running", "执行中")
 		} else if job.Done && job.Err == nil {
-			state = greenStyle.Render("成功")
+			state = greenStyle.Render(m.t("Success", "成功"))
 		} else if job.Done && job.Err != nil {
-			state = redStyle.Render("失败")
+			state = redStyle.Render(m.t("Failed", "失败"))
 		}
 		name := "-"
 		if job.HostIndex >= 0 && job.HostIndex < len(m.states) {
@@ -610,16 +617,16 @@ func batchJobGroup(job batchJob) string {
 	}
 }
 
-func batchJobGroupTitle(group string) string {
+func (m Model) batchJobGroupTitle(group string) string {
 	switch group {
 	case "failed":
-		return detailDangerSubTitle("失败")
+		return detailDangerSubTitle(m.t("Failed", "失败"))
 	case "running":
-		return detailSubTitle("执行中")
+		return detailSubTitle(m.t("Running", "执行中"))
 	case "waiting":
-		return detailSubTitle("等待")
+		return detailSubTitle(m.t("Waiting", "等待"))
 	default:
-		return detailSuccessSubTitle("成功")
+		return detailSuccessSubTitle(m.t("Success", "成功"))
 	}
 }
 
@@ -630,16 +637,16 @@ func (m Model) batchOutputView(width int) string {
 	job := m.batchJobs[m.batchOutputIndex]
 	lines := []string{}
 	if job.Running {
-		lines = append(lines, "执行中...")
+		lines = append(lines, m.t("Running...", "执行中..."))
 	} else if !job.Done {
-		lines = append(lines, "等待执行")
+		lines = append(lines, m.t("Waiting to run", "等待执行"))
 	} else {
 		output := strings.TrimRight(job.Output, "\n")
 		if output == "" {
-			output = "(无输出)"
+			output = m.t("(no output)", "(无输出)")
 		}
 		lines = append(lines, strings.Split(output, "\n")...)
-		lines = append(lines, "", fmt.Sprintf("退出码 %d", job.ExitCode))
+		lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), job.ExitCode))
 	}
 	scroll := clampInt(m.batchOutputScroll, 0, m.batchOutputMaxScroll())
 	height := m.height - 6
@@ -682,7 +689,7 @@ func (m Model) renderCommandHistory() string {
 	if bodyWidth < 32 {
 		bodyWidth = 32
 	}
-	help := "移动 ↑↓/jk  查看 Enter  搜索 /  重跑 r  删除 x  返回 q/Esc"
+	help := m.t("Move ↑↓/jk  View Enter  Search /  Rerun r  Delete x  Back q/Esc", "移动 ↑↓/jk  查看 Enter  搜索 /  重跑 r  删除 x  返回 q/Esc")
 	height := m.height - 4
 	if height < 8 {
 		height = 8
@@ -690,7 +697,7 @@ func (m Model) renderCommandHistory() string {
 	lines := []string{}
 	entries := m.filteredHistoryEntries()
 	if len(entries) == 0 {
-		lines = append(lines, mutedStyle.Render("暂无命令历史"))
+		lines = append(lines, mutedStyle.Render(m.t("No command history", "暂无命令历史")))
 	} else {
 		start, end := visibleRange(len(entries), m.historyIndex, height)
 		for i := start; i < end; i++ {
@@ -701,8 +708,8 @@ func (m Model) renderCommandHistory() string {
 				prefix = "▶"
 				style = blueStyle.Bold(true)
 			}
-			status := historyStatusText(entry.Status)
-			line := fmt.Sprintf("%s %s  %s  %s  %s", prefix, historyTimeShort(entry.Time), status, historyTargetsText(entry, 1), historyCommandName(entry))
+			status := m.historyStatusText(entry.Status)
+			line := fmt.Sprintf("%s %s  %s  %s  %s", prefix, historyTimeShort(entry.Time), status, m.historyTargetsText(entry, 1), m.historyCommandName(entry))
 			lines = append(lines, style.Render(fit(line, bodyWidth)))
 		}
 	}
@@ -710,11 +717,11 @@ func (m Model) renderCommandHistory() string {
 		lines = append(lines, "")
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
-	title := fmt.Sprintf("命令历史  %d条", len(entries))
+	title := fmt.Sprintf("%s  %d%s", m.t("Command History", "命令历史"), len(entries), m.t(" records", "条"))
 	if m.historySearch {
-		title += "  搜索：" + inlineCursorText(m.historyQuery, width/3, len([]rune(m.historyQuery)))
+		title += "  " + m.t("Search: ", "搜索：") + inlineCursorText(m.historyQuery, width/3, len([]rune(m.historyQuery)))
 	} else if strings.TrimSpace(m.historyQuery) != "" {
-		title += "  搜索：" + m.historyQuery
+		title += "  " + m.t("Search: ", "搜索：") + m.historyQuery
 	}
 	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, help)}, "\n")
 }
@@ -727,29 +734,29 @@ func (m Model) renderCommandHistoryDetail() string {
 	}
 	entry, ok := m.selectedHistoryEntry()
 	if !ok {
-		return "没有命令历史"
+		return m.t("No command history", "没有命令历史")
 	}
 	lines := []string{
-		modalLine("时间", historyTimeFull(entry.Time), bodyWidth),
-		modalLine("状态", historyStatusPlain(entry.Status), bodyWidth),
-		modalLine("类型", historyKindText(entry), bodyWidth),
-		modalLine("名称", historyCommandName(entry), bodyWidth),
+		modalLine(m.t("Time", "时间"), historyTimeFull(entry.Time), bodyWidth),
+		modalLine(m.t("Status", "状态"), m.historyStatusPlain(entry.Status), bodyWidth),
+		modalLine(m.t("Type", "类型"), m.historyKindText(entry), bodyWidth),
+		modalLine(m.t("Name", "名称"), m.historyCommandName(entry), bodyWidth),
 		"",
-		detailSubTitle("目标"),
+		detailSubTitle(m.t("Targets", "目标")),
 	}
 	for _, target := range entry.Targets {
-		state := historyStatusPlain(target.Status)
-		targetText := fmt.Sprintf("%s  %s  退出码%d", historyTargetName(target), state, target.ExitCode)
+		state := m.historyStatusPlain(target.Status)
+		targetText := fmt.Sprintf("%s  %s  %s%d", m.historyTargetName(target), state, m.t("exit ", "退出码"), target.ExitCode)
 		lines = append(lines, fit(targetText, bodyWidth))
 	}
-	lines = append(lines, "", detailSubTitle("命令"))
+	lines = append(lines, "", detailSubTitle(m.t("Command", "命令")))
 	lines = append(lines, strings.Split(wrapPlainLine(entry.Command, bodyWidth), "\n")...)
-	lines = append(lines, "", detailSubTitle("输出"))
+	lines = append(lines, "", detailSubTitle(m.t("Output", "输出")))
 	for _, target := range entry.Targets {
-		lines = append(lines, fit("["+historyTargetName(target)+"]", bodyWidth))
+		lines = append(lines, fit("["+m.historyTargetName(target)+"]", bodyWidth))
 		output := strings.TrimRight(target.Output, "\n")
 		if output == "" {
-			output = "(无输出)"
+			output = m.t("(no output)", "(无输出)")
 		}
 		lines = append(lines, strings.Split(wrapPlainLine(output, bodyWidth), "\n")...)
 		lines = append(lines, "")
@@ -767,7 +774,8 @@ func (m Model) renderCommandHistoryDetail() string {
 		viewLines = append(viewLines, "")
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(fitLines(viewLines, bodyWidth), "\n"))
-	return strings.Join([]string{titleStyle.Render(fit("命令历史详情", width)), box, renderHelp(width, "滚动 ↑↓/jk  重跑 r  删除 x  返回 q/Esc")}, "\n")
+	help := m.t("Scroll ↑↓/jk  Rerun r  Delete x  Back q/Esc", "滚动 ↑↓/jk  重跑 r  删除 x  返回 q/Esc")
+	return strings.Join([]string{titleStyle.Render(fit(m.t("Command History Detail", "命令历史详情"), width)), box, renderHelp(width, help)}, "\n")
 }
 
 func (m Model) commandHistoryDetailMaxScroll() int {
@@ -804,25 +812,59 @@ func historyCommandName(entry config.CommandHistoryEntry) string {
 	return name
 }
 
-func historyKindText(entry config.CommandHistoryEntry) string {
+func (m Model) historyCommandName(entry config.CommandHistoryEntry) string {
+	return m.commandDisplayName(historyCommandName(entry))
+}
+
+func (m Model) commandDisplayName(name string) string {
+	if m.isChineseUI() {
+		return name
+	}
+	switch strings.TrimSpace(name) {
+	case "当前服务器":
+		return "Current Server"
+	case "全局":
+		return "Global"
+	case "临时命令":
+		return "Temporary Command"
+	case "学习样板-部署检查":
+		return "Example - Deploy Check"
+	case "学习样板-部署发布":
+		return "Example - Deploy Release"
+	case "学习样板-日志排查":
+		return "Example - Log Troubleshooting"
+	case "学习样板-Docker清理":
+		return "Example - Docker Cleanup"
+	default:
+		return name
+	}
+}
+
+func (m Model) historyKindText(entry config.CommandHistoryEntry) string {
 	if entry.Kind == "batch" {
-		return fmt.Sprintf("批量命令 %d台", len(entry.Targets))
+		if m.isChineseUI() {
+			return fmt.Sprintf("批量命令 %d台", len(entry.Targets))
+		}
+		return fmt.Sprintf("Batch command %d targets", len(entry.Targets))
 	}
-	return "单台命令"
+	if m.isChineseUI() {
+		return "单台命令"
+	}
+	return "Single command"
 }
 
-func historyStatusText(status string) string {
+func (m Model) historyStatusText(status string) string {
 	if status == "failed" {
-		return redStyle.Render("失败")
+		return redStyle.Render(m.t("Failed", "失败"))
 	}
-	return greenStyle.Render("成功")
+	return greenStyle.Render(m.t("Success", "成功"))
 }
 
-func historyStatusPlain(status string) string {
+func (m Model) historyStatusPlain(status string) string {
 	if status == "failed" {
-		return "失败"
+		return m.t("Failed", "失败")
 	}
-	return "成功"
+	return m.t("Success", "成功")
 }
 
 func historyTimeShort(value string) string {
@@ -841,27 +883,30 @@ func historyTimeFull(value string) string {
 	return t.Local().Format("2006-01-02 15:04:05")
 }
 
-func historyTargetsText(entry config.CommandHistoryEntry, limit int) string {
+func (m Model) historyTargetsText(entry config.CommandHistoryEntry, limit int) string {
 	if len(entry.Targets) == 0 {
 		return "-"
 	}
 	names := make([]string, 0, len(entry.Targets))
 	for _, target := range entry.Targets {
-		names = append(names, historyTargetName(target))
+		names = append(names, m.historyTargetName(target))
 	}
 	if limit > 0 && len(names) > limit {
-		return fmt.Sprintf("%s 等%d台", names[0], len(names))
+		return fmt.Sprintf("%s %s%d", names[0], m.t("and ", "等"), len(names))
 	}
-	return strings.Join(names, "、")
+	if m.isChineseUI() {
+		return strings.Join(names, "、")
+	}
+	return strings.Join(names, ", ")
 }
 
-func historyTargetName(target config.CommandHistoryTarget) string {
+func (m Model) historyTargetName(target config.CommandHistoryTarget) string {
 	category := strings.TrimSpace(target.Category)
 	name := strings.TrimSpace(target.Name)
 	if category == "" {
 		return name
 	}
-	return "[" + category + "] " + name
+	return "[" + m.displayCategoryName(category) + "] " + name
 }
 
 func (m Model) renderHelpPanel() string {
@@ -874,33 +919,34 @@ func (m Model) renderHelpPanel() string {
 		key  string
 		desc string
 	}{
-		{"↑↓←→ / hjkl", "移动选择"},
-		{"Enter", "登录服务器"},
-		{"Space", "查看详情"},
-		{"m", "命令模板"},
-		{"b", "批量命令"},
-		{"i", "命令历史"},
-		{"y", "传输任务"},
-		{"g", "应用部署"},
-		{"w", "异常总览"},
-		{"z", "切换首页视图"},
-		{"t", "置顶 / 取消置顶"},
-		{"f", "收藏 / 取消收藏"},
-		{"v", "只看收藏 / 取消筛选"},
-		{"a", "添加服务器"},
-		{"c", "复制服务器"},
-		{"e", "编辑服务器"},
-		{"x", "删除服务器"},
-		{"u", "上传文件或目录"},
-		{"d", "下载文件或目录"},
-		{"r", "刷新监控"},
-		{"/", "搜索"},
-		{"Tab", "切换分类"},
-		{"o", "只看在线 / 取消筛选"},
-		{"p", "只看异常 / 取消筛选"},
-		{"s", "切换排序"},
-		{"q / Esc", "退出或返回"},
-		{"?", "关闭帮助"},
+		{"↑↓←→ / hjkl", m.t("Move selection", "移动选择")},
+		{"Enter", m.t("Login server", "登录服务器")},
+		{"Space", m.t("View details", "查看详情")},
+		{"m", m.t("Command templates", "命令模板")},
+		{"b", m.t("Batch commands", "批量命令")},
+		{"i", m.t("Command history", "命令历史")},
+		{"y", m.t("Transfer jobs", "传输任务")},
+		{"g", m.t("App deployment", "应用部署")},
+		{".", m.t("Settings", "设置")},
+		{"w", m.t("Problem overview", "异常总览")},
+		{"z", m.t("Switch dashboard view", "切换首页视图")},
+		{"t", m.t("Pin / unpin", "置顶 / 取消置顶")},
+		{"f", m.t("Favorite / unfavorite", "收藏 / 取消收藏")},
+		{"v", m.t("Favorites only / clear filter", "只看收藏 / 取消筛选")},
+		{"a", m.t("Add server", "添加服务器")},
+		{"c", m.t("Copy server", "复制服务器")},
+		{"e", m.t("Edit server", "编辑服务器")},
+		{"x", m.t("Delete server", "删除服务器")},
+		{"u", m.t("Upload file or directory", "上传文件或目录")},
+		{"d", m.t("Download file or directory", "下载文件或目录")},
+		{"r", m.t("Refresh monitoring", "刷新监控")},
+		{"/", m.t("Search", "搜索")},
+		{"Tab", m.t("Switch category", "切换分类")},
+		{"o", m.t("Online only / clear filter", "只看在线 / 取消筛选")},
+		{"p", m.t("Problems only / clear filter", "只看异常 / 取消筛选")},
+		{"s", m.t("Switch sort", "切换排序")},
+		{"q / Esc", m.t("Quit or go back", "退出或返回")},
+		{"?", m.t("Close help", "关闭帮助")},
 	}
 	lines := []string{}
 	for _, row := range rows {
@@ -913,9 +959,9 @@ func (m Model) renderHelpPanel() string {
 		Width(width).
 		Render(strings.Join(lines, "\n"))
 	return strings.Join([]string{
-		titleStyle.Render(fit("快捷键", width)),
+		titleStyle.Render(fit(m.t("Shortcuts", "快捷键"), width)),
 		box,
-		renderHelp(width, "返回 q/Esc/?"),
+		renderHelp(width, m.t("Back q/Esc/?", "返回 q/Esc/?")),
 	}, "\n")
 }
 
@@ -927,7 +973,7 @@ type anomalyItem struct {
 func (m Model) anomalyItems() []anomalyItem {
 	items := make([]anomalyItem, 0)
 	for i, state := range m.states {
-		checks := actionableChecks(buildChecks(state))
+		checks := actionableChecks(m.buildChecks(state))
 		if len(checks) == 0 {
 			continue
 		}

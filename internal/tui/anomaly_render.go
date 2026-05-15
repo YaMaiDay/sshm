@@ -21,12 +21,12 @@ func (m Model) renderAnomalyOverview() string {
 		totalSevere += severe
 		totalWarn += warn
 	}
-	title := fmt.Sprintf("异常总览  %d台  %s", len(items), anomalyFilterName(m.anomalyFilter))
+	title := fmt.Sprintf("%s  %d%s  %s", m.t("Anomaly Overview", "异常总览"), len(items), m.t(" servers", "台"), m.anomalyFilterName(m.anomalyFilter))
 	if totalSevere > 0 {
-		title += "  " + redStyle.Render(fmt.Sprintf("严重%d", totalSevere))
+		title += "  " + redStyle.Render(fmt.Sprintf("%s%d", m.t("Critical", "严重"), totalSevere))
 	}
 	if totalWarn > 0 {
-		title += "  " + yellowStyle.Render(fmt.Sprintf("警告%d", totalWarn))
+		title += "  " + yellowStyle.Render(fmt.Sprintf("%s%d", m.t("Warn", "警告"), totalWarn))
 	}
 	if m.refreshStatus != "" {
 		title += "  " + m.refreshStatus
@@ -37,8 +37,8 @@ func (m Model) renderAnomalyOverview() string {
 	}
 	lines := []string{}
 	if len(items) == 0 {
-		lines = append(lines, greenStyle.Render("没有发现严重或警告级别的问题。"))
-		lines = append(lines, mutedStyle.Render("提示级别的问题仍可在服务器详情的风险页查看。"))
+		lines = append(lines, greenStyle.Render(m.t("No critical or warning issues found.", "没有发现严重或警告级别的问题。")))
+		lines = append(lines, mutedStyle.Render(m.t("Info-level issues are still available on the server detail risk page.", "提示级别的问题仍可在服务器详情的风险页查看。")))
 	} else {
 		itemHeight := 3
 		rowsVisible := contentHeight / itemHeight
@@ -56,7 +56,7 @@ func (m Model) renderAnomalyOverview() string {
 				if len(lines) > 0 {
 					lines = append(lines, "")
 				}
-				lines = append(lines, anomalyGroupTitle(group))
+				lines = append(lines, m.anomalyGroupTitle(group))
 				lastGroup = group
 			}
 			if len(lines)+itemHeight > contentHeight {
@@ -78,7 +78,7 @@ func (m Model) renderAnomalyOverview() string {
 	return strings.Join([]string{
 		titleStyle.Render(fitANSI(title, width)),
 		box,
-		renderHelp(width, "移动 ↑↓/jk  详情 Enter/Space  筛选 f/Tab  全部0 严重1 警告2 离线3 资源4 容器5 服务6 安全7  刷新 r  返回 q/Esc"),
+		renderHelp(width, m.t("Move ↑↓/jk  Detail Enter/Space  Filter f/Tab  All 0  Critical 1  Warn 2  Offline 3  Resource 4  Container 5  Service 6  Security 7  Refresh r  Back q/Esc", "移动 ↑↓/jk  详情 Enter/Space  筛选 f/Tab  全部0 严重1 警告2 离线3 资源4 容器5 服务6 安全7  刷新 r  返回 q/Esc")),
 	}, "\n")
 }
 
@@ -95,17 +95,17 @@ func (m Model) anomalyItemLines(item anomalyItem, selected bool, width int) []st
 	severe, warn, _ := checkCounts(item.Checks)
 	summary := []string{}
 	if severe > 0 {
-		summary = append(summary, redStyle.Render(fmt.Sprintf("严重%d", severe)))
+		summary = append(summary, redStyle.Render(fmt.Sprintf("%s%d", m.t("Critical", "严重"), severe)))
 	}
 	if warn > 0 {
-		summary = append(summary, yellowStyle.Render(fmt.Sprintf("警告%d", warn)))
+		summary = append(summary, yellowStyle.Render(fmt.Sprintf("%s%d", m.t("Warn", "警告"), warn)))
 	}
 	name := hostDisplayName(h)
-	status := "离线"
+	status := m.t("Offline", "离线")
 	if state.Loading {
-		status = "采集中"
+		status = m.t("Loading", "采集中")
 	} else if metrics.Online {
-		status = "在线"
+		status = m.t("Online", "在线")
 	}
 	nameWidth := 30
 	if width < 90 {
@@ -122,17 +122,17 @@ func (m Model) anomalyItemLines(item anomalyItem, selected bool, width int) []st
 		nameText,
 		statusText,
 		riskText,
-		anomalyResourceText(state),
-		serviceCardText(metrics),
+		m.anomalyResourceText(state),
+		m.serviceCardText(metrics),
 	)
 	reasons := make([]string, 0, minInt(3, len(item.Checks)))
 	for _, check := range item.Checks {
-		reasons = append(reasons, stripCheckPrefix(check.Text))
+		reasons = append(reasons, m.anomalyCheckReason(check.Text))
 		if len(reasons) >= 3 {
 			break
 		}
 	}
-	reasonLine := "  " + mutedStyle.Render("问题 ") + detailValueStyle.Render(strings.Join(reasons, "；"))
+	reasonLine := "  " + mutedStyle.Render(m.t("Issue ", "问题 ")) + detailValueStyle.Render(strings.Join(reasons, m.t("; ", "；")))
 	return []string{
 		fitANSI(mainLine, width),
 		fitANSI(reasonLine, width),
@@ -152,6 +152,13 @@ func anomalyGroupTitle(group string) string {
 		return detailDangerSubTitle("严重")
 	}
 	return detailSubTitle("警告")
+}
+
+func (m Model) anomalyGroupTitle(group string) string {
+	if group == "严重" {
+		return detailDangerSubTitle(m.t("Critical", "严重"))
+	}
+	return detailSubTitle(m.t("Warn", "警告"))
 }
 
 func anomalyFilterName(filter anomalyFilterMode) string {
@@ -175,16 +182,48 @@ func anomalyFilterName(filter anomalyFilterMode) string {
 	}
 }
 
-func anomalyResourceText(state hostState) string {
+func (m Model) anomalyFilterName(filter anomalyFilterMode) string {
+	if m.isChineseUI() {
+		return anomalyFilterName(filter)
+	}
+	switch filter {
+	case anomalySevere:
+		return "Critical"
+	case anomalyWarn:
+		return "Warn"
+	case anomalyOffline:
+		return "Offline"
+	case anomalyResource:
+		return "Resource"
+	case anomalyContainer:
+		return "Container"
+	case anomalyService:
+		return "Service"
+	case anomalySecurity:
+		return "Security"
+	default:
+		return "All"
+	}
+}
+
+func (m Model) anomalyResourceText(state hostState) string {
 	metrics := state.Metrics
 	if state.Loading || !metrics.Online {
-		return detailValueStyle.Render("CPU -  内存 -  磁盘 -")
+		return detailValueStyle.Render(m.t("CPU -  Mem -  Disk -", "CPU -  内存 -  磁盘 -"))
 	}
+	thresholds := m.metricThresholds()
 	return strings.Join([]string{
-		"CPU " + metricValueStyle(metrics.CPUPercent, 70, 85).Render(fmt.Sprintf("%.0f%%", metrics.CPUPercent)),
-		"内存 " + metricValueStyle(metrics.MemPercent(), 70, 85).Render(fmt.Sprintf("%.0f%%", metrics.MemPercent())),
-		"磁盘 " + diskMountPercentText(metrics),
+		"CPU " + metricValueStyle(metrics.CPUPercent, thresholds.CPUWarn, thresholds.CPUCrit).Render(fmt.Sprintf("%.0f%%", metrics.CPUPercent)),
+		m.t("Mem ", "内存 ") + metricValueStyle(metrics.MemPercent(), thresholds.MemWarn, thresholds.MemCrit).Render(fmt.Sprintf("%.0f%%", metrics.MemPercent())),
+		m.t("Disk ", "磁盘 ") + m.diskMountPercentText(metrics),
 	}, "  ")
+}
+
+func (m Model) anomalyCheckReason(value string) string {
+	if m.isChineseUI() {
+		return stripCheckPrefix(value)
+	}
+	return m.checkText(value)
 }
 
 func stripCheckPrefix(value string) string {

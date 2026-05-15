@@ -13,7 +13,7 @@ import (
 func (m Model) startDeploymentList(index int) Model {
 	file, _, err := config.LoadDeployments(m.home)
 	if err != nil {
-		m.status = "读取部署配置失败：" + err.Error()
+		m.status = m.t("Failed to read deployment config: ", "读取部署配置失败：") + err.Error()
 		return m
 	}
 	m.deploymentFile = file
@@ -26,7 +26,7 @@ func (m Model) startDeploymentList(index int) Model {
 	m.deploymentSelected = filterDeploymentSelection(m.deploymentSelected, file.Apps)
 	m.deploymentOutputScroll = 0
 	m.mode = modeDeploymentList
-	m.status = "应用部署"
+	m.status = m.t("Deployments", "应用部署")
 	return m
 }
 
@@ -92,7 +92,7 @@ func (m Model) updateDeploymentList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.deploymentDetail = item.App
 			m.deploymentOutputScroll = 0
 			m.mode = modeDeploymentDetail
-			m.status = "部署详情"
+			m.status = m.t("Deployment Detail", "部署详情")
 		}
 	case "s":
 		item, ok := m.selectedDeploymentItem()
@@ -116,29 +116,29 @@ func (m Model) updateDeploymentList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if ok {
 			return m.startDeploymentEdit(item.App, true), nil
 		}
-		m.status = "没有可编辑的部署应用。按 a 新增。"
+		m.status = m.t("No editable deployment app. Press a to add one.", "没有可编辑的部署应用。按 a 新增。")
 	case "x":
 		item, ok := m.selectedDeploymentItem()
 		if ok {
 			if item.Index >= 0 && item.Index < len(m.deploymentFile.Apps) {
 				m.confirm = confirmAction{
 					Kind:       confirmDeleteDeployment,
-					Title:      "确认删除部署应用",
-					Lines:      []string{"将删除该部署应用。", "应用：" + item.App.Name, "服务器：" + item.App.Server},
+					Title:      m.t("Delete Deployment App", "确认删除部署应用"),
+					Lines:      []string{m.t("This deployment app will be deleted.", "将删除该部署应用。"), m.t("App: ", "应用：") + item.App.Name, m.t("Server: ", "服务器：") + item.App.Server},
 					Back:       modeDeploymentList,
 					Deployment: item.App,
 					Index:      item.Index,
 				}
 				m.mode = modeConfirmAction
-				m.status = "确认删除部署应用"
+				m.status = m.t("Delete Deployment App", "确认删除部署应用")
 				return m, nil
 			}
 		}
-		m.status = "没有可删除的部署应用。"
+		m.status = m.t("No deployment app to delete.", "没有可删除的部署应用。")
 	case "enter":
 		item, ok := m.selectedDeploymentItem()
 		if !ok {
-			m.status = "没有可部署的应用。按 a 新增，保存后再按 Enter。"
+			m.status = m.t("No deployable app. Press a to add one, save it, then press Enter.", "没有可部署的应用。按 a 新增，保存后再按 Enter。")
 			return m, nil
 		}
 		queue := m.selectedDeploymentQueue()
@@ -153,7 +153,7 @@ func (m Model) updateDeploymentList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.activeDeployment = activeDeployment{HostIndex: m.activeDeployment.HostIndex}
 		m.deploymentOutputScroll = 0
 		m.mode = modeDeploymentConfirm
-		m.status = "确认部署"
+		m.status = m.t("Confirm Deployment", "确认部署")
 	}
 	return m, nil
 }
@@ -180,35 +180,35 @@ func (m *Model) toggleDeploymentFavoriteFilter() {
 	m.deploymentItems = m.deploymentListItems()
 	m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
 	if m.deploymentFavoriteOnly {
-		m.status = "筛选：收藏部署"
+		m.status = m.t("Filter: favorite deployments", "筛选：收藏部署")
 	} else {
-		m.status = "已取消收藏筛选"
+		m.status = m.t("Favorites filter cleared", "已取消收藏筛选")
 	}
 }
 
 func (m Model) toggleDeploymentFavorite() (tea.Model, tea.Cmd) {
 	item, ok := m.selectedDeploymentItem()
 	if !ok {
-		m.status = "没有可收藏的部署应用"
+		m.status = m.t("No deployment app to favorite", "没有可收藏的部署应用")
 		return m, nil
 	}
 	file := m.deploymentFile
 	if item.Index < 0 || item.Index >= len(file.Apps) {
-		m.status = "部署应用不存在"
+		m.status = m.t("Deployment app does not exist", "部署应用不存在")
 		return m, nil
 	}
 	file.Apps[item.Index].Favorite = !file.Apps[item.Index].Favorite
 	if err := config.SaveDeployments(m.home, file); err != nil {
-		m.status = "收藏更新失败：" + err.Error()
+		m.status = m.t("Failed to update favorite: ", "收藏更新失败：") + err.Error()
 		return m, nil
 	}
 	m.deploymentFile = file
 	m.deploymentItems = m.deploymentListItems()
 	m.deploymentIndex = m.deploymentVisibleIndex(item.Index)
 	if file.Apps[item.Index].Favorite {
-		m.status = "已收藏：" + file.Apps[item.Index].Name
+		m.status = m.t("Favorited: ", "已收藏：") + file.Apps[item.Index].Name
 	} else {
-		m.status = "已取消收藏：" + file.Apps[item.Index].Name
+		m.status = m.t("Unfavorited: ", "已取消收藏：") + file.Apps[item.Index].Name
 	}
 	if m.deploymentFavoriteOnly && !file.Apps[item.Index].Favorite {
 		m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
@@ -219,12 +219,12 @@ func (m Model) toggleDeploymentFavorite() (tea.Model, tea.Cmd) {
 func (m Model) toggleDeploymentPinned() (tea.Model, tea.Cmd) {
 	item, ok := m.selectedDeploymentItem()
 	if !ok {
-		m.status = "没有可置顶的部署应用"
+		m.status = m.t("No deployment app to pin", "没有可置顶的部署应用")
 		return m, nil
 	}
 	file := m.deploymentFile
 	if item.Index < 0 || item.Index >= len(file.Apps) {
-		m.status = "部署应用不存在"
+		m.status = m.t("Deployment app does not exist", "部署应用不存在")
 		return m, nil
 	}
 	if file.Apps[item.Index].Pinned {
@@ -235,16 +235,16 @@ func (m Model) toggleDeploymentPinned() (tea.Model, tea.Cmd) {
 		file.Apps[item.Index].PinnedOrder = nextDeploymentPinnedOrder(file.Apps)
 	}
 	if err := config.SaveDeployments(m.home, file); err != nil {
-		m.status = "置顶更新失败：" + err.Error()
+		m.status = m.t("Failed to update pin: ", "置顶更新失败：") + err.Error()
 		return m, nil
 	}
 	m.deploymentFile = file
 	m.deploymentItems = m.deploymentListItems()
 	m.deploymentIndex = m.deploymentVisibleIndex(item.Index)
 	if file.Apps[item.Index].Pinned {
-		m.status = "已置顶：" + file.Apps[item.Index].Name
+		m.status = m.t("Pinned: ", "已置顶：") + file.Apps[item.Index].Name
 	} else {
-		m.status = "已取消置顶：" + file.Apps[item.Index].Name
+		m.status = m.t("Unpinned: ", "已取消置顶：") + file.Apps[item.Index].Name
 	}
 	return m, nil
 }
@@ -286,7 +286,7 @@ func (m Model) updateDeploymentDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.activeDeployment = activeDeployment{HostIndex: m.activeDeployment.HostIndex}
 		m.deploymentOutputScroll = 0
 		m.mode = modeDeploymentConfirm
-		m.status = "确认部署"
+		m.status = m.t("Confirm Deployment", "确认部署")
 	}
 	return m, nil
 }
@@ -320,18 +320,18 @@ func removeDeploymentSelection(selection []int, removed int) []int {
 func (m Model) deleteDeploymentApp(index int) (tea.Model, tea.Cmd) {
 	file := m.deploymentFile
 	if index < 0 || index >= len(file.Apps) {
-		m.status = "没有可删除的部署应用。"
+		m.status = m.t("No deployment app to delete.", "没有可删除的部署应用。")
 		return m, nil
 	}
 	file.Apps = append(file.Apps[:index], file.Apps[index+1:]...)
 	if err := config.SaveDeployments(m.home, file); err != nil {
-		m.status = "删除部署应用失败：" + err.Error()
+		m.status = m.t("Failed to delete deployment app: ", "删除部署应用失败：") + err.Error()
 		return m, nil
 	}
 	m.confirm = confirmAction{}
 	m.deploymentSelected = removeDeploymentSelection(m.deploymentSelected, index)
 	m = m.startDeploymentList(m.activeDeployment.HostIndex)
-	m.status = "部署应用已删除。"
+	m.status = m.t("Deployment app deleted.", "部署应用已删除。")
 	return m, nil
 }
 
@@ -339,12 +339,16 @@ func (m *Model) toggleDeploymentSelection(index int) {
 	for i, selected := range m.deploymentSelected {
 		if selected == index {
 			m.deploymentSelected = append(m.deploymentSelected[:i], m.deploymentSelected[i+1:]...)
-			m.status = "已取消选择"
+			m.status = m.t("Selection canceled", "已取消选择")
 			return
 		}
 	}
 	m.deploymentSelected = append(m.deploymentSelected, index)
-	m.status = fmt.Sprintf("已选择第 %d 个部署应用", len(m.deploymentSelected))
+	if m.isChineseUI() {
+		m.status = fmt.Sprintf("已选择第 %d 个部署应用", len(m.deploymentSelected))
+	} else {
+		m.status = fmt.Sprintf("Selected deployment app %d", len(m.deploymentSelected))
+	}
 }
 
 func (m Model) deploymentSelectionOrder(index int) int {
@@ -384,7 +388,7 @@ func (m *Model) cycleDeploymentCategory(delta int) {
 		m.deploymentCategory = ""
 		m.deploymentItems = m.deploymentListItems()
 		m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
-		m.status = "没有可切换的部署分类"
+		m.status = m.t("No deployment category to switch", "没有可切换的部署分类")
 		return
 	}
 	current := 0
@@ -399,9 +403,9 @@ func (m *Model) cycleDeploymentCategory(delta int) {
 	m.deploymentItems = m.deploymentListItems()
 	m.deploymentIndex = firstDeploymentItem(m.deploymentItems)
 	if m.deploymentCategory == "" {
-		m.status = "部署分类：全部"
+		m.status = m.t("Deployment category: all", "部署分类：全部")
 	} else {
-		m.status = "部署分类：" + m.deploymentCategory
+		m.status = m.t("Deployment category: ", "部署分类：") + m.deploymentCategory
 	}
 }
 

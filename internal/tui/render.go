@@ -20,6 +20,12 @@ import (
 	"github.com/YaMaiDay/sshm/internal/monitor"
 )
 
+var asciiModeEnabled bool
+
+func setASCIIMode(enabled bool) {
+	asciiModeEnabled = enabled
+}
+
 func (m Model) renderDashboardHelp(width int) string {
 	if width < 1 {
 		width = 1
@@ -90,34 +96,30 @@ func (m Model) renderDashboardHelp(width int) string {
 	return helpStyle.Render(fit(help, width))
 }
 
-func (m Model) isChineseUI() bool {
-	return strings.TrimSpace(m.appConfig.Language) == "zh"
-}
-
 func (m Model) renderAddForm() string {
-	title := "添加服务器"
+	title := m.t("Add Server", "添加服务器")
 	if m.editing {
-		title = "编辑服务器"
+		title = m.t("Edit Server", "编辑服务器")
 	} else if m.copying {
-		title = "复制服务器"
+		title = m.t("Copy Server", "复制服务器")
 	}
 	width := formContentWidth(m.width)
 	if m.useSingleFormPane(width) {
 		width = detailFrameWidth(m.width)
 	}
-	help := "切换 Tab  选择 ↑↓  分类 ←→  保存 Enter  返回 Esc"
+	help := m.t("Switch Tab  Move ↑↓  Category ←→  Save Enter  Back Esc", "切换 Tab  选择 ↑↓  分类 ←→  保存 Enter  返回 Esc")
 	if m.formPane == 1 {
-		help = "切回 Tab  选择 ↑↓  新增 n  重命名 r  删除 x  返回 Esc"
+		help = m.t("Back Tab  Move ↑↓  New n  Rename r  Delete x  Back Esc", "切回 Tab  选择 ↑↓  新增 n  重命名 r  删除 x  返回 Esc")
 		if m.addingCategory {
-			help = "添加 Enter  返回 Esc"
+			help = m.t("Add Enter  Back Esc", "添加 Enter  返回 Esc")
 		} else if m.renamingCategory {
-			help = "重命名 Enter  返回 Esc"
+			help = m.t("Rename Enter  Back Esc", "重命名 Enter  返回 Esc")
 		}
 	}
 	header := titleStyle.Render(title)
 	if strings.TrimSpace(m.status) != "" && m.status != title {
 		statusStyle := mutedStyle
-		if strings.Contains(m.status, "失败") || strings.Contains(m.status, "不能") {
+		if m.hasErrorText(m.status) {
 			statusStyle = redStyle
 		}
 		header += "  " + statusStyle.Render(fit(m.status, width-ansi.StringWidth(title)-2))
@@ -293,7 +295,11 @@ func compactPercentBarWithThreshold(value float64, total int, warn float64, crit
 		filled = 1
 	}
 	style := metricValueStyle(value, warn, crit)
-	bar := style.Render(strings.Repeat("▰", filled)) + barEmptyStyle.Render(strings.Repeat("▱", total-filled))
+	filledChar, emptyChar := "▰", "▱"
+	if asciiModeEnabled {
+		filledChar, emptyChar = "#", "-"
+	}
+	bar := style.Render(strings.Repeat(filledChar, filled)) + barEmptyStyle.Render(strings.Repeat(emptyChar, total-filled))
 	return fmt.Sprintf("%s %s", bar, style.Render(fmt.Sprintf("%3.0f%%", value)))
 }
 
@@ -337,11 +343,31 @@ func cardNoteText(note string, width int) string {
 	return fit("备注 "+note, width)
 }
 
-func cardHeaderMeta(h host.Host, metrics monitor.Metrics) string {
+func (m Model) cardHeaderMeta(h host.Host, metrics monitor.Metrics) string {
 	if strings.TrimSpace(h.ExpireAt) != "" {
-		return expireCardText(h.ExpireAt)
+		return m.expireCardText(h.ExpireAt)
 	}
-	return cardMutedStyle.Render(cardUptimeShort(metrics.Uptime))
+	return cardMutedStyle.Render(m.cardUptimeShort(metrics.Uptime))
+}
+
+func (m Model) expireCardText(value string) string {
+	if m.isChineseUI() {
+		return expireCardText(value)
+	}
+	days, ok := expireDays(value)
+	if !ok {
+		return redStyle.Render("Bad expiry")
+	}
+	switch {
+	case days < 0:
+		return redStyle.Render("Expired")
+	case days == 0:
+		return redStyle.Render("Expires today")
+	case days <= 7:
+		return yellowStyle.Render(fmt.Sprintf("Exp %dd", days))
+	default:
+		return cardMutedStyle.Render(fmt.Sprintf("Exp %dd", days))
+	}
 }
 
 func expireCardText(value string) string {
@@ -378,6 +404,29 @@ func expireDetailText(value string) string {
 		return yellowStyle.Render(fmt.Sprintf("剩余%d天", days))
 	default:
 		return fmt.Sprintf("剩余%d天", days)
+	}
+}
+
+func (m Model) expireDetailText(value string) string {
+	if m.isChineseUI() {
+		return expireDetailText(value)
+	}
+	if strings.TrimSpace(value) == "" {
+		return "-"
+	}
+	days, ok := expireDays(value)
+	if !ok {
+		return redStyle.Render("Invalid")
+	}
+	switch {
+	case days < 0:
+		return redStyle.Render(fmt.Sprintf("Expired %dd", -days))
+	case days == 0:
+		return redStyle.Render("Expires today")
+	case days <= 7:
+		return yellowStyle.Render(fmt.Sprintf("%dd left", days))
+	default:
+		return fmt.Sprintf("%dd left", days)
 	}
 }
 
@@ -467,7 +516,11 @@ func percentBarWidthWithThreshold(value float64, total int, warn float64, crit f
 		filled = 1
 	}
 	style := metricValueStyle(value, warn, crit)
-	bar := style.Render(strings.Repeat("▰", filled)) + barEmptyStyle.Render(strings.Repeat("▱", total-filled))
+	filledChar, emptyChar := "▰", "▱"
+	if asciiModeEnabled {
+		filledChar, emptyChar = "#", "-"
+	}
+	bar := style.Render(strings.Repeat(filledChar, filled)) + barEmptyStyle.Render(strings.Repeat(emptyChar, total-filled))
 	return fmt.Sprintf("%s %s", bar, style.Render(fmt.Sprintf("%3.0f%%", value)))
 }
 
@@ -567,27 +620,27 @@ func yesNo(value bool) string {
 	return "否"
 }
 
-func authText(h host.Host) string {
+func (m Model) authText(h host.Host) string {
 	hasKey := strings.TrimSpace(h.IdentityFile) != ""
 	hasPassword := h.HasPassword || strings.TrimSpace(h.Password) != ""
 	switch {
 	case hasKey && hasPassword:
-		return "密钥：" + filepath.Base(h.IdentityFile) + "，密码"
+		return m.t("Key: ", "密钥：") + filepath.Base(h.IdentityFile) + m.t(", password", "，密码")
 	case hasKey:
-		return "密钥：" + filepath.Base(h.IdentityFile)
+		return m.t("Key: ", "密钥：") + filepath.Base(h.IdentityFile)
 	case hasPassword:
-		return "密码"
+		return m.t("Password", "密码")
 	default:
-		return "系统 SSH 默认"
+		return m.t("System SSH default", "系统 SSH 默认")
 	}
 }
 
-func jumpDetailText(h host.Host) string {
+func (m Model) jumpDetailText(h host.Host) string {
 	if !h.JumpEnabled {
-		return "未启用"
+		return m.t("Disabled", "未启用")
 	}
 	if strings.TrimSpace(h.JumpHostRef) != "" {
-		return h.JumpHostRef + "，仅转发，本地密钥认证"
+		return h.JumpHostRef + m.t(", forwarding only, local key auth", "，仅转发，本地密钥认证")
 	}
 	port := strings.TrimSpace(h.JumpPort)
 	if port == "" {
@@ -597,17 +650,17 @@ func jumpDetailText(h host.Host) string {
 	if strings.TrimSpace(h.JumpUser) != "" {
 		target = h.JumpUser + "@" + target
 	}
-	return target + ":" + port + "，仅转发，本地密钥认证"
+	return target + ":" + port + m.t(", forwarding only, local key auth", "，仅转发，本地密钥认证")
 }
 
-func jumpKeyText(h host.Host) string {
+func (m Model) jumpKeyText(h host.Host) string {
 	if !h.JumpEnabled {
 		return "-"
 	}
 	if strings.TrimSpace(h.JumpKeyPath) == "" {
-		return "系统 SSH 默认"
+		return m.t("System SSH default", "系统 SSH 默认")
 	}
-	return filepath.Base(h.JumpKeyPath) + "（本地）"
+	return filepath.Base(h.JumpKeyPath) + m.t(" (local)", "（本地）")
 }
 
 func transferErrorText(err error, output string) string {
@@ -823,6 +876,31 @@ func cardUptimeShort(value string) string {
 	return fmt.Sprintf("%d分", minutes)
 }
 
+func (m Model) cardUptimeShort(value string) string {
+	if m.isChineseUI() {
+		return cardUptimeShort(value)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	value = strings.TrimPrefix(value, "up ")
+	value = strings.TrimSpace(normalizeWeeksToDays(value))
+	days := firstUptimeNumber(value, `(\d+)\s+days?`)
+	if days > 0 {
+		return fmt.Sprintf("%dd", days)
+	}
+	hours := firstUptimeNumber(value, `(\d+)\s+hours?`)
+	if hours > 0 {
+		return fmt.Sprintf("%dh", hours)
+	}
+	minutes := firstUptimeNumber(value, `(\d+)\s+minutes?`)
+	if minutes < 1 {
+		minutes = 1
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
 func lastLoginDetail(value time.Time) string {
 	if value.IsZero() {
 		return "-"
@@ -834,6 +912,45 @@ func lastLoginDetail(value time.Time) string {
 	return value.Format("2006-01-02 15:04") + "（" + relative + "）"
 }
 
+func (m Model) lastLoginDetail(value time.Time) string {
+	if m.isChineseUI() {
+		return lastLoginDetail(value)
+	}
+	if value.IsZero() {
+		return "-"
+	}
+	return value.Format("2006-01-02 15:04") + " (" + m.lastLoginCard(value) + ")"
+}
+
+func (m Model) uptimeText(value string) string {
+	if m.isChineseUI() {
+		return uptimeCN(value)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "-"
+	}
+	value = strings.TrimPrefix(value, "up ")
+	value = strings.TrimSpace(normalizeWeeksToDays(value))
+	parts := []string{}
+	days := firstUptimeNumber(value, `(\d+)\s+days?`)
+	hours := firstUptimeNumber(value, `(\d+)\s+hours?`)
+	minutes := firstUptimeNumber(value, `(\d+)\s+minutes?`)
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
+	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	if len(parts) == 0 {
+		return m.cardUptimeShort(value)
+	}
+	return strings.Join(parts, " ")
+}
+
 func lastLoginCard(value time.Time) string {
 	if value.IsZero() {
 		return ""
@@ -843,6 +960,53 @@ func lastLoginCard(value time.Time) string {
 		return relative
 	}
 	return relative + "前"
+}
+
+func (m Model) lastLoginCard(value time.Time) string {
+	if m.isChineseUI() {
+		return lastLoginCard(value)
+	}
+	if value.IsZero() {
+		return ""
+	}
+	relative := m.relativeTime(value)
+	if relative == "now" {
+		return relative
+	}
+	return relative + " ago"
+}
+
+func (m Model) relativeTime(value time.Time) string {
+	if m.isChineseUI() {
+		return relativeTime(value)
+	}
+	if value.IsZero() {
+		return "-"
+	}
+	d := time.Since(value)
+	if d < 0 {
+		d = 0
+	}
+	minutes := int(d.Minutes())
+	if minutes < 1 {
+		return "now"
+	}
+	if minutes < 60 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	hours := int(d.Hours())
+	if hours < 24 {
+		return fmt.Sprintf("%dh", hours)
+	}
+	days := hours / 24
+	if days < 30 {
+		return fmt.Sprintf("%dd", days)
+	}
+	months := days / 30
+	if months < 12 {
+		return fmt.Sprintf("%dmo", months)
+	}
+	return fmt.Sprintf("%dy", days/365)
 }
 
 func relativeTime(value time.Time) string {
@@ -1395,9 +1559,21 @@ func diskMetricLabel(metrics monitor.Metrics) string {
 	return "磁盘" + mountpoint
 }
 
-func diskMountPercentText(metrics monitor.Metrics) string {
+func (m Model) diskMetricLabel(metrics monitor.Metrics) string {
+	if m.isChineseUI() {
+		return diskMetricLabel(metrics)
+	}
+	mountpoint := diskMountLabel(metrics)
+	if mountpoint == "-" || mountpoint == "/" {
+		return "Disk"
+	}
+	return "Disk" + mountpoint
+}
+
+func (m Model) diskMountPercentText(metrics monitor.Metrics) string {
+	thresholds := m.metricThresholds()
 	label := diskMountLabel(metrics)
-	percent := metricValueStyle(metrics.DiskPercent(), 80, 90).Render(fmt.Sprintf("%.0f%%", metrics.DiskPercent()))
+	percent := metricValueStyle(metrics.DiskPercent(), thresholds.DiskWarn, thresholds.DiskCrit).Render(fmt.Sprintf("%.0f%%", metrics.DiskPercent()))
 	if label == "-" {
 		return percent
 	}
@@ -1430,7 +1606,7 @@ func (m Model) diskListText(metrics monitor.Metrics) string {
 			mountWidth = width
 		}
 	}
-	rows := []string{"", "分区"}
+	rows := []string{"", m.t("Partitions", "分区")}
 	for i, disk := range disks {
 		if i > 0 {
 			rows = append(rows, "")
@@ -1454,19 +1630,21 @@ func (m Model) diskPartitionInfoLine(index int, disk monitor.DiskMetric, mountWi
 	if diskType == "" {
 		diskType = "-"
 	}
-	suffixRaw := "  类型 " + diskType
+	deviceLabel := m.t("Device", "设备")
+	typeLabel := m.t("Type", "类型")
+	suffixRaw := "  " + typeLabel + " " + diskType
 	if mountWidth > 24 {
 		mountWidth = 24
 	}
-	prefixRaw := fmt.Sprintf("%02d  %s  设备 ", index, padVisible(fit(mount, mountWidth), mountWidth))
+	prefixRaw := fmt.Sprintf("%02d  %s  %s ", index, padVisible(fit(mount, mountWidth), mountWidth), deviceLabel)
 	filesystemWidth := width - ansi.StringWidth(prefixRaw) - ansi.StringWidth(suffixRaw)
 	if filesystemWidth < 12 {
-		mountWidth = width - ansi.StringWidth(fmt.Sprintf("%02d  ", index)) - ansi.StringWidth("  设备 ") - ansi.StringWidth(suffixRaw) - 12
+		mountWidth = width - ansi.StringWidth(fmt.Sprintf("%02d  ", index)) - ansi.StringWidth("  "+deviceLabel+" ") - ansi.StringWidth(suffixRaw) - 12
 		if mountWidth < 8 {
 			mountWidth = 8
 		}
 		mount = fit(mount, mountWidth)
-		prefixRaw = fmt.Sprintf("%02d  %s  设备 ", index, padVisible(mount, mountWidth))
+		prefixRaw = fmt.Sprintf("%02d  %s  %s ", index, padVisible(mount, mountWidth), deviceLabel)
 		filesystemWidth = width - ansi.StringWidth(prefixRaw) - ansi.StringWidth(suffixRaw)
 	}
 	if filesystemWidth < 8 {
@@ -1475,8 +1653,8 @@ func (m Model) diskPartitionInfoLine(index int, disk monitor.DiskMetric, mountWi
 	mount = padVisible(fit(mount, mountWidth), mountWidth)
 	line := indexText +
 		"  " + detailValueStyle.Render(mount) +
-		"  " + mutedStyle.Render("设备") + " " + detailValueStyle.Render(fit(filesystem, filesystemWidth)) +
-		"  " + mutedStyle.Render("类型") + " " + detailValueStyle.Render(diskType)
+		"  " + mutedStyle.Render(deviceLabel) + " " + detailValueStyle.Render(fit(filesystem, filesystemWidth)) +
+		"  " + mutedStyle.Render(typeLabel) + " " + detailValueStyle.Render(diskType)
 	if ansi.StringWidth(line) > width {
 		return fitANSI(line, width)
 	}
@@ -1484,12 +1662,13 @@ func (m Model) diskPartitionInfoLine(index int, disk monitor.DiskMetric, mountWi
 }
 
 func (m Model) diskPartitionUsageLine(disk monitor.DiskMetric) string {
-	parts := []string{percentBarWithThreshold(disk.Percent(), 80, 90)}
+	thresholds := m.metricThresholds()
+	parts := []string{percentBarWithThreshold(disk.Percent(), thresholds.DiskWarn, thresholds.DiskCrit)}
 	if size := bytesPair(disk.Used, disk.Total); size != "" {
 		parts = append(parts, detailValueStyle.Render(size))
 	}
 	if disk.AvailKnown {
-		parts = append(parts, mutedStyle.Render("可用")+" "+detailValueStyle.Render(bytesHuman(disk.Available)))
+		parts = append(parts, mutedStyle.Render(m.t("Avail", "可用"))+" "+detailValueStyle.Render(bytesHuman(disk.Available)))
 	}
 	line := strings.Repeat(" ", 10) + strings.Join(parts, "  ")
 	if ansi.StringWidth(line) > m.detailContentWidth() {
@@ -1498,9 +1677,9 @@ func (m Model) diskPartitionUsageLine(disk monitor.DiskMetric) string {
 	return line
 }
 
-func swapUsageText(metrics monitor.Metrics) string {
+func (m Model) swapUsageText(metrics monitor.Metrics) string {
 	if metrics.SwapTotal == 0 {
-		return "未配置"
+		return m.t("Not configured", "未配置")
 	}
 	return fmt.Sprintf("%s  %s / %s", percentBar(metrics.SwapPercent()), bytesHuman(metrics.SwapUsed), bytesHuman(metrics.SwapTotal))
 }
@@ -1512,11 +1691,12 @@ func swapFreeText(metrics monitor.Metrics) string {
 	return bytesHuman(metrics.SwapFree)
 }
 
-func inodeUsageText(metrics monitor.Metrics) string {
+func (m Model) inodeUsageText(metrics monitor.Metrics) string {
 	if metrics.InodeTotal == 0 && metrics.InodeUsed == 0 && metrics.InodeAvailable == 0 {
 		return "-"
 	}
-	return fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.InodePercent(), 80, 90), countHuman(metrics.InodeUsed), countHuman(metrics.InodeTotal))
+	thresholds := m.metricThresholds()
+	return fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(metrics.InodePercent(), thresholds.DiskWarn, thresholds.DiskCrit), countHuman(metrics.InodeUsed), countHuman(metrics.InodeTotal))
 }
 
 func countHuman(value uint64) string {
@@ -1536,11 +1716,14 @@ func countHuman(value uint64) string {
 	return fmt.Sprintf("%.1f%s", f, units[unit])
 }
 
-func cpuCoresText(metrics monitor.Metrics) string {
+func (m Model) cpuCoresText(metrics monitor.Metrics) string {
 	if metrics.CPUCores <= 0 {
 		return "-"
 	}
-	return fmt.Sprintf("%d核", metrics.CPUCores)
+	if m.isChineseUI() {
+		return fmt.Sprintf("%d核", metrics.CPUCores)
+	}
+	return fmt.Sprintf("%d cores", metrics.CPUCores)
 }
 
 func fit(s string, width int) string {
