@@ -118,3 +118,11 @@ jobs:
             dist/sbom.spdx.json
             dist/checksums.txt
           generate_release_notes: true
+
+      - name: Smoke test installer
+        env:
+          SSHM_VERSION: ${{ github.ref_name }}
+        run: |
+          install_dir="$(mktemp -d)"
+          SSHM_INSTALL_DIR="$install_dir" sh ./install.sh
+          test "$("$install_dir/sshm" --version)" = "$SSHM_VERSION"
