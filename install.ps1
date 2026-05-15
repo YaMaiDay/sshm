@@ -10,7 +10,7 @@ function Write-Info($Message) {
 }
 
 function Fail($Message) {
-    Write-Error "安装失败：$Message"
+    Write-Error "Install failed: $Message"
     exit 1
 }
 
@@ -18,7 +18,7 @@ function Detect-Arch {
     switch ($env:PROCESSOR_ARCHITECTURE) {
         "AMD64" { return "amd64" }
         "ARM64" { return "arm64" }
-        default { Fail "暂不支持当前架构：$env:PROCESSOR_ARCHITECTURE" }
+        default { Fail "unsupported architecture: $env:PROCESSOR_ARCHITECTURE" }
     }
 }
 
@@ -28,7 +28,7 @@ if ($Version -eq "latest") {
 }
 
 if (-not $Version) {
-    Fail "无法获取最新版本号"
+    Fail "could not resolve latest version"
 }
 
 $Arch = Detect-Arch
@@ -42,26 +42,26 @@ $ChecksumsPath = Join-Path $TempDir "checksums.txt"
 New-Item -ItemType Directory -Path $TempDir | Out-Null
 
 try {
-    Write-Info "正在下载 sshm $Version (windows/$Arch)..."
+    Write-Info "Downloading sshm $Version (windows/$Arch)..."
     Invoke-WebRequest -Uri $Url -OutFile $ZipPath
     Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $ChecksumsPath
 
     $ExpectedLine = Get-Content $ChecksumsPath | Where-Object { $_ -match "\s$([regex]::Escape($Asset))$" } | Select-Object -First 1
     if (-not $ExpectedLine) {
-        Fail "校验清单中没有找到 $Asset"
+        Fail "$Asset was not found in checksums.txt"
     }
     $Expected = ($ExpectedLine -split "\s+")[0].Trim()
     $Actual = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($Expected.ToLowerInvariant() -ne $Actual) {
-        Fail "SHA256 校验失败：期望 $Expected，实际 $Actual"
+        Fail "SHA256 mismatch: expected $Expected, got $Actual"
     }
-    Write-Info "SHA256 校验通过"
+    Write-Info "SHA256 verified"
 
     Expand-Archive -Path $ZipPath -DestinationPath $TempDir -Force
 
     $Source = Join-Path $TempDir $Binary
     if (-not (Test-Path $Source)) {
-        Fail "压缩包中没有找到 $Binary"
+        Fail "$Binary was not found in the archive"
     }
 
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -72,12 +72,12 @@ try {
     if ($PathParts -notcontains $InstallDir) {
         $NextPath = if ($UserPath) { "$UserPath;$InstallDir" } else { $InstallDir }
         [Environment]::SetEnvironmentVariable("Path", $NextPath, "User")
-        Write-Info "已加入用户 PATH：$InstallDir"
-        Write-Info "请重新打开 Windows Terminal 后运行 sshm。"
+        Write-Info "Added to user PATH: $InstallDir"
+        Write-Info "Reopen Windows Terminal, then run sshm."
     }
 
-    Write-Info "安装完成：$(Join-Path $InstallDir $Binary)"
-    Write-Info "运行：sshm"
+    Write-Info "Installed: $(Join-Path $InstallDir $Binary)"
+    Write-Info "Run: sshm"
 }
 finally {
     if (Test-Path $TempDir) {

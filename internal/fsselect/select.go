@@ -41,6 +41,37 @@ func RemoteRootItems(h host.Host) []Item {
 	return parseRemoteItems(out)
 }
 
+func RemoteConfiguredRootItems(h host.Host, roots []string) []Item {
+	if len(roots) == 0 {
+		return RemoteRootItems(h)
+	}
+	var b strings.Builder
+	b.WriteString("for d in")
+	count := 0
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		count++
+		b.WriteByte(' ')
+		b.WriteString(shellQuote(root))
+	}
+	if count == 0 {
+		return RemoteRootItems(h)
+	}
+	b.WriteString(`; do case "$d" in '$HOME') d="$HOME" ;; '~') d="$HOME" ;; '~/'*) d="$HOME/${d#~/}" ;; esac; [ -d "$d" ] && printf "D	%s\n" "$d"; done`)
+	out, err := runSSH(h, b.String())
+	if err != nil && strings.TrimSpace(out) == "" {
+		return RemoteRootItems(h)
+	}
+	items := parseRemoteItems(out)
+	if len(items) == 0 {
+		return RemoteRootItems(h)
+	}
+	return items
+}
+
 func ExpandLocalRoots(home string, roots []string) []string {
 	if len(roots) == 0 {
 		return LocalRoots(home)

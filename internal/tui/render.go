@@ -34,6 +34,7 @@ func renderDashboardHelp(width int) string {
 		"历史 i",
 		"传输 y",
 		"部署 g",
+		"设置 ,",
 		"总览 w",
 		"视图 z",
 		"置顶 t",

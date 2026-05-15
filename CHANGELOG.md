@@ -1,36 +1,42 @@
-# 变更记录
+# Changelog
 
-本文档记录用户可感知的主要变化。历史 Release 以 GitHub Releases 为准。
+This file records user-visible changes. Historical release notes are available in GitHub Releases.
+
+## Unreleased
+
+### Added
+
+- Add a settings page for language, refresh interval, timeouts, ASCII mode, warning thresholds, and common transfer directories.
 
 ## v0.1.40 - 2026-05-15
 
-### 新增
+### Added
 
-- 新增应用部署入口，支持 Git 和 GitHub Release 两种资源来源。
-- 支持本地拉取后上传和服务器拉取两种部署获取方式。
-- 支持 SSH Key、Token 和不配置凭证三种 GitHub 访问方式。
-- 支持更新前、获取资源、更新命令、更新后、健康检查和回滚命令。
-- 支持多个部署应用按选择顺序串行部署。
-- 支持每个部署应用配置完成后的等待时间。
-- 支持部署历史，确认部署页和详情页显示最近最多 50 条相关记录。
-- 应用部署列表支持卡片/列表视图、分类切换、置顶、收藏和只看收藏。
-- 容器详情显示 Docker 原始状态，便于区分运行、异常、重启中和停止。
+- Add app deployment with Git and GitHub Release resource sources.
+- Support local fetch then upload and remote fetch deployment modes.
+- Support SSH Key, Token, and no-credential GitHub access modes.
+- Support pre-update, fetch resource, update, post-update, health check, and rollback command stages.
+- Support serial deployment queues ordered by user selection.
+- Support per-app wait time after successful deployment.
+- Support deployment history with up to 50 related records on confirmation and detail pages.
+- Support card/list views, category filtering, pinning, favorites, and favorites-only mode for app deployments.
+- Show Docker raw status in container details so users can distinguish running, abnormal, restarting, and stopped containers.
 
-### 优化
+### Changed
 
-- 跳板机配置改为可选择已有跳板机，跳板机固定在独立分类中。
-- 跳板机连接说明明确：目标服务器私钥保存在本地，不复制到跳板机。
-- 磁盘监控改为展示真实挂载点，并在详情中列出设备、类型、容量、可用空间和使用率。
-- 部署确认和部署队列页面统一显示执行阶段和当前输出。
-- 应用部署页面补齐删除确认，避免误删配置。
-- 应用部署表单、列表、卡片和详情样式与首页保持一致。
+- Bastion configuration now selects an existing bastion server; bastions are kept in a fixed separate category.
+- Bastion documentation now clarifies that target-server private keys stay on the local machine and are not copied to the bastion.
+- Disk monitoring now shows real mount points and lists device, filesystem type, capacity, available space, and usage in details.
+- Deploy confirmation and queue pages now use a unified execution-stage and current-output display.
+- Deployment app deletion now requires confirmation.
+- Deployment forms, lists, cards, and details now match dashboard styling.
 
-### 工程
+### Engineering
 
-- 拆分 TUI 大文件，降低部署、渲染、类型定义的维护成本。
-- 增加 SSH 参数、ProxyJump、文件选择、部署队列、部署渲染和部署执行 helper 的回归测试。
-- CI 和 Release workflow 增加 `go vet` 和 whitespace 检查。
+- Split large TUI files to reduce maintenance cost around deployment, rendering, and type definitions.
+- Add regression tests for SSH options, ProxyJump, file picking, deployment queues, deployment rendering, and deployment execution helpers.
+- Add `go vet` and whitespace checks to CI and release workflows.
 
-## v0.1.39 及更早
+## v0.1.39 And Earlier
 
-请查看 GitHub Releases。
+See GitHub Releases.

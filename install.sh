@@ -11,19 +11,19 @@ info() {
 }
 
 fail() {
-  printf '安装失败：%s\n' "$1" >&2
+  printf 'Install failed: %s\n' "$1" >&2
   exit 1
 }
 
 need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || fail "缺少命令：$1"
+  command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"
 }
 
 detect_os() {
   case "$(uname -s)" in
     Darwin) printf 'darwin' ;;
     Linux) printf 'linux' ;;
-    *) fail "暂不支持当前系统：$(uname -s)" ;;
+    *) fail "unsupported operating system: $(uname -s)" ;;
   esac
 }
 
@@ -31,7 +31,7 @@ detect_arch() {
   case "$(uname -m)" in
     x86_64|amd64) printf 'amd64' ;;
     arm64|aarch64) printf 'arm64' ;;
-    *) fail "暂不支持当前架构：$(uname -m)" ;;
+    *) fail "unsupported architecture: $(uname -m)" ;;
   esac
 }
 
@@ -65,7 +65,7 @@ checksum_cmd() {
     printf '%s' "sha256sum"
     return
   fi
-  fail "缺少 SHA256 校验命令：shasum 或 sha256sum"
+  fail "missing SHA256 command: shasum or sha256sum"
 }
 
 OS="$(detect_os)"
@@ -77,7 +77,7 @@ if [ "$VERSION" = "latest" ]; then
   VERSION="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest" | sed 's#.*/##')"
 fi
 
-[ -n "$VERSION" ] || fail "无法获取最新版本号"
+[ -n "$VERSION" ] || fail "could not resolve latest version"
 
 ASSET="sshm_${VERSION}_${OS}_${ARCH}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
@@ -85,18 +85,18 @@ CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT INT TERM
 
-info "正在下载 ${BINARY} ${VERSION} (${OS}/${ARCH})..."
-curl -fL "$URL" -o "$TMP_DIR/$ASSET" || fail "下载失败：$URL"
-curl -fL "$CHECKSUMS_URL" -o "$TMP_DIR/checksums.txt" || fail "下载校验清单失败：$CHECKSUMS_URL"
+info "Downloading ${BINARY} ${VERSION} (${OS}/${ARCH})..."
+curl -fL "$URL" -o "$TMP_DIR/$ASSET" || fail "download failed: $URL"
+curl -fL "$CHECKSUMS_URL" -o "$TMP_DIR/checksums.txt" || fail "checksum download failed: $CHECKSUMS_URL"
 
 EXPECTED="$(sed -n "s/[[:space:]][[:space:]]*${ASSET}\$//p" "$TMP_DIR/checksums.txt" | head -n 1)"
-[ -n "$EXPECTED" ] || fail "校验清单中没有找到 $ASSET"
+[ -n "$EXPECTED" ] || fail "$ASSET was not found in checksums.txt"
 ACTUAL="$(cd "$TMP_DIR" && $SHA256_CMD "$ASSET" | sed 's/[[:space:]].*//')"
-[ "$EXPECTED" = "$ACTUAL" ] || fail "SHA256 校验失败：期望 $EXPECTED，实际 $ACTUAL"
-info "SHA256 校验通过"
+[ "$EXPECTED" = "$ACTUAL" ] || fail "SHA256 mismatch: expected $EXPECTED, got $ACTUAL"
+info "SHA256 verified"
 
-tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR" || fail "解压失败"
-[ -f "$TMP_DIR/$BINARY" ] || fail "压缩包中没有找到 $BINARY"
+tar -xzf "$TMP_DIR/$ASSET" -C "$TMP_DIR" || fail "extract failed"
+[ -f "$TMP_DIR/$BINARY" ] || fail "$BINARY was not found in the archive"
 chmod +x "$TMP_DIR/$BINARY"
 
 if [ ! -d "$INSTALL_DIR" ]; then
@@ -109,11 +109,11 @@ else
   sudo mv "$TMP_DIR/$BINARY" "$INSTALL_DIR/$BINARY"
 fi
 
-info "安装完成：$INSTALL_DIR/$BINARY"
+info "Installed: $INSTALL_DIR/$BINARY"
 
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
-  *) info "提示：$INSTALL_DIR 不在 PATH 中，可能需要把它加入 shell 配置。" ;;
+  *) info "Note: $INSTALL_DIR is not in PATH. You may need to add it to your shell profile." ;;
 esac
 
-info "运行：sshm"
+info "Run: sshm"

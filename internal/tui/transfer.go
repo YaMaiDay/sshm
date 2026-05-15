@@ -696,7 +696,7 @@ func (m *Model) ensureTransferIndexVisible() {
 }
 
 func (m *Model) startLocalTree(title string, mode viewMode, dirsOnly bool) {
-	m.startTree(title, mode, localTreeItems("/", true), -1, dirsOnly, true)
+	m.startTree(title, mode, m.localRootItems(dirsOnly), -1, dirsOnly, true)
 }
 
 func newTree(roots []fsselect.Item, hostIndex int, dirsOnly bool, local bool) remoteTree {
@@ -721,7 +721,7 @@ func newTree(roots []fsselect.Item, hostIndex int, dirsOnly bool, local bool) re
 }
 
 func (m *Model) startRemoteTree(title string, mode viewMode, h host.Host, dirsOnly bool) {
-	m.startTree(title, mode, fsselect.RemoteRootItems(h), m.pending.HostIndex, dirsOnly, false)
+	m.startTree(title, mode, m.remoteRootItems(h), m.pending.HostIndex, dirsOnly, false)
 }
 
 func (m *Model) startRemoteTreeAt(title string, mode viewMode, h host.Host, root string, dirsOnly bool) {
@@ -947,6 +947,42 @@ func localTreeItems(dir string, dirsOnly bool) []fsselect.Item {
 	return items
 }
 
+func (m Model) localRootItems(dirsOnly bool) []fsselect.Item {
+	roots := fsselect.ExpandLocalRoots(m.home, m.appConfig.LocalDirs)
+	items := make([]fsselect.Item, 0, len(roots))
+	seen := map[string]bool{}
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" || seen[root] {
+			continue
+		}
+		info, err := os.Stat(root)
+		if err != nil {
+			continue
+		}
+		if dirsOnly && !info.IsDir() {
+			continue
+		}
+		seen[root] = true
+		items = append(items, fsselect.Item{Path: root, IsDir: info.IsDir()})
+	}
+	if len(items) == 0 {
+		return localTreeItems("/", dirsOnly)
+	}
+	sortItemsByPath(items)
+	return items
+}
+
+func (m Model) remoteRootItems(h host.Host) []fsselect.Item {
+	return fsselect.RemoteConfiguredRootItems(h, m.appConfig.RemoteDirs)
+}
+
+func sortItemsByPath(items []fsselect.Item) {
+	sort.Slice(items, func(i, j int) bool {
+		return strings.ToLower(items[i].Path) < strings.ToLower(items[j].Path)
+	})
+}
+
 func treeLabel(node *remoteTreeNode) string {
 	indent := strings.Repeat("  ", node.Depth)
 	name := node.Item.Path
@@ -963,14 +999,14 @@ func (m Model) startTransferPanel(idx int, mode transferMode) Model {
 	if mode == transferUpload {
 		panel.LeftTitle = "本地"
 		panel.RightTitle = remoteTitle
-		panel.LeftTree = newTree(localTreeItems("/", true), -1, false, true)
-		panel.RightTree = newTree(fsselect.RemoteRootItems(h), idx, true, false)
+		panel.LeftTree = newTree(m.localRootItems(false), -1, false, true)
+		panel.RightTree = newTree(m.remoteRootItems(h), idx, true, false)
 		m.status = transferPanelStatus(mode)
 	} else {
 		panel.LeftTitle = remoteTitle
 		panel.RightTitle = "本地"
-		panel.LeftTree = newTree(fsselect.RemoteRootItems(h), idx, false, false)
-		panel.RightTree = newTree(localTreeItems("/", true), -1, true, true)
+		panel.LeftTree = newTree(m.remoteRootItems(h), idx, false, false)
+		panel.RightTree = newTree(m.localRootItems(true), -1, true, true)
 		m.status = transferPanelStatus(mode)
 	}
 	panel.LeftChoices = flattenTree(panel.LeftTree)

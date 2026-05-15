@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: 安全问题
+  - name: Security issue
     url: https://github.com/YaMaiDay/sshm/security/advisories/new
-    about: 如果可用，请通过私密漏洞报告提交敏感安全问题。
-  - name: 应用部署文档
+    about: Use private vulnerability reporting for sensitive security issues when available.
+  - name: Deployment documentation
     url: https://github.com/YaMaiDay/sshm/blob/main/docs/deployment.md
-    about: 查看 Git / Release 部署、凭证、队列和回滚说明。
-  - name: 排错文档
+    about: Read about Git / Release deployment, credentials, queues, and rollback.
+  - name: Troubleshooting
     url: https://github.com/YaMaiDay/sshm/blob/main/docs/troubleshooting.md
-    about: 查看 SSH、跳板机、rsync、GitHub、磁盘和容器状态排错说明。
+    about: Read about SSH, bastion hosts, rsync, GitHub, disks, and container status.

@@ -1,35 +1,35 @@
-# 行为准则
+# Code Of Conduct
 
-## 我们的承诺
+## Our Pledge
 
-我们承诺让参与本项目的过程保持友好、尊重和无骚扰。
+We are committed to keeping participation in this project friendly, respectful, and harassment-free.
 
-我们希望所有参与者都能以开放、包容、专业的方式交流，专注于项目本身和实际问题。
+We expect participants to communicate openly, inclusively, and professionally, focusing on the project and practical issues.
 
-## 行为标准
+## Standards
 
-鼓励的行为包括：
+Examples of encouraged behavior:
 
-- 尊重不同观点、经验和使用场景。
-- 给出具体、可操作的反馈。
-- 接受合理的技术讨论和修改建议。
-- 出现误解或错误时及时修正。
-- 优先考虑项目和用户的长期利益。
+- Respect different perspectives, experience levels, and use cases.
+- Provide specific and actionable feedback.
+- Accept reasonable technical discussion and suggested changes.
+- Correct misunderstandings or mistakes when they happen.
+- Prioritize the long-term health of the project and its users.
 
-不可接受的行为包括：
+Examples of unacceptable behavior:
 
-- 人身攻击、侮辱、嘲讽或骚扰。
-- 发布他人的私人信息。
-- 在 Issue、PR、Wiki 或讨论区发布无关内容。
-- 公开传播密码、私钥、服务器 IP 或其他敏感信息。
-- 其他不适合专业协作环境的行为。
+- Personal attacks, insults, mockery, or harassment.
+- Publishing someone else's private information.
+- Posting unrelated content in issues, PRs, wikis, or discussions.
+- Publicly sharing passwords, private keys, server IPs, or other sensitive information.
+- Other behavior that is inappropriate for a professional collaboration environment.
 
-## 执行
+## Enforcement
 
-维护者可以移除、编辑或关闭不符合本行为准则的评论、提交、Issue、PR、Wiki 编辑和其他贡献。
+Maintainers may remove, edit, or close comments, commits, issues, PRs, wiki edits, and other contributions that do not follow this Code of Conduct.
 
-如果你遇到不当行为，可以通过 GitHub Issue 联系维护者；如果报告内容包含敏感安全信息，请使用私密漏洞报告。
+If you experience inappropriate behavior, contact maintainers through GitHub Issues. If the report contains sensitive security information, use private vulnerability reporting.
 
-## 适用范围
+## Scope
 
-本行为准则适用于本项目的所有公开协作空间，包括 Issue、PR、Discussions、Wiki 和相关代码提交。
+This Code of Conduct applies to all public collaboration spaces for this project, including issues, PRs, discussions, wiki pages, and related commits.

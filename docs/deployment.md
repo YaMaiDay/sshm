@@ -1,189 +1,189 @@
-# 应用部署
+# App Deployment
 
-sshm 的应用部署用于在不登录服务器的情况下完成常见发布动作：获取 Git 或 GitHub Release 资源，执行更新命令，记录结果，并在需要时执行回滚命令。
+sshm deployment helps you release applications without logging into servers manually. It can fetch Git repositories or GitHub Release assets, run command stages, record results, and run rollback commands when needed.
 
-它不安装远程 agent，执行时复用 sshm 已有的 SSH、跳板机和 rsync 连接逻辑。
+It does not install a remote agent. Deployment reuses the same SSH, bastion, and rsync connection logic used by monitoring, command execution, and file transfer.
 
-## 入口
+## Entry Point
 
-在首页按 `g` 进入应用部署。
+Press `g` on the dashboard to open app deployments.
 
-常用按键：
+Common keys:
 
-| 按键 | 作用 |
+| Key | Action |
 | --- | --- |
-| `a` | 新增部署应用 |
-| `e` | 编辑部署应用 |
-| `x` | 删除部署应用，删除前需要确认 |
-| `Space` | 查看详情 |
-| `Enter` | 进入部署确认页 |
-| `s` | 选择多个应用，按选择顺序串行部署 |
-| `t` | 置顶 |
-| `f` | 收藏 |
-| `v` | 只看收藏 |
-| `z` | 切换卡片/列表视图 |
-| `Tab` | 切换有应用的服务器分类 |
-| `Esc` | 返回 |
+| `a` | Add deployment app |
+| `e` | Edit deployment app |
+| `x` | Delete deployment app, with confirmation |
+| `Space` | Show details |
+| `Enter` | Open deploy confirmation |
+| `s` | Select multiple apps and deploy them serially in selection order |
+| `t` | Pin |
+| `f` | Favorite |
+| `v` | Show favorites only |
+| `z` | Switch card/list view |
+| `Tab` | Switch between server categories that contain deployment apps |
+| `Esc` | Go back |
 
-部署应用是全局配置。每个应用自己绑定目标服务器，所以按 `g` 后能看到所有部署应用；执行时只会连接该应用配置的服务器。
+Deployment apps are global. Each app is bound to one target server, so pressing `g` shows all deployment apps, and running one app only connects to the server configured for that app.
 
-## 部署流程
+## Deploy Flow
 
-一次部署按下面顺序执行：
+A normal deployment runs these stages in order:
 
-1. 更新前
-2. 获取资源
-3. 上传资源，仅本地拉取后上传时出现
-4. 更新命令
-5. 更新后
-6. 健康检查
+1. Pre-update
+2. Fetch resource
+3. Upload resource, only when using local fetch then upload
+4. Update
+5. Post-update
+6. Health check
 
-没有配置命令的阶段会跳过。获取资源阶段默认由 sshm 根据“来源、获取方式、仓库、版本、资源文件、目录、凭证”生成，也可以在编辑页的“部署流程”里改成自定义命令。
+Stages without commands are skipped. The fetch-resource stage is generated from source, fetch mode, repository, version, asset, path, and credential settings by default. It can also be customized in the deployment flow editor.
 
-回滚不是部署流程的一部分。部署输出页按 `r` 进入回滚确认页，确认后只执行“回滚命令”。
+Rollback is not part of the deploy flow. Press `r` on the deployment output page to open rollback confirmation. Confirming rollback only runs the rollback commands.
 
-## 资源来源
+## Resource Source
 
-| 来源 | 适合场景 | 行为 |
+| Source | Best For | Behavior |
 | --- | --- | --- |
-| Git | 服务器目录就是源码仓库 | clone 或 pull 指定分支 |
-| Release | 上传构建产物、二进制包、压缩包 | 下载 Release 资源，解压到版本目录并切换 `current` |
+| Git | A server directory that is the source repository | Clone or pull a branch |
+| Release | Built artifacts, binaries, or archives | Download a Release asset, extract it into a version directory, and switch `current` |
 
-Git 示例：
+Git example:
 
-| 字段 | 示例 |
+| Field | Example |
 | --- | --- |
-| 来源 | Git |
-| 仓库 | `git@github.com:owner/api.git` |
-| 分支 | `main` |
-| 项目目录 | `/opt/api` |
+| Source | Git |
+| Repository | `git@github.com:owner/api.git` |
+| Branch | `main` |
+| Project path | `/opt/api` |
 
-Release 示例：
+Release example:
 
-| 字段 | 示例 |
+| Field | Example |
 | --- | --- |
-| 来源 | Release |
-| 仓库 | `owner/api` |
-| 版本 | `latest` 或 `v1.2.3` |
-| 资源文件/匹配 | `api-linux-amd64.tar.gz` 或 `api-linux-amd64-*` |
-| 项目目录 | `/opt/api` |
+| Source | Release |
+| Repository | `owner/api` |
+| Version | `latest` or `v1.2.3` |
+| Asset / match | `api-linux-amd64.tar.gz` or `api-linux-amd64-*` |
+| Project path | `/opt/api` |
 
-如果填写“下载地址”，sshm 会优先使用完整下载地址，不再自动拼 GitHub Release 地址。
+If a full download URL is configured, sshm uses that URL directly and does not build a GitHub Release URL.
 
-## 获取方式
+## Fetch Mode
 
-| 获取方式 | GitHub 访问发生在哪里 | 凭证在哪里 |
+| Fetch Mode | GitHub Access Happens On | Credential Lives On |
 | --- | --- | --- |
-| 本地拉取后上传 | 本地电脑 | 本地电脑 |
-| 服务器拉取 | 目标服务器 | 目标服务器 |
+| Local fetch then upload | Local machine | Local machine |
+| Remote fetch | Target server | Target server |
 
-本地拉取后上传的流程：
+Local fetch then upload:
 
-1. 目标服务器执行更新前命令。
-2. 本地电脑 clone 或下载 Release 到临时目录。
-3. 本地电脑用 rsync 上传资源到目标服务器项目目录。
-4. 目标服务器执行更新命令、更新后命令和健康检查。
+1. Target server runs pre-update commands.
+2. Local machine clones the repository or downloads the Release asset into a temporary directory.
+3. Local machine uploads the resource to the target server project path with rsync.
+4. Target server runs update, post-update, and health-check commands.
 
-服务器拉取的流程：
+Remote fetch:
 
-1. 目标服务器执行更新前命令。
-2. 目标服务器 clone、pull 或下载 Release。
-3. 目标服务器执行更新命令、更新后命令和健康检查。
+1. Target server runs pre-update commands.
+2. Target server clones, pulls, or downloads the Release asset.
+3. Target server runs update, post-update, and health-check commands.
 
-如果目标服务器不能访问 GitHub，选择“本地拉取后上传”。如果目标服务器能访问 GitHub，并且已经配置好 GitHub 凭证，选择“服务器拉取”更简单。
+If the target server cannot access GitHub, use local fetch then upload. If the target server can access GitHub and already has the right credentials, remote fetch is simpler.
 
-## GitHub 凭证
+## GitHub Credentials
 
-sshm 配置里只保存凭证参数，不保存私钥内容或 token 内容。
+sshm stores only credential references. It does not store private key contents or token values.
 
-| 凭证类型 | 本地拉取后上传 | 服务器拉取 |
+| Credential Type | Local Fetch Then Upload | Remote Fetch |
 | --- | --- | --- |
-| 不配置 | 公开仓库，或本地环境已经可访问 | 公开仓库，或目标服务器环境已经可访问 |
-| SSH Key | 本地私钥路径，例如 `~/.ssh/api_deploy_key` | 目标服务器私钥路径，例如 `/home/deploy/.ssh/api_deploy_key` |
-| Token | 本地环境变量名，例如 `GITHUB_TOKEN` | 目标服务器环境变量名，例如 `GITHUB_TOKEN` |
+| None | Public repository, or local environment already has access | Public repository, or target-server environment already has access |
+| SSH Key | Local private key path, for example `~/.ssh/api_deploy_key` | Target-server private key path, for example `/home/deploy/.ssh/api_deploy_key` |
+| Token | Local environment variable name, for example `GITHUB_TOKEN` | Target-server environment variable name, for example `GITHUB_TOKEN` |
 
-推荐：
+Recommendations:
 
-- 私有 Git 仓库优先使用 GitHub Deploy Key。
-- 私有 Release 资源可以使用最小权限 Token。
-- 不要把 token 或私钥内容写进部署命令。
-- 不要使用个人账号的长期 token 做服务器部署。
+- Prefer GitHub Deploy Keys for private Git repositories.
+- Use minimal tokens for private Release assets.
+- Do not put token values or private key contents in deployment commands.
+- Do not use long-lived personal account tokens for server deployment.
 
-## 命令阶段示例
+## Command Stage Examples
 
-更新前：
+Pre-update:
 
 ```sh
 systemctl stop api || true
 cp -a current backup/$(date +%Y%m%d%H%M%S)
 ```
 
-更新命令：
+Update:
 
 ```sh
 npm ci --omit=dev
 npm run build
 ```
 
-更新后：
+Post-update:
 
 ```sh
 systemctl restart api
 ```
 
-健康检查：
+Health check:
 
 ```sh
 curl -fsS http://127.0.0.1:8080/health
 ```
 
-回滚命令：
+Rollback:
 
 ```sh
 ln -sfn releases/previous current
 systemctl restart api
 ```
 
-这些命令都会在项目目录下执行。需要 root 权限时，请明确使用 `sudo`，并确认目标服务器允许该账号执行对应命令。
+These commands run inside the project path. If root privileges are required, use `sudo` explicitly and make sure the target server account can run the command.
 
-## 串行部署
+## Serial Deployment
 
-在部署列表按 `s` 选择多个应用，再按 `Enter` 进入部署队列确认页。
+In the deployment list, press `s` to select multiple apps, then press `Enter` to open queue confirmation.
 
-队列规则：
+Queue rules:
 
-- 按选择顺序串行执行。
-- 一个应用失败后，整个队列停止。
-- 失败后按 `r` 重试失败项。
-- 失败后按 `a` 从第一个应用重新部署。
-- 每个应用执行成功后，会按该应用配置的等待时间暂停，再进入下一个应用。
+- Apps run serially in the order selected.
+- If one app fails, the whole queue stops.
+- After a failure, press `r` to retry the failed app.
+- After a failure, press `a` to redeploy from the first app.
+- After each successful app, sshm waits for that app's configured wait time before starting the next app.
 
-等待时间适合滚动发布。例如先部署 API，等待 10 秒，再部署 Web。
+Wait time is useful for rolling releases. For example, deploy API first, wait 10 seconds, then deploy Web.
 
-## 历史记录
+## History
 
-每次部署或回滚都会记录：
+Each deploy or rollback records:
 
-- 应用
-- 服务器
-- 动作：部署或回滚
-- 状态：成功或失败
-- 上一版本
-- 当前版本
-- 退出码
-- 输出
+- App
+- Server
+- Action: deploy or rollback
+- Status: success or failed
+- Previous version
+- Current version
+- Exit code
+- Output
 
-确认部署页和详情页会显示最近最多 50 条相关历史。配置文件中会保留全局部署记录，超过上限后新记录覆盖旧记录。
+Deploy confirmation and detail pages show up to the latest 50 related records. The global deployment record list is capped; newer records replace older ones when the limit is exceeded.
 
-## 跳板机
+## Bastion Hosts
 
-如果目标服务器配置了跳板机，应用部署会自动复用同一套连接逻辑。
+If the target server is configured with a bastion host, deployment automatically reuses the same connection logic.
 
-用户体验上，配置跳板机后的目标服务器和普通服务器一样：
+From the user's perspective, a target server behind a bastion behaves like a normal server:
 
-- 监控正常采集目标服务器。
-- 命令正常在目标服务器执行。
-- 文件传输正常传到目标服务器。
-- 应用部署正常部署到目标服务器。
+- Monitoring collects target-server metrics.
+- Commands run on the target server.
+- File transfers go to the target server.
+- App deployment deploys to the target server.
 
-跳板机只是 SSH 链路的一段，不是部署目标，除非部署应用明确选择了跳板机那台服务器。
+The bastion is only one hop in the SSH path. It is not the deployment target unless the deployment app explicitly selects that bastion server.

@@ -1,70 +1,70 @@
-# 安全策略
+# Security Policy
 
-sshm 是本地运行的终端 SSH 管理器。它不运行云服务，不包含遥测，也不会在运行时自动检查更新。
+sshm is a local-first terminal SSH manager. It does not run a cloud service, does not include telemetry, and does not automatically check for updates at runtime.
 
-## 支持版本
+## Supported Versions
 
-安全修复会应用到最新 Release。
+Security fixes are applied to the latest Release.
 
-## 安全设计
+## Security Design
 
-- 本地优先：服务器配置、命令历史、传输历史都保存在用户机器上。
-- 无遥测：sshm 不收集分析数据、崩溃报告或使用数据。
-- 无自动更新检查：运行 sshm 不会访问 GitHub 或项目方服务器检查更新。
-- 调用系统工具：SSH 登录使用系统 `ssh`，文件传输使用 `rsync`。
-- 不安装远程 agent：sshm 不会在远程服务器安装后台代理。
-- 不上传 SSH 密钥：sshm 不会把私钥上传到远程服务器或项目基础设施。
-- 跳板机密钥本地保存：跳板机模式使用 OpenSSH `ProxyJump` 链路，跳板机和目标服务器的私钥路径都指向本地文件，不会复制到跳板机。
-- 显式联网：只有用户连接服务器、执行命令、传输文件、运行安装脚本或确认远程安装 `rsync` 时才会发生联网行为。
+- Local-first: server configuration, command history, and transfer history stay on the user's machine.
+- No telemetry: sshm does not collect analytics, crash reports, or usage data.
+- No automatic update checks: running sshm does not contact GitHub or project infrastructure to check for updates.
+- System tools: SSH login uses the system `ssh`; file transfer uses `rsync`.
+- No remote agent: sshm does not install a background agent on remote servers.
+- No private-key upload: sshm does not upload private keys to remote servers or project infrastructure.
+- Local bastion keys: bastion mode uses OpenSSH `ProxyJump`; both bastion and target-server private-key paths point to local files and are not copied to the bastion.
+- Explicit network access: network access happens only when the user connects to servers, runs commands, transfers files, runs the install script, or confirms remote `rsync` installation.
 
-## 跳板机连接
+## Bastion Connections
 
-跳板机也是一台普通服务器配置，固定放在 `跳板机` 分类中。内部服务器通过 `jump_host_ref` 引用跳板机名称。
+A bastion is a normal server configuration kept in the fixed `Bastion` category. Internal servers reference the bastion by `jump_host_ref`.
 
-连接时 sshm 会在本地创建临时 OpenSSH 配置，使用 `ProxyJump` 让系统 `ssh` / `rsync` 通过跳板机访问目标服务器。临时配置只保存连接参数和本地私钥路径，不包含私钥内容。
+When connecting, sshm creates a temporary OpenSSH config locally and uses `ProxyJump` so system `ssh` / `rsync` reaches the target server through the bastion. The temporary config stores only connection parameters and local private-key paths; it does not contain private-key contents.
 
-安全边界：
+Security boundaries:
 
-- 本地机器需要同时持有跳板机私钥和目标服务器私钥，或者使用本地 ssh-agent。
-- 跳板机只需要能访问目标服务器 SSH 端口。
-- 目标服务器不需要向公网开放 SSH，只需要允许跳板机访问。
-- 如果本地机器或跳板机被入侵，攻击者可能利用已有网络链路访问内部服务器；建议配合最小权限账号、防火墙白名单和只读部署密钥。
+- The local machine must hold both the bastion private key and target-server private key, or use a local ssh-agent.
+- The bastion only needs network access to the target server's SSH port.
+- The target server does not need public SSH access; it only needs to allow access from the bastion.
+- If the local machine or bastion is compromised, the attacker may use the existing network path to reach internal servers. Use least-privilege accounts, firewall allowlists, and read-only deploy keys where possible.
 
-## 本地数据
+## Local Data
 
-常见本地文件：
+Common local files:
 
-| 文件 | 用途 |
+| File | Purpose |
 | --- | --- |
-| `~/.config/sshm/servers.toml` | 服务器配置 |
-| `~/.config/sshm/commands.toml` | 命令模板 |
-| `~/.config/sshm/history.toml` | 命令历史 |
-| `~/.config/sshm/transfers.toml` | 传输任务和历史 |
-| `~/.config/sshm/deployments.toml` | 应用部署配置和部署记录 |
-| `~/.config/sshm/config.toml` | 应用配置 |
+| `~/.config/sshm/servers.toml` | Server configuration |
+| `~/.config/sshm/commands.toml` | Command templates |
+| `~/.config/sshm/history.toml` | Command history |
+| `~/.config/sshm/transfers.toml` | Transfer jobs and history |
+| `~/.config/sshm/deployments.toml` | Deployment apps and records |
+| `~/.config/sshm/config.toml` | App settings |
 
-涉及敏感信息的本地文件会尽量使用更严格的权限写入。
+Files that may contain sensitive data are written with stricter permissions where practical.
 
-部署配置只保存应用、仓库、目录、命令流水线、凭证参数和执行记录；不要把 GitHub token、私钥内容或生产密码写进部署命令。需要访问私有 Git 仓库时，推荐使用最小权限 Deploy Key；本地拉取时凭证参数引用本地私钥路径或本地环境变量名，服务器拉取时凭证参数引用目标服务器上的私钥路径或环境变量名。
+Deployment configuration stores app metadata, repository references, paths, command stages, credential references, and execution records. Do not put GitHub token values, private-key contents, or production passwords into deployment commands. For private Git repositories, prefer least-privilege Deploy Keys. For local fetch, credential parameters reference local private-key paths or local environment variable names; for remote fetch, they reference target-server private-key paths or environment variable names.
 
-## 报告漏洞
+## Reporting A Vulnerability
 
-请优先通过 GitHub 私密漏洞报告或本仓库的 Security Advisories 报告安全问题。
+Please use GitHub private vulnerability reporting or the repository's Security Advisories when available.
 
-如果私密报告不可用，可以创建 GitHub Issue，但请只写最小必要描述，不要公开密码、私钥、服务器 IP、生产主机名或可直接利用的细节。维护者会跟进并协调修复。
+If private reporting is unavailable, open a GitHub Issue with the minimum necessary description. Do not publicly include passwords, private keys, server IPs, production hostnames, or directly exploitable details. Maintainers will follow up and coordinate a fix.
 
-## 范围
+## Scope
 
-范围内：
+In scope:
 
-- 本地服务器配置、命令历史或传输历史泄露。
-- sshm 运行时出现非预期联网请求。
-- 命令构造问题导致执行非预期的本地或远程命令。
-- 密码、私钥或临时文件处理不安全。
-- 跳板机模式下临时 SSH 配置或连接参数处理不安全。
+- Local server configuration, command history, or transfer history disclosure.
+- Unexpected network requests at runtime.
+- Command construction bugs that cause unexpected local or remote command execution.
+- Unsafe password, private-key, or temporary-file handling.
+- Unsafe temporary SSH config or connection-parameter handling in bastion mode.
 
-范围外：
+Out of scope:
 
-- 用户自己的 SSH 服务器、shell、包管理器或远程系统配置漏洞。
-- 用户主动通过 sshm 运行不可信命令导致的问题。
-- 社会工程或物理访问用户机器。
+- Vulnerabilities in the user's own SSH servers, shells, package managers, or remote system configuration.
+- Issues caused by users intentionally running untrusted commands through sshm.
+- Social engineering or physical access to the user's machine.

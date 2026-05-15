@@ -1,67 +1,67 @@
-# 排错
+# Troubleshooting
 
-这份文档按常见现象整理。提交 Issue 前，请先移除密码、私钥、token、私有 IP 和生产主机名。
+This guide covers common issues. Before opening an issue, remove passwords, private keys, tokens, private IPs, and production hostnames from logs or screenshots.
 
-## 安装后版本不是最新
+## Installed Version Is Not The Latest
 
-运行：
+Run:
 
 ```sh
 sshm --version
 ```
 
-安装脚本默认下载 GitHub Releases 的 latest 版本。如果仓库代码已经更新，但还没有创建新的 Release，安装脚本仍会安装上一个 Release。
+The install script downloads the latest GitHub Release. If the repository code has changed but a new Release has not been published, the install script still installs the previous Release.
 
-可以指定版本：
+You can pin a version:
 
 ```sh
 SSHM_VERSION=v0.1.40 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | sh
 ```
 
-也可以手动到 Releases 下载对应系统和架构的包，并用同版本的 `checksums.txt` 校验。
+You can also download the matching package from Releases manually and verify it with the same-version `checksums.txt`.
 
-## SSH 连接失败
+## SSH Connection Fails
 
-先确认系统 ssh 能不能连接：
+First confirm the system `ssh` command works:
 
 ```sh
 ssh -p 22 user@example.com
 ```
 
-常见原因：
+Common causes:
 
-| 现象 | 可能原因 |
+| Symptom | Possible Cause |
 | --- | --- |
-| `Permission denied (publickey)` | 密钥路径不对、服务器没有对应公钥、账号不对 |
-| `Connection timed out` | IP、端口、防火墙、安全组不通 |
-| `No route to host` | 网络路由不通 |
-| `Host key verification failed` | known_hosts 冲突 |
-| 密码登录失败 | 服务器禁用了密码登录，或没有安装 `sshpass` |
+| `Permission denied (publickey)` | Wrong key path, missing public key on the server, or wrong user |
+| `Connection timed out` | IP, port, firewall, or security group is unreachable |
+| `No route to host` | Network route is unavailable |
+| `Host key verification failed` | `known_hosts` conflict |
+| Password login fails | Server disabled password login, or local `sshpass` is missing |
 
-sshm 调用系统 `ssh`，不会绕过 OpenSSH 的认证规则。
+sshm calls the system `ssh`; it does not bypass OpenSSH authentication rules.
 
-## 跳板机连接失败
+## Bastion Connection Fails
 
-跳板机链路是：
+The bastion path is:
 
 ```text
-本地电脑 --SSH--> 跳板机 --SSH--> 目标服务器
+local machine --SSH--> bastion --SSH--> target server
 ```
 
-需要同时满足：
+Requirements:
 
-- 本地电脑能 SSH 到跳板机。
-- 跳板机能访问目标服务器 SSH 端口。
-- 本地电脑有跳板机私钥和目标服务器私钥，或 ssh-agent 已经加载对应密钥。
-- 目标服务器的安全组或防火墙允许跳板机访问。
+- The local machine can SSH to the bastion.
+- The bastion can reach the target server's SSH port.
+- The local machine has both the bastion private key and target-server private key, or the local ssh-agent has them loaded.
+- The target server's firewall or security group allows access from the bastion.
 
-sshm 不会把目标服务器密钥复制到跳板机。目标服务器密钥路径仍然是本地电脑上的路径。
+sshm does not copy the target-server key to the bastion. The target-server key path still points to a local file.
 
-## 监控显示 0 或离线
+## Monitoring Shows 0 Or Offline
 
-sshm 通过 SSH 执行远程命令采集监控。如果 SSH 不通，监控就会失败。
+sshm collects monitoring data by running remote commands through SSH. If SSH fails, monitoring fails.
 
-还需要确认远程系统有常见命令：
+The remote system should have common commands:
 
 ```sh
 uname
@@ -73,130 +73,130 @@ free
 ps
 ```
 
-如果某些指标缺失，通常是远程系统命令缺失、权限不足或输出格式与常见 Linux 不一致。
+Missing metrics usually mean missing commands, insufficient permissions, or output formats that differ from common Linux systems.
 
-## 磁盘为什么显示挂载点，不显示 sda1
+## Why Disk Shows Mount Points Instead Of sda1
 
-Linux 上真正有使用率的是“文件系统挂载点”，不是裸设备名。
+On Linux, usage belongs to mounted filesystems, not raw block device names.
 
-例如：
+Example:
 
 ```text
-/      设备 /dev/mapper/cs-root
-/boot  设备 /dev/sda1
-/data  设备 /dev/sdb1
+/      device /dev/mapper/cs-root
+/boot  device /dev/sda1
+/data  device /dev/sdb1
 ```
 
-`/dev/sdb3` 如果没有挂载，就没有可用容量和使用率，sshm 不会显示。
+If `/dev/sdb3` is not mounted, it has no usable capacity or usage percentage, so sshm does not show it.
 
-sshm 使用 `df -PT -B1` 读取已挂载的真实文件系统，并过滤 `tmpfs`、`devtmpfs`、`proc`、`sysfs`、`overlay` 等临时或系统文件系统。
+sshm reads mounted real filesystems with `df -PT -B1` and filters temporary/system filesystems such as `tmpfs`, `devtmpfs`, `proc`, `sysfs`, and `overlay`.
 
-## 内存和 Proxmox 显示不一致
+## Memory Differs From Proxmox
 
-不同系统对“已用内存”的口径可能不同。
+Different systems define "used memory" differently.
 
-sshm 更接近 Linux `free` 的口径，主要看可用内存：
+sshm is closer to Linux `free` and focuses on available memory:
 
 ```text
 used = total - available
 ```
 
-Proxmox 可能包含或排除缓存、宿主机统计、虚拟化层统计。判断服务器是否真的内存紧张，优先看 available、swap 使用率和业务进程状态。
+Proxmox may include or exclude cache, host-level statistics, or virtualization-layer data. To determine whether a server is actually under memory pressure, check available memory, swap usage, and business processes first.
 
-## rsync 不存在
+## rsync Is Missing
 
-文件传输和“本地拉取后上传”的应用部署依赖 rsync。
+File transfer and local-fetch deployment require rsync.
 
-本地需要安装 rsync，远程服务器也需要安装 rsync。
+Both the local machine and the remote server need rsync.
 
-Debian / Ubuntu：
+Debian / Ubuntu:
 
 ```sh
 sudo apt install rsync
 ```
 
-RHEL / CentOS / Rocky：
+RHEL / CentOS / Rocky:
 
 ```sh
 sudo yum install rsync
 ```
 
-macOS：
+macOS:
 
 ```sh
 brew install rsync
 ```
 
-如果远程缺少 rsync，sshm 会提示是否尝试安装。没有 sudo 权限时，需要手动安装。
+If the remote server is missing rsync, sshm asks whether to try installing it. Without sudo permission, install rsync manually.
 
-## GitHub 拉取失败
+## GitHub Fetch Fails
 
-常见错误：
+Common errors:
 
-| 错误 | 说明 |
+| Error | Meaning |
 | --- | --- |
-| `Permission denied (publickey)` | SSH Key 没有权限访问仓库 |
-| `Repository not found` | 仓库地址错误，或 token/密钥没有权限 |
-| `Could not resolve host: github.com` | 当前执行拉取的一端无法访问 GitHub |
-| `HTTP 401/403` | Token 无效、过期或权限不足 |
+| `Permission denied (publickey)` | SSH key cannot access the repository |
+| `Repository not found` | Repository address is wrong, or the token/key has no access |
+| `Could not resolve host: github.com` | The side doing the fetch cannot access GitHub |
+| `HTTP 401/403` | Token is invalid, expired, or lacks permissions |
 
-先判断“获取方式”：
+First identify the fetch mode:
 
-- 本地拉取后上传：检查本地电脑能否访问 GitHub，本地凭证是否正确。
-- 服务器拉取：检查目标服务器能否访问 GitHub，目标服务器凭证是否正确。
+- Local fetch then upload: check whether the local machine can access GitHub and has the right local credential.
+- Remote fetch: check whether the target server can access GitHub and has the right target-server credential.
 
-SSH 仓库地址示例：
+SSH repository example:
 
 ```text
 git@github.com:owner/repo.git
 ```
 
-Release 仓库字段示例：
+Release repository field example:
 
 ```text
 owner/repo
 ```
 
-## Release 资源找不到
+## Release Asset Not Found
 
-如果资源文件写固定文件名，GitHub Release 中必须存在同名资源。
+If the asset field is an exact filename, the GitHub Release must contain an asset with that exact name.
 
-如果文件名每次带日期或构建号，可以使用 `*`：
+If the filename contains a date or build number, use `*`:
 
 ```text
 freedex-trade-kernel-amd64-*
 ```
 
-版本留空或填 `latest` 表示最新 Release。填 `v1.2.3` 表示固定 tag 对应的 Release。
+An empty version or `latest` means the latest Release. `v1.2.3` means the Release for that tag.
 
-如果填写完整下载地址，sshm 会优先使用下载地址，不再自动拼 Release 地址。
+If a full download URL is configured, sshm uses it directly and does not build a Release URL.
 
-## 部署队列失败后怎么办
+## Deployment Queue Fails
 
-队列中任意一个应用失败，后续应用不会继续执行。
+If any app in a queue fails, later apps do not continue.
 
-在确认部署页：
+On the deploy confirmation/output page:
 
-- 按 `r` 重试失败项。
-- 按 `a` 从第一个应用重新部署。
-- 按 `Esc` 返回部署列表。
+- Press `r` to retry the failed app.
+- Press `a` to redeploy from the first app.
+- Press `Esc` to return to the deployment list.
 
-失败时先看当前阶段输出。常见失败点是 GitHub 凭证、rsync、更新命令或健康检查。
+Check the current stage output first. Common failure points are GitHub credentials, rsync, update commands, or health checks.
 
-## Docker 容器显示异常是什么意思
+## What Does An Abnormal Docker Container Mean
 
-sshm 会把 Docker 的原始状态摘要成中文状态，同时在详情里显示原始状态。
+sshm summarizes Docker's raw status while also showing the raw status in the detail page.
 
-常见状态：
+Common states:
 
-| sshm 状态 | Docker 原始状态示例 | 含义 |
+| sshm Status | Docker Raw Status Example | Meaning |
 | --- | --- | --- |
-| 运行 | `Up 2 weeks` | 容器正在运行 |
-| 异常 | `Up 2 weeks (unhealthy)` | 容器运行中，但健康检查失败 |
-| 重启中 | `Restarting (1) 10 seconds ago` | 容器正在反复重启 |
-| 停止 | `Exited (0) 2 hours ago` | 容器已退出 |
+| Running | `Up 2 weeks` | Container is running |
+| Abnormal | `Up 2 weeks (unhealthy)` | Container is running but its health check fails |
+| Restarting | `Restarting (1) 10 seconds ago` | Container is repeatedly restarting |
+| Stopped | `Exited (0) 2 hours ago` | Container has exited |
 
-如果需要进一步排查，在目标服务器执行：
+For deeper investigation, run on the target server:
 
 ```sh
 docker ps -a
@@ -204,23 +204,23 @@ docker logs <container>
 docker inspect <container>
 ```
 
-## 提交 Issue 时需要什么
+## What To Include In An Issue
 
-请提供：
+Please provide:
 
-- sshm 版本：`sshm --version`
-- 操作系统和 CPU 架构
-- 终端程序
-- 复现步骤
-- 期望行为
-- 实际行为
-- 已脱敏的截图或输出
+- sshm version: `sshm --version`
+- Operating system and CPU architecture
+- Terminal application
+- Reproduction steps
+- Expected behavior
+- Actual behavior
+- Redacted screenshot or output
 
-不要提供：
+Do not provide:
 
-- 密码
-- 私钥
-- token
-- 私有 IP
-- 生产主机名
-- 完整服务器列表
+- Passwords
+- Private keys
+- Tokens
+- Private IPs
+- Production hostnames
+- Full server lists

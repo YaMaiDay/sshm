@@ -1,16 +1,16 @@
-## 变更摘要
+## Summary
 
-- 
+-
 
-## 验证
+## Verification
 
 - [ ] `go test ./...`
 - [ ] `go vet ./...`
 - [ ] `git diff --check`
 
-## 检查项
+## Checklist
 
-- [ ] 变更范围清晰，没有混入无关修改。
-- [ ] 行为变化已同步更新 README、`docs/` 或 `CHANGELOG.md`。
-- [ ] 没有添加遥测、后台更新检查或项目方运行时联网请求。
-- [ ] 没有包含密钥、私钥、服务器 IP 或凭据。
+- [ ] The change is scoped and does not include unrelated edits.
+- [ ] User-visible behavior changes are reflected in README, `docs/`, or `CHANGELOG.md`.
+- [ ] No telemetry, background update checks, or project-owned runtime network requests were added.
+- [ ] No keys, private keys, server IPs, or credentials are included.

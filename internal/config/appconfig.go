@@ -10,6 +10,7 @@ import (
 )
 
 type AppConfig struct {
+	Language        string   `toml:"language"`
 	RefreshInterval string   `toml:"refresh_interval"`
 	ConnectTimeout  string   `toml:"connect_timeout"`
 	CommandTimeout  string   `toml:"command_timeout"`
@@ -28,6 +29,7 @@ type AppConfig struct {
 
 func DefaultAppConfig() AppConfig {
 	cfg := AppConfig{
+		Language:        "en",
 		RefreshInterval: "5s",
 		ConnectTimeout:  "2s",
 		CommandTimeout:  "6s",
@@ -50,7 +52,67 @@ func LoadAppConfig(home string) AppConfig {
 		return cfg
 	}
 	_ = toml.Unmarshal(data, &cfg)
+	cfg = NormalizeAppConfig(cfg)
 	return cfg
+}
+
+func NormalizeAppConfig(cfg AppConfig) AppConfig {
+	defaults := DefaultAppConfig()
+	if cfg.Language != "en" && cfg.Language != "zh" {
+		cfg.Language = defaults.Language
+	}
+	if !validDuration(cfg.RefreshInterval) {
+		cfg.RefreshInterval = defaults.RefreshInterval
+	}
+	if !validDuration(cfg.ConnectTimeout) {
+		cfg.ConnectTimeout = defaults.ConnectTimeout
+	}
+	if !validDuration(cfg.CommandTimeout) {
+		cfg.CommandTimeout = defaults.CommandTimeout
+	}
+	if len(cfg.LocalDirs) == 0 {
+		cfg.LocalDirs = defaults.LocalDirs
+	}
+	if len(cfg.RemoteDirs) == 0 {
+		cfg.RemoteDirs = defaults.RemoteDirs
+	}
+	if cfg.Thresholds.CPUWarn <= 0 {
+		cfg.Thresholds.CPUWarn = defaults.Thresholds.CPUWarn
+	}
+	if cfg.Thresholds.CPUCrit <= 0 {
+		cfg.Thresholds.CPUCrit = defaults.Thresholds.CPUCrit
+	}
+	if cfg.Thresholds.MemWarn <= 0 {
+		cfg.Thresholds.MemWarn = defaults.Thresholds.MemWarn
+	}
+	if cfg.Thresholds.MemCrit <= 0 {
+		cfg.Thresholds.MemCrit = defaults.Thresholds.MemCrit
+	}
+	if cfg.Thresholds.DiskWarn <= 0 {
+		cfg.Thresholds.DiskWarn = defaults.Thresholds.DiskWarn
+	}
+	if cfg.Thresholds.DiskCrit <= 0 {
+		cfg.Thresholds.DiskCrit = defaults.Thresholds.DiskCrit
+	}
+	return cfg
+}
+
+func validDuration(value string) bool {
+	d, err := time.ParseDuration(value)
+	return err == nil && d > 0
+}
+
+func SaveAppConfig(home string, cfg AppConfig) error {
+	cfg = NormalizeAppConfig(cfg)
+	data, err := toml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	path := AppConfigPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	return writeFile0600(path, data)
 }
 
 func AppConfigPath(home string) string {

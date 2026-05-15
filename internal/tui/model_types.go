@@ -48,6 +48,7 @@ const (
 	modeDeploymentConfirm
 	modeDeploymentRollbackConfirm
 	modeDeploymentOutput
+	modeSettings
 	modeHelp
 )
 
@@ -320,6 +321,9 @@ type Model struct {
 	deploymentFavoriteOnly bool
 	activeDeployment       activeDeployment
 	deploymentOutputScroll int
+	settingsForm           settingsForm
+	settingsField          int
+	settingsCursor         int
 	anomalyIndex           int
 	anomalyFilter          anomalyFilterMode
 	transferJobsBack       viewMode

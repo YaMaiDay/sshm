@@ -1,25 +1,25 @@
-# 贡献指南
+# Contributing
 
-感谢你愿意改进 sshm。
+Thanks for helping improve sshm.
 
-sshm 是一个本地优先的终端 SSH 管理器。贡献时请保留这些原则：
+sshm is a local-first terminal SSH manager. Please keep these principles intact:
 
-- 默认行为保持本地运行。
-- 不添加遥测、后台更新检查或项目方运行时联网请求。
-- 不上传 SSH 密钥、密码、服务器列表、命令历史或传输历史。
-- 优先复用系统 `ssh` 和 `rsync`，避免自己实现协议细节。
-- TUI 保持中文优先，并适配终端使用习惯。
+- Default behavior stays local.
+- Do not add telemetry, background update checks, or project-owned runtime network requests.
+- Do not upload SSH keys, passwords, server lists, command history, or transfer history.
+- Prefer system `ssh` and `rsync` instead of reimplementing protocol details.
+- English is the primary language for GitHub-facing docs and metadata. Chinese is supported as a secondary UI language.
 
-## 开发环境
+## Development Environment
 
-需要：
+Requirements:
 
-- Go 1.24 或更新版本。
-- `ssh`，用于登录和监控采集。
-- `rsync`，用于文件传输。
-- `sshpass` 可选，只用于密码登录自动化。
+- Go 1.24 or newer.
+- `ssh`, used for login and monitoring collection.
+- `rsync`, used for file transfer.
+- `sshpass`, optional and only used for automated password login.
 
-运行测试：
+Run checks:
 
 ```sh
 go test ./...
@@ -27,53 +27,53 @@ go vet ./...
 git diff --check
 ```
 
-本地构建：
+Build locally:
 
 ```sh
 go build -o sshm ./cmd/sshm
 ```
 
-运行：
+Run:
 
 ```sh
 ./sshm
 ```
 
-## Pull Request
+## Pull Requests
 
-提交 PR 前请确认：
+Before opening a PR, confirm:
 
-1. 变更范围清晰，不混入无关修改。
-2. 已运行 `go test ./...`。
-3. 已运行 `go vet ./...`。
-4. 已运行 `git diff --check`。
-5. 行为变化同步更新 README、`docs/` 或 `CHANGELOG.md`。
-6. 避免无关格式化。
-7. 说明用户可感知的影响。
+1. The change is scoped and does not include unrelated edits.
+2. `go test ./...` passes.
+3. `go vet ./...` passes.
+4. `git diff --check` passes.
+5. User-visible behavior changes are reflected in README, `docs/`, or `CHANGELOG.md`.
+6. The PR avoids unrelated formatting churn.
+7. The user-visible impact is clearly described.
 
-## Bug 反馈
+## Bug Reports
 
-建议提供：
+Please include:
 
-- sshm 版本。
-- 操作系统和 CPU 架构。
-- 终端程序。
-- 复现步骤。
-- 期望行为。
-- 实际行为。
-- 已脱敏的日志或截图。
+- sshm version.
+- Operating system and CPU architecture.
+- Terminal application.
+- Reproduction steps.
+- Expected behavior.
+- Actual behavior.
+- Redacted logs or screenshots.
 
-不要公开发布密码、私钥、私有服务器 IP 或生产主机名。
+Do not publicly post passwords, private keys, private server IPs, or production hostnames.
 
-## 功能建议
+## Feature Requests
 
-建议说明：
+Please describe:
 
-- 你想改进的工作流。
-- 当前行为为什么不够用。
-- 你希望 sshm 如何工作。
-- 是否影响 SSH 登录、远程命令、文件传输或本地配置。
+- The workflow you want to improve.
+- Why the current behavior is not enough.
+- How you expect sshm to work.
+- Whether it affects SSH login, remote commands, file transfer, deployment, or local configuration.
 
-## 安全问题
+## Security Issues
 
-请不要在公开 Issue 中披露敏感安全细节。可以使用 GitHub 私密漏洞报告或 Security Advisories。更多说明见 `SECURITY.md`。
+Do not disclose sensitive security details in public issues. Use GitHub private vulnerability reporting or Security Advisories when available. See `SECURITY.md` for details.

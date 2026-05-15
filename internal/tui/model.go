@@ -260,6 +260,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateDeploymentRollbackConfirm(msg)
 		case modeDeploymentOutput:
 			return m.updateDeploymentOutput(msg)
+		case modeSettings:
+			return m.updateSettings(msg)
 		case modeTransferJobs:
 			return m.updateTransferJobs(msg)
 		case modeTransferDetail:
@@ -344,6 +346,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.startDeploymentList(idx), nil
 			}
+		case ",":
+			return m.startSettings(), nil
 		case "v":
 			m.favoriteOnly = !m.favoriteOnly
 			m.selected = 0
@@ -2052,6 +2056,9 @@ func (m Model) View() string {
 	}
 	if m.mode == modeDeploymentOutput {
 		return m.renderDeploymentOutput()
+	}
+	if m.mode == modeSettings {
+		return m.renderSettings()
 	}
 	if m.mode == modeTransferJobs {
 		return m.renderTransferJobs()
