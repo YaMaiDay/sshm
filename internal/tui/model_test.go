@@ -820,6 +820,40 @@ func TestContainerDetailRowsShowRawStatus(t *testing.T) {
 	}
 }
 
+func TestParseServiceDetailsSortsFailedFirst(t *testing.T) {
+	out := strings.Join([]string{
+		"nginx.service loaded active running A high performance web server",
+		"redis.service loaded failed failed Redis server",
+		"cron.service loaded active exited Regular background program processing daemon",
+		"old.service loaded inactive dead Old service",
+	}, "\n")
+	services, errText := parseServiceDetails(out)
+	if errText != "" {
+		t.Fatalf("errText = %q", errText)
+	}
+	if len(services) != 4 {
+		t.Fatalf("services = %#v", services)
+	}
+	if services[0].Unit != "redis.service" || serviceDetailKind(services[0]) != "failed" {
+		t.Fatalf("first service = %+v, want failed redis first", services[0])
+	}
+}
+
+func TestServiceDetailRowsShowStatusAndDescription(t *testing.T) {
+	m := Model{width: 120}
+	rows := serviceDetailItemRows(m, serviceDetail{
+		Unit:        "redis.service",
+		Load:        "loaded",
+		Active:      "failed",
+		Sub:         "failed",
+		Description: "Redis server",
+	}, 14, 1)
+	got := strings.Join(rows, "\n")
+	if !strings.Contains(got, "异常") || !strings.Contains(got, "状态 failed/failed") || !strings.Contains(got, "说明 Redis server") {
+		t.Fatalf("service rows missing status or description:\n%s", got)
+	}
+}
+
 func findLineContaining(view string, needle string) string {
 	for _, line := range strings.Split(view, "\n") {
 		if strings.Contains(ansi.Strip(line), needle) {

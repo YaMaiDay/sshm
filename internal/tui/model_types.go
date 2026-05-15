@@ -132,6 +132,8 @@ type hostState struct {
 	FailedLoginError   string
 	SSHDSecurity       map[string]string
 	SSHDSecurityError  string
+	ServiceDetails     []serviceDetail
+	ServiceError       string
 	PortDetails        []portDetail
 	PortDetailsError   string
 	ContainerDetails   []containerDetail
@@ -184,6 +186,8 @@ type loginRecordsMsg struct {
 	FailedErrText string
 	SSHDSecurity  map[string]string
 	SSHDErrText   string
+	Services      []serviceDetail
+	ServiceErr    string
 	Ports         []portDetail
 	PortsErrText  string
 	Containers    []containerDetail
@@ -570,6 +574,14 @@ type portDetail struct {
 	PID       string
 	Container string
 	Count     int
+}
+
+type serviceDetail struct {
+	Unit        string
+	Load        string
+	Active      string
+	Sub         string
+	Description string
 }
 
 type containerDetail struct {

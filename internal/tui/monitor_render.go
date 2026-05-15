@@ -105,6 +105,243 @@ func dockerDetailRows(m Model, metrics monitor.Metrics, state hostState) []strin
 	return lines
 }
 
+func serviceDetailSummaryRows(m Model, metrics monitor.Metrics, state hostState) []string {
+	if state.LoginLoading {
+		return []string{m.detailRow("状态", "加载中")}
+	}
+	if strings.TrimSpace(state.ServiceError) != "" {
+		return []string{m.detailRow("状态", redStyle.Render(state.ServiceError))}
+	}
+	failed, running, active, stopped := serviceDetailCounts(state.ServiceDetails)
+	if len(state.ServiceDetails) == 0 {
+		if metrics.FailedServices > 0 {
+			return []string{m.detailRow("异常", redStyle.Render(failedServiceText(metrics, 8)))}
+		}
+		return []string{m.detailRow("状态", "未发现异常")}
+	}
+	other := len(state.ServiceDetails) - failed - running - active - stopped
+	lines := []string{
+		m.detailRow("总数", fmt.Sprintf("%d", len(state.ServiceDetails))),
+		m.detailRow("异常", serviceCountText(failed, true)),
+		m.detailRow("运行", serviceCountText(running, false)),
+		m.detailRow("活动", serviceCountText(active, false)),
+		m.detailRow("停止", serviceCountText(stopped, false)),
+	}
+	if other > 0 {
+		lines = append(lines, m.detailRow("其他", fmt.Sprintf("%d", other)))
+	}
+	return lines
+}
+
+func serviceCountText(count int, danger bool) string {
+	text := fmt.Sprintf("%d", count)
+	if danger && count > 0 {
+		return redStyle.Render(text)
+	}
+	return text
+}
+
+func serviceDetailRows(m Model, metrics monitor.Metrics, state hostState) []string {
+	if state.LoginLoading {
+		return []string{m.detailRow("状态", "加载中")}
+	}
+	if strings.TrimSpace(state.ServiceError) != "" {
+		return []string{m.detailRow("状态", redStyle.Render(state.ServiceError))}
+	}
+	if len(state.ServiceDetails) == 0 {
+		if metrics.FailedServices > 0 {
+			return failedServiceFallbackRows(m, metrics)
+		}
+		return []string{m.detailRow("状态", "未发现异常")}
+	}
+	lines := []string{}
+	groups := []struct {
+		Title string
+		Kind  string
+		Style lipgloss.Style
+	}{
+		{"异常", "failed", detailDangerStyle},
+		{"运行", "running", detailSubTitleStyle},
+		{"活动", "active", detailSubTitleStyle},
+		{"停止", "stopped", detailSubTitleStyle},
+		{"其他", "other", detailSubTitleStyle},
+	}
+	firstGroup := true
+	for _, group := range groups {
+		items := filterServicesByKind(state.ServiceDetails, group.Kind)
+		if len(items) == 0 {
+			continue
+		}
+		if !firstGroup {
+			lines = append(lines, "")
+		}
+		firstGroup = false
+		lines = append(lines, group.Style.Render(fmt.Sprintf("· %s %d", group.Title, len(items))))
+		unitWidth := serviceUnitWidth(items)
+		for i, item := range items {
+			lines = append(lines, serviceDetailItemRows(m, item, unitWidth, i+1)...)
+		}
+	}
+	return lines
+}
+
+func failedServiceFallbackRows(m Model, metrics monitor.Metrics) []string {
+	lines := []string{detailDangerStyle.Render(fmt.Sprintf("· 异常 %d", metrics.FailedServices))}
+	if len(metrics.FailedUnits) == 0 {
+		lines = append(lines, m.detailRow("异常服务", failedServiceText(metrics, 8)))
+		return lines
+	}
+	unitWidth := 10
+	for _, unit := range metrics.FailedUnits {
+		if w := runewidth.StringWidth(unit); w > unitWidth {
+			unitWidth = w
+		}
+	}
+	if unitWidth > 36 {
+		unitWidth = 36
+	}
+	for i, unit := range metrics.FailedUnits {
+		item := serviceDetail{Unit: unit, Active: "failed", Sub: "failed"}
+		lines = append(lines, serviceDetailItemRows(m, item, unitWidth, i+1)...)
+	}
+	return lines
+}
+
+func filterServicesByKind(items []serviceDetail, kind string) []serviceDetail {
+	out := []serviceDetail{}
+	for _, item := range items {
+		if serviceDetailKind(item) == kind {
+			out = append(out, item)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Unit) < strings.ToLower(out[j].Unit)
+	})
+	return out
+}
+
+func serviceUnitWidth(items []serviceDetail) int {
+	width := 10
+	for _, item := range items {
+		if w := runewidth.StringWidth(item.Unit); w > width {
+			width = w
+		}
+	}
+	if width > 36 {
+		width = 36
+	}
+	return width
+}
+
+func serviceDetailItemRows(m Model, item serviceDetail, unitWidth int, index int) []string {
+	state := coloredServiceStatus(serviceStatusText(item), serviceDetailKind(item))
+	prefix := detailLabelStyle.Render(fmt.Sprintf("%02d  ", index))
+	unit := detailValueStyle.Render(padVisible(fit(item.Unit, unitWidth), unitWidth))
+	line := fitANSI(prefix+unit+"  "+state, m.detailContentWidth())
+	lines := []string{line}
+	indent := strings.Repeat(" ", 4)
+	if serviceRawState(item) != "" {
+		lines = append(lines, containerIndentedLine(m, indent, "状态", serviceRawState(item)))
+	}
+	if strings.TrimSpace(item.Load) != "" {
+		lines = append(lines, containerIndentedLine(m, indent, "加载", item.Load))
+	}
+	if strings.TrimSpace(item.Description) != "" {
+		lines = append(lines, containerIndentedLine(m, indent, "说明", item.Description))
+	}
+	return lines
+}
+
+func serviceDetailCounts(items []serviceDetail) (int, int, int, int) {
+	failed := 0
+	running := 0
+	active := 0
+	stopped := 0
+	for _, item := range items {
+		switch serviceDetailKind(item) {
+		case "failed":
+			failed++
+		case "running":
+			running++
+		case "active":
+			active++
+		case "stopped":
+			stopped++
+		}
+	}
+	return failed, running, active, stopped
+}
+
+func serviceDetailKindRank(item serviceDetail) int {
+	switch serviceDetailKind(item) {
+	case "failed":
+		return 0
+	case "running":
+		return 1
+	case "active":
+		return 2
+	case "stopped":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func serviceDetailKind(item serviceDetail) string {
+	active := strings.ToLower(strings.TrimSpace(item.Active))
+	sub := strings.ToLower(strings.TrimSpace(item.Sub))
+	load := strings.ToLower(strings.TrimSpace(item.Load))
+	switch {
+	case active == "failed" || sub == "failed" || load == "not-found" || load == "error":
+		return "failed"
+	case active == "active" && sub == "running":
+		return "running"
+	case active == "active":
+		return "active"
+	case active == "inactive" || sub == "dead":
+		return "stopped"
+	default:
+		return "other"
+	}
+}
+
+func serviceStatusText(item serviceDetail) string {
+	switch serviceDetailKind(item) {
+	case "failed":
+		return "异常"
+	case "running":
+		return "运行"
+	case "active":
+		return "活动"
+	case "stopped":
+		return "停止"
+	default:
+		state := serviceRawState(item)
+		if state == "" {
+			return "未知"
+		}
+		return state
+	}
+}
+
+func serviceRawState(item serviceDetail) string {
+	parts := []string{}
+	if strings.TrimSpace(item.Active) != "" {
+		parts = append(parts, item.Active)
+	}
+	if strings.TrimSpace(item.Sub) != "" {
+		parts = append(parts, item.Sub)
+	}
+	return strings.Join(parts, "/")
+}
+
+func coloredServiceStatus(status string, kind string) string {
+	if kind == "failed" {
+		return redStyle.Render(status)
+	}
+	return detailValueStyle.Render(status)
+}
+
 func portDetailRows(m Model, state hostState) []string {
 	if state.LoginLoading {
 		return []string{m.detailRow("状态", "加载中")}

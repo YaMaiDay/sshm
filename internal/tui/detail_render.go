@@ -210,13 +210,20 @@ func (m Model) detailLines() ([]string, bool) {
 		detailSubTitle("健康"),
 		m.detailRow("健康端口", healthPortsText(metrics)),
 		"",
+		detailSubTitle("服务"),
+	)
+	lines = append(lines, serviceDetailSummaryRows(m, metrics, state)...)
+	lines = append(lines,
+		"",
+		detailSubTitle("服务详情"),
+	)
+	lines = append(lines, serviceDetailRows(m, metrics, state)...)
+	lines = append(lines,
+		"",
 		detailSubTitle("端口"),
 	)
 	lines = append(lines, portDetailRows(m, state)...)
 	lines = append(lines,
-		"",
-		detailSubTitle("异常"),
-		m.detailRow("异常服务", failedServiceText(metrics, 8)),
 		"",
 		sectionTitle("容器"),
 		detailSubTitle("状态"),

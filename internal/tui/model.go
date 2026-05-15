@@ -195,6 +195,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.states[msg.Index].FailedLoginError = msg.FailedErrText
 		m.states[msg.Index].SSHDSecurity = msg.SSHDSecurity
 		m.states[msg.Index].SSHDSecurityError = msg.SSHDErrText
+		m.states[msg.Index].ServiceDetails = msg.Services
+		m.states[msg.Index].ServiceError = msg.ServiceErr
 		m.states[msg.Index].PortDetails = msg.Ports
 		m.states[msg.Index].PortDetailsError = msg.PortsErrText
 		m.states[msg.Index].ContainerDetails = msg.Containers
@@ -1537,7 +1539,7 @@ func (m Model) openDetail(idx int) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeDetail
 	m.detailScroll = 0
-	if len(m.states[idx].LoginSummary) > 0 || len(m.states[idx].FailedLoginSummary) > 0 || len(m.states[idx].SSHDSecurity) > 0 || len(m.states[idx].PortDetails) > 0 || len(m.states[idx].ContainerDetails) > 0 || m.states[idx].LoginLoading || m.states[idx].LoginError != "" || m.states[idx].FailedLoginError != "" || m.states[idx].SSHDSecurityError != "" || m.states[idx].PortDetailsError != "" || m.states[idx].ContainerError != "" {
+	if len(m.states[idx].LoginSummary) > 0 || len(m.states[idx].FailedLoginSummary) > 0 || len(m.states[idx].SSHDSecurity) > 0 || len(m.states[idx].ServiceDetails) > 0 || len(m.states[idx].PortDetails) > 0 || len(m.states[idx].ContainerDetails) > 0 || m.states[idx].LoginLoading || m.states[idx].LoginError != "" || m.states[idx].FailedLoginError != "" || m.states[idx].SSHDSecurityError != "" || m.states[idx].ServiceError != "" || m.states[idx].PortDetailsError != "" || m.states[idx].ContainerError != "" {
 		return m, nil
 	}
 	m.states[idx].LoginLoading = true
@@ -1579,6 +1581,12 @@ func (m Model) fetchLoginRecords(index int) tea.Cmd {
 		}
 		if sshdResult.Err != nil {
 			msg.SSHDErrText = "sshd配置不可读"
+		}
+		serviceResult, serviceCleanup := actions.RemoteCommandContext(ctx, h, serviceDetailScript())
+		serviceCleanup()
+		msg.Services, msg.ServiceErr = parseServiceDetails(serviceResult.Output)
+		if serviceResult.Err != nil && msg.ServiceErr == "" {
+			msg.ServiceErr = serviceResult.Err.Error()
 		}
 		portResult, portCleanup := actions.RemoteCommandContext(ctx, h, portDetailScript())
 		portCleanup()

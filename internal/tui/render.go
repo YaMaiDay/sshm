@@ -883,6 +883,21 @@ fi
 printf '%s\n' "$out"`
 }
 
+func serviceDetailScript() string {
+	return `if ! command -v systemctl >/dev/null 2>&1; then
+  echo "__SSHM_SYSTEMCTL_UNAVAILABLE__"
+  exit 0
+fi
+out=$(systemctl list-units --type=service --all --no-legend --plain --no-pager 2>&1)
+code=$?
+if [ "$code" -ne 0 ]; then
+  echo "__SSHM_SYSTEMCTL_ERROR__"
+  printf '%s\n' "$out"
+  exit 0
+fi
+printf '%s\n' "$out"`
+}
+
 func portDetailScript() string {
 	return `if ! command -v ss >/dev/null 2>&1; then
   echo "__SSHM_SS_UNAVAILABLE__"
@@ -951,6 +966,44 @@ func parseSSHDSettings(output string) map[string]string {
 		settings[strings.ToLower(strings.TrimSpace(key))] = strings.ToLower(strings.TrimSpace(value))
 	}
 	return settings
+}
+
+func parseServiceDetails(output string) ([]serviceDetail, string) {
+	if strings.Contains(output, "__SSHM_SYSTEMCTL_UNAVAILABLE__") {
+		return nil, "systemctl不可用"
+	}
+	if strings.Contains(output, "__SSHM_SYSTEMCTL_ERROR__") {
+		return nil, strings.TrimSpace(strings.ReplaceAll(output, "__SSHM_SYSTEMCTL_ERROR__", ""))
+	}
+	items := []serviceDetail{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "UNIT ") || strings.HasPrefix(line, "LOAD ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 4 || !strings.HasSuffix(fields[0], ".service") {
+			continue
+		}
+		item := serviceDetail{
+			Unit:   fields[0],
+			Load:   fields[1],
+			Active: fields[2],
+			Sub:    fields[3],
+		}
+		if len(fields) > 4 {
+			item.Description = strings.Join(fields[4:], " ")
+		}
+		items = append(items, item)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		ki, kj := serviceDetailKindRank(items[i]), serviceDetailKindRank(items[j])
+		if ki != kj {
+			return ki < kj
+		}
+		return strings.ToLower(items[i].Unit) < strings.ToLower(items[j].Unit)
+	})
+	return items, ""
 }
 
 func parsePortDetails(output string) ([]portDetail, string) {
