@@ -13407,6 +13407,9 @@ func containerDetailItemRows(m Model, item containerDetail, nameWidth int, index
 	line := fitANSI(prefix+name+"  "+state, m.detailContentWidth())
 	lines := []string{line}
 	indent := strings.Repeat(" ", 4)
+	if strings.TrimSpace(item.Status) != "" {
+		lines = append(lines, containerIndentedLine(m, indent, "状态", item.Status))
+	}
 	if strings.TrimSpace(item.Image) != "" {
 		lines = append(lines, containerIndentedLine(m, indent, "镜像", item.Image))
 	}
