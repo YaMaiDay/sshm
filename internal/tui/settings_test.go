@@ -64,12 +64,18 @@ func TestLocalRootItemsUsesAppConfig(t *testing.T) {
 	}
 }
 
-func TestShortcutKeyDistinguishesShiftS(t *testing.T) {
-	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}}); got != "shift+s" {
+func TestShortcutKeyKeepsCaseAndWidthInsensitiveRunes(t *testing.T) {
+	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}}); got != "s" {
 		t.Fatalf("shortcutKey(S) = %q", got)
 	}
-	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}); got != "s" {
-		t.Fatalf("shortcutKey(s) = %q", got)
+	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'Ｓ'}}); got != "s" {
+		t.Fatalf("shortcutKey(fullwidth S) = %q", got)
+	}
+}
+
+func TestShortcutKeySupportsSettingsF2(t *testing.T) {
+	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyF2}); got != "f2" {
+		t.Fatalf("shortcutKey(F2) = %q", got)
 	}
 }
 

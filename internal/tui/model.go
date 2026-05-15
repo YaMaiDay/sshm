@@ -346,7 +346,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.startDeploymentList(idx), nil
 			}
-		case "shift+s":
+		case "f2":
 			return m.startSettings(), nil
 		case "v":
 			m.favoriteOnly = !m.favoriteOnly
@@ -1302,23 +1302,9 @@ func shortcutKey(msg tea.KeyMsg) string {
 		return key
 	}
 	if len(msg.Runes) == 1 {
-		if shifted, ok := shiftedShortcutRune(msg.Runes[0]); ok {
-			return shifted
-		}
 		key = normalizeShortcutRune(msg.Runes[0])
 	}
 	return key
-}
-
-func shiftedShortcutRune(r rune) (string, bool) {
-	switch {
-	case r >= 'A' && r <= 'Z':
-		return "shift+" + string(r-'A'+'a'), true
-	case r >= 'Ａ' && r <= 'Ｚ':
-		return "shift+" + string(r-'Ａ'+'a'), true
-	default:
-		return "", false
-	}
 }
 
 func normalizeShortcutRune(r rune) string {

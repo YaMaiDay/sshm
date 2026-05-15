@@ -206,7 +206,7 @@ Common keys:
 | `b` | Batch commands |
 | `y` | Transfer jobs |
 | `g` | App deployments |
-| `S` | Settings |
+| `F2` | Settings |
 
 ## 📚 Documentation
 
@@ -250,7 +250,7 @@ Remote servers also need `rsync` for file transfer and local-fetch deployment. I
 | `~/.config/sshm/deployments.toml` | Deployment apps and records |
 | `~/.config/sshm/config.toml` | App settings |
 
-Press `S` on the dashboard to open settings. Common settings can be edited in the TUI without manually editing `config.toml`.
+Press `F2` on the dashboard to open settings. Common settings can be edited in the TUI without manually editing `config.toml`.
 
 | Setting | Description |
 | --- | --- |
