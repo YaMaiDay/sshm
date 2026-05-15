@@ -64,6 +64,15 @@ func TestLocalRootItemsUsesAppConfig(t *testing.T) {
 	}
 }
 
+func TestShortcutKeyDistinguishesShiftS(t *testing.T) {
+	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}}); got != "shift+s" {
+		t.Fatalf("shortcutKey(S) = %q", got)
+	}
+	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}); got != "s" {
+		t.Fatalf("shortcutKey(s) = %q", got)
+	}
+}
+
 func mustMkdir(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0700); err != nil {
