@@ -24,13 +24,13 @@
 
   <rect width="1180" height="620" rx="28" fill="#0f121a"/>
   <rect x="34" y="34" width="1112" height="552" rx="18" class="frame"/>
-  <text x="58" y="76" class="mono title">sshm Server Manager</text>
-  <text x="280" y="76" class="mono muted" font-size="18">
-    <tspan opacity="1">Category: all  Search: demo  Last refresh: 05:10:26</tspan>
+  <text x="58" y="76" class="mono title">sshm</text>
+  <text x="150" y="76" class="mono muted" font-size="18">
+    <tspan opacity="1">Servers 12  Cards  05:10</tspan>
     <animate attributeName="opacity" values="1;0;0;1" keyTimes="0;0.32;0.76;1" dur="6s" repeatCount="indefinite"/>
   </text>
-  <text x="280" y="76" class="mono muted" font-size="18" opacity="0">
-    <tspan>Transfer jobs  Running 1  Open 3  Done 12</tspan>
+  <text x="150" y="76" class="mono muted" font-size="18" opacity="0">
+    <tspan>Transfers 1 running  3 open  12 done</tspan>
     <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.34;0.74;1" dur="6s" repeatCount="indefinite"/>
   </text>
 

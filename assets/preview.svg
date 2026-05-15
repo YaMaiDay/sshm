@@ -1,8 +1,8 @@
 <svg width="1180" height="620" viewBox="0 0 1180 620" fill="none" xmlns="http://www.w3.org/2000/svg">
   <rect width="1180" height="620" rx="28" fill="#0f121a"/>
   <rect x="34" y="34" width="1112" height="552" rx="18" fill="#151923" stroke="#283241"/>
-  <text x="58" y="76" fill="#7dd3fc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700">sshm Server Monitor</text>
-  <text x="280" y="76" fill="#8b95a7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">Search: demo  Last refresh: 05:10:26</text>
+  <text x="58" y="76" fill="#7dd3fc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="24" font-weight="700">sshm</text>
+  <text x="150" y="76" fill="#8b95a7" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18">Servers 12  Cards  05:10</text>
 
   <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
     <rect x="58" y="112" width="330" height="190" rx="12" fill="#111722" stroke="#38bdf8" stroke-width="2"/>
