@@ -2,12 +2,18 @@
 
 This file records user-visible changes. Historical release notes are available in GitHub Releases.
 
-## Unreleased
+## v0.1.42 - 2026-05-15
 
 ### Added
 
 - Add a settings page for language, refresh interval, timeouts, ASCII mode, warning thresholds, and common transfer directories.
 - Improve server detail service rendering with systemd service status groups, failed-first ordering, and clearer status colors.
+
+### Changed
+
+- Use `.` as the dashboard settings shortcut, including fullwidth `。` input normalization.
+- Render the dashboard shortcut help and settings page in English by default, with Chinese shown when the language is set to `zh`.
+- Remove app deployment from standalone GitHub documentation navigation while keeping it documented as a feature.
 
 ## v0.1.40 - 2026-05-15
 

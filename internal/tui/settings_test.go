@@ -36,7 +36,7 @@ func TestSettingsSaveAppConfig(t *testing.T) {
 
 	next, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
 	got := next.(Model)
-	if got.mode != modeDashboard || got.status != "设置已保存。" {
+	if got.mode != modeDashboard || got.status != "Settings saved." {
 		t.Fatalf("mode/status = %v/%q", got.mode, got.status)
 	}
 	loaded := config.LoadAppConfig(home)
@@ -73,9 +73,12 @@ func TestShortcutKeyKeepsCaseAndWidthInsensitiveRunes(t *testing.T) {
 	}
 }
 
-func TestShortcutKeySupportsSettingsF2(t *testing.T) {
-	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyF2}); got != "f2" {
-		t.Fatalf("shortcutKey(F2) = %q", got)
+func TestShortcutKeyNormalizesPeriodForSettings(t *testing.T) {
+	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'.'}}); got != "." {
+		t.Fatalf("shortcutKey(.) = %q", got)
+	}
+	if got := shortcutKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'。'}}); got != "." {
+		t.Fatalf("shortcutKey(fullwidth period) = %q", got)
 	}
 }
 

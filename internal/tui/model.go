@@ -348,7 +348,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if idx, ok := m.selectedRealIndex(); ok {
 				return m.startDeploymentList(idx), nil
 			}
-		case "f2":
+		case ".":
 			return m.startSettings(), nil
 		case "v":
 			m.favoriteOnly = !m.favoriteOnly
@@ -1319,6 +1319,8 @@ func normalizeShortcutRune(r rune) string {
 		return string(r - '０' + '0')
 	}
 	switch r {
+	case '。':
+		return "."
 	case '？':
 		return "?"
 	case '／', '、':
@@ -2139,7 +2141,7 @@ func (m Model) View() string {
 	if helpWidth < 1 {
 		helpWidth = contentWidth(m.width)
 	}
-	helpBlock := renderDashboardHelp(helpWidth)
+	helpBlock := m.renderDashboardHelp(helpWidth)
 	pageDots := ""
 	if m.dashboardMode == dashboardCards && !m.searching {
 		pageDots = m.dashboardPageDots(indexes)

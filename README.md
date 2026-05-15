@@ -18,7 +18,6 @@
 <p align="center">
   <a href="#-installation">Installation</a> ·
   <a href="#-features">Features</a> ·
-  <a href="docs/deployment.md">Deployment</a> ·
   <a href="docs/troubleshooting.md">Troubleshooting</a> ·
   <a href="https://github.com/YaMaiDay/sshm/releases">Downloads</a>
 </p>
@@ -206,13 +205,12 @@ Common keys:
 | `b` | Batch commands |
 | `y` | Transfer jobs |
 | `g` | App deployments |
-| `F2` | Settings |
+| `.` | Settings |
 
 ## 📚 Documentation
 
 | Document | Description |
 | --- | --- |
-| [Deployment](docs/deployment.md) | Git / Release deployment, credentials, queues, and rollback |
 | [Troubleshooting](docs/troubleshooting.md) | SSH, bastion hosts, rsync, GitHub, disks, and container status |
 | [Security Policy](SECURITY.md) | Security boundaries, sensitive data, and local files |
 | [Changelog](CHANGELOG.md) | User-visible changes |
@@ -250,7 +248,7 @@ Remote servers also need `rsync` for file transfer and local-fetch deployment. I
 | `~/.config/sshm/deployments.toml` | Deployment apps and records |
 | `~/.config/sshm/config.toml` | App settings |
 
-Press `F2` on the dashboard to open settings. Common settings can be edited in the TUI without manually editing `config.toml`.
+Press `.` on the dashboard to open settings. Common settings can be edited in the TUI without manually editing `config.toml`.
 
 | Setting | Description |
 | --- | --- |

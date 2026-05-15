@@ -31,29 +31,61 @@ func (m Model) renderSettings() string {
 		Width(width).
 		Render(strings.Join(fitLines(lines, bodyWidth), "\n"))
 	return strings.Join([]string{
-		titleStyle.Render(fit(settingsHeader(m.status, width), width)),
+		titleStyle.Render(fit(m.settingsHeader(width), width)),
 		box,
-		renderHelp(width, "切换 ↑↓/jk/Tab  修改 ←→/输入  保存 Enter  返回 Esc"),
+		renderHelp(width, m.settingsHelp()),
 	}, "\n")
 }
 
-func settingsHeader(status string, width int) string {
+func (m Model) settingsHeader(width int) string {
 	title := "设置"
-	if strings.TrimSpace(status) == "" || status == title {
+	if !m.isChineseUI() {
+		title = "Settings"
+	}
+	status := strings.TrimSpace(m.status)
+	if status == "" || status == title {
 		return title
 	}
 	statusStyle := mutedStyle
-	if strings.Contains(status, "失败") || strings.Contains(status, "不能") || strings.Contains(status, "需要") {
+	lowerStatus := strings.ToLower(status)
+	if strings.Contains(status, "失败") || strings.Contains(status, "不能") || strings.Contains(status, "需要") ||
+		strings.Contains(lowerStatus, "failed") || strings.Contains(lowerStatus, "cannot") || strings.Contains(lowerStatus, "must") {
 		statusStyle = redStyle
 	}
 	return title + "  " + statusStyle.Render(fit(status, width-ansi.StringWidth(title)-2))
 }
 
 func (m Model) settingsLines(width int) []string {
+	if !m.isChineseUI() {
+		return []string{
+			deploymentSectionTitle("Interface"),
+			settingsChoiceLine(m, settingsLanguage, "Language", settingsLanguageText(m.settingsForm.Language), width),
+			settingsChoiceLine(m, settingsASCIIMode, "ASCII mode", yesNoLang(m.settingsForm.ASCIIMode, false), width),
+			"",
+			deploymentSectionTitle("Monitoring"),
+			settingsInputLine(m, settingsRefreshInterval, "Refresh interval", m.settingsForm.RefreshInterval, width, "e.g. 5s, 30s, 1m"),
+			settingsInputLine(m, settingsConnectTimeout, "Connect timeout", m.settingsForm.ConnectTimeout, width, "e.g. 2s, 5s"),
+			settingsInputLine(m, settingsCommandTimeout, "Command timeout", m.settingsForm.CommandTimeout, width, "e.g. 6s, 30s"),
+			"",
+			deploymentSectionTitle("Alert Thresholds"),
+			settingsInputLine(m, settingsCPUWarn, "CPU warn", m.settingsForm.CPUWarn, width, "percent"),
+			settingsInputLine(m, settingsCPUCrit, "CPU critical", m.settingsForm.CPUCrit, width, "percent"),
+			settingsInputLine(m, settingsMemWarn, "Memory warn", m.settingsForm.MemWarn, width, "percent"),
+			settingsInputLine(m, settingsMemCrit, "Memory critical", m.settingsForm.MemCrit, width, "percent"),
+			settingsInputLine(m, settingsDiskWarn, "Disk warn", m.settingsForm.DiskWarn, width, "percent"),
+			settingsInputLine(m, settingsDiskCrit, "Disk critical", m.settingsForm.DiskCrit, width, "percent"),
+			"",
+			deploymentSectionTitle("Directories"),
+			settingsInputLine(m, settingsLocalDirs, "Local dirs", m.settingsForm.LocalDirs, width, "comma separated"),
+			settingsInputLine(m, settingsRemoteDirs, "Remote dirs", m.settingsForm.RemoteDirs, width, "comma separated"),
+			"",
+			mutedStyle.Render(fit("Note: English is the default language. Chinese remains available as a secondary language.", width)),
+		}
+	}
 	return []string{
 		deploymentSectionTitle("界面"),
 		settingsChoiceLine(m, settingsLanguage, "语言", settingsLanguageText(m.settingsForm.Language), width),
-		settingsChoiceLine(m, settingsASCIIMode, "ASCII 模式", yesNo(m.settingsForm.ASCIIMode), width),
+		settingsChoiceLine(m, settingsASCIIMode, "ASCII 模式", yesNoLang(m.settingsForm.ASCIIMode, true), width),
 		"",
 		deploymentSectionTitle("监控"),
 		settingsInputLine(m, settingsRefreshInterval, "刷新间隔", m.settingsForm.RefreshInterval, width, "例如 5s、30s、1m"),
@@ -83,6 +115,16 @@ func settingsLanguageText(value string) string {
 	return "English"
 }
 
+func yesNoLang(value bool, zh bool) string {
+	if zh {
+		return yesNo(value)
+	}
+	if value {
+		return "Yes"
+	}
+	return "No"
+}
+
 func settingsChoiceLine(m Model, field int, label string, value string, width int) string {
 	return settingsFieldLine(m, field, label, value+"  ←/→", width)
 }
@@ -103,7 +145,10 @@ func settingsFieldLine(m Model, field int, label string, value string, width int
 		prefix = "▶"
 		style = blueStyle.Bold(true)
 	}
-	labelWidth := runewidth.StringWidth("刷新间隔")
+	labelWidth := runewidth.StringWidth("Refresh interval")
+	if m.isChineseUI() {
+		labelWidth = runewidth.StringWidth("刷新间隔")
+	}
 	padding := labelWidth - runewidth.StringWidth(label) + 2
 	if padding < 1 {
 		padding = 1
@@ -112,7 +157,7 @@ func settingsFieldLine(m Model, field int, label string, value string, width int
 }
 
 func settingsInputWidth(width int) int {
-	inputWidth := width - runewidth.StringWidth("▶ 远程目录  ") - 2
+	inputWidth := width - runewidth.StringWidth("▶ Refresh interval  ") - 2
 	if inputWidth > 58 {
 		inputWidth = 58
 	}
@@ -120,6 +165,13 @@ func settingsInputWidth(width int) int {
 		inputWidth = 18
 	}
 	return inputWidth
+}
+
+func (m Model) settingsHelp() string {
+	if m.isChineseUI() {
+		return "切换 ↑↓/jk/Tab  修改 ←→/输入  保存 Enter  返回 Esc"
+	}
+	return "Move ↑↓/jk/Tab  Change ←→/type  Save Enter  Back Esc"
 }
 
 func selectedSettingsRow(field int) int {

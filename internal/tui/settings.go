@@ -67,7 +67,11 @@ func (m Model) startSettings() Model {
 	m.settingsField = 0
 	m.settingsCursor = m.settingsValueLen()
 	m.mode = modeSettings
-	m.status = "设置"
+	if m.isChineseUI() {
+		m.status = "设置"
+	} else {
+		m.status = "Settings"
+	}
 	return m
 }
 
@@ -76,7 +80,7 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q", "ctrl+c":
 		m.mode = modeDashboard
-		m.status = "已取消。"
+		m.status = m.settingsText("Canceled.", "已取消。")
 	case "tab", "down", "j":
 		m.moveSettingsField(1)
 	case "shift+tab", "up", "k":
@@ -96,18 +100,18 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		cfg, err := m.settingsConfigFromForm()
 		if err != nil {
-			m.status = "保存失败：" + err.Error()
+			m.status = m.settingsText("Save failed: ", "保存失败：") + err.Error()
 			return m, nil
 		}
 		if err := config.SaveAppConfig(m.home, cfg); err != nil {
-			m.status = "保存失败：" + err.Error()
+			m.status = m.settingsText("Save failed: ", "保存失败：") + err.Error()
 			return m, nil
 		}
 		m.appConfig = cfg
 		m.collector.Timeout = cfg.CommandDuration()
 		m.collector.ConnectTimeout = cfg.ConnectDuration()
 		m.mode = modeDashboard
-		m.status = "设置已保存。"
+		m.status = m.settingsText("Settings saved.", "设置已保存。")
 	case "backspace":
 		m.settingsBackspace()
 	default:
@@ -116,6 +120,13 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m Model) settingsText(en string, zh string) string {
+	if m.isChineseUI() {
+		return zh
+	}
+	return en
 }
 
 func (m *Model) moveSettingsField(delta int) {
@@ -232,15 +243,15 @@ func (m Model) settingsConfigFromForm() (config.AppConfig, error) {
 	cfg := m.appConfig
 	cfg.Language = strings.TrimSpace(m.settingsForm.Language)
 	if cfg.Language != "zh" && cfg.Language != "en" {
-		return cfg, fmt.Errorf("语言只能是 zh 或 en")
+		return cfg, fmt.Errorf("%s", m.settingsText("language must be zh or en", "语言只能是 zh 或 en"))
 	}
-	if err := validateSettingDuration("刷新间隔", m.settingsForm.RefreshInterval); err != nil {
+	if err := validateSettingDuration(m.settingsText("refresh interval", "刷新间隔"), m.settingsForm.RefreshInterval, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if err := validateSettingDuration("连接超时", m.settingsForm.ConnectTimeout); err != nil {
+	if err := validateSettingDuration(m.settingsText("connect timeout", "连接超时"), m.settingsForm.ConnectTimeout, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if err := validateSettingDuration("命令超时", m.settingsForm.CommandTimeout); err != nil {
+	if err := validateSettingDuration(m.settingsText("command timeout", "命令超时"), m.settingsForm.CommandTimeout, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
 	cfg.RefreshInterval = strings.TrimSpace(m.settingsForm.RefreshInterval)
@@ -248,32 +259,32 @@ func (m Model) settingsConfigFromForm() (config.AppConfig, error) {
 	cfg.CommandTimeout = strings.TrimSpace(m.settingsForm.CommandTimeout)
 	cfg.ASCIIMode = m.settingsForm.ASCIIMode
 	var err error
-	if cfg.Thresholds.CPUWarn, err = parseSettingPercent("CPU 警告", m.settingsForm.CPUWarn); err != nil {
+	if cfg.Thresholds.CPUWarn, err = parseSettingPercent(m.settingsText("CPU warn", "CPU 警告"), m.settingsForm.CPUWarn, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.CPUCrit, err = parseSettingPercent("CPU 严重", m.settingsForm.CPUCrit); err != nil {
+	if cfg.Thresholds.CPUCrit, err = parseSettingPercent(m.settingsText("CPU critical", "CPU 严重"), m.settingsForm.CPUCrit, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.MemWarn, err = parseSettingPercent("内存警告", m.settingsForm.MemWarn); err != nil {
+	if cfg.Thresholds.MemWarn, err = parseSettingPercent(m.settingsText("memory warn", "内存警告"), m.settingsForm.MemWarn, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.MemCrit, err = parseSettingPercent("内存严重", m.settingsForm.MemCrit); err != nil {
+	if cfg.Thresholds.MemCrit, err = parseSettingPercent(m.settingsText("memory critical", "内存严重"), m.settingsForm.MemCrit, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.DiskWarn, err = parseSettingPercent("磁盘警告", m.settingsForm.DiskWarn); err != nil {
+	if cfg.Thresholds.DiskWarn, err = parseSettingPercent(m.settingsText("disk warn", "磁盘警告"), m.settingsForm.DiskWarn, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.DiskCrit, err = parseSettingPercent("磁盘严重", m.settingsForm.DiskCrit); err != nil {
+	if cfg.Thresholds.DiskCrit, err = parseSettingPercent(m.settingsText("disk critical", "磁盘严重"), m.settingsForm.DiskCrit, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
 	if cfg.Thresholds.CPUWarn > cfg.Thresholds.CPUCrit {
-		return cfg, fmt.Errorf("CPU 警告阈值不能大于严重阈值")
+		return cfg, fmt.Errorf("%s", m.settingsText("CPU warn threshold cannot exceed critical threshold", "CPU 警告阈值不能大于严重阈值"))
 	}
 	if cfg.Thresholds.MemWarn > cfg.Thresholds.MemCrit {
-		return cfg, fmt.Errorf("内存警告阈值不能大于严重阈值")
+		return cfg, fmt.Errorf("%s", m.settingsText("memory warn threshold cannot exceed critical threshold", "内存警告阈值不能大于严重阈值"))
 	}
 	if cfg.Thresholds.DiskWarn > cfg.Thresholds.DiskCrit {
-		return cfg, fmt.Errorf("磁盘警告阈值不能大于严重阈值")
+		return cfg, fmt.Errorf("%s", m.settingsText("disk warn threshold cannot exceed critical threshold", "磁盘警告阈值不能大于严重阈值"))
 	}
 	defaults := config.DefaultAppConfig()
 	cfg.LocalDirs = splitSettingList(m.settingsForm.LocalDirs)
@@ -287,17 +298,23 @@ func (m Model) settingsConfigFromForm() (config.AppConfig, error) {
 	return config.NormalizeAppConfig(cfg), nil
 }
 
-func validateSettingDuration(label string, value string) error {
+func validateSettingDuration(label string, value string, zh bool) error {
 	d, err := time.ParseDuration(strings.TrimSpace(value))
 	if err != nil || d <= 0 {
+		if !zh {
+			return fmt.Errorf("%s must be a valid duration, for example 5s, 30s, or 1m", label)
+		}
 		return fmt.Errorf("%s需要填写有效时间，例如 5s、30s、1m", label)
 	}
 	return nil
 }
 
-func parseSettingPercent(label string, value string) (float64, error) {
+func parseSettingPercent(label string, value string, zh bool) (float64, error) {
 	n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, "%")), 64)
 	if err != nil || n <= 0 || n > 100 {
+		if !zh {
+			return 0, fmt.Errorf("%s must be 1-100", label)
+		}
 		return 0, fmt.Errorf("%s需要填写 1-100", label)
 	}
 	return n, nil
