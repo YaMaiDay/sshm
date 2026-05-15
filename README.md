@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo-v2.svg" alt="sshm demo" width="920">
+  <img src="assets/demo-v3.svg" alt="sshm demo" width="920">
 </p>
 
 ---
