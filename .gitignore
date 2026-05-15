@@ -3,6 +3,7 @@ dist/
 /sshm
 /sshm-test
 *.log
+coverage.out
 .DS_Store
 *.bak.*
 .env

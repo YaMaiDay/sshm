@@ -2,6 +2,12 @@
 
 This file records user-visible changes. Historical release notes are available in GitHub Releases.
 
+## v0.1.43 - 2026-05-15
+
+### Changed
+
+- Convert CLI flag descriptions, probe output, and SVG demo assets to English for GitHub-facing presentation.
+
 ## v0.1.42 - 2026-05-15
 
 ### Added

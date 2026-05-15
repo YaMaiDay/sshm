@@ -17,11 +17,11 @@ import (
 var version = "dev"
 
 func main() {
-	listOnly := flag.Bool("list", false, "列出解析到的服务器后退出")
-	probeHost := flag.String("probe", "", "采集指定服务器别名的监控信息后退出")
-	remoteDirsHost := flag.String("remote-dirs", "", "列出指定服务器别名的远程常用目录后退出")
-	configPath := flag.Bool("config-path", false, "显示应用配置文件路径后退出")
-	showVersion := flag.Bool("version", false, "显示版本号后退出")
+	listOnly := flag.Bool("list", false, "list configured servers and exit")
+	probeHost := flag.String("probe", "", "collect monitoring data for a server alias and exit")
+	remoteDirsHost := flag.String("remote-dirs", "", "list common remote directories for a server alias and exit")
+	configPath := flag.Bool("config-path", false, "print the app settings file path and exit")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -31,23 +31,23 @@ func main() {
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		tui.Fatal("无法获取用户目录", err)
+		tui.Fatal("cannot get user home directory", err)
 	}
 
 	hosts, err := config.LoadHosts(home)
 	if err != nil {
-		tui.Fatal("读取 SSH 配置失败", err)
+		tui.Fatal("failed to read SSH config", err)
 	}
 
 	if _, ok, err := config.LoadServerHosts(home); err != nil {
-		tui.Fatal("读取服务器配置失败", err)
+		tui.Fatal("failed to read server config", err)
 	} else if !ok {
 		if err := config.MigrateServersFile(home, hosts, config.LoadPasswords(home)); err != nil {
-			tui.Fatal("创建服务器配置失败", err)
+			tui.Fatal("failed to create server config", err)
 		}
 		hosts, err = config.LoadHosts(home)
 		if err != nil {
-			tui.Fatal("读取服务器配置失败", err)
+			tui.Fatal("failed to read server config", err)
 		}
 	}
 	passwords := config.PasswordsFromHosts(hosts)
@@ -57,9 +57,9 @@ func main() {
 	}
 	if *listOnly {
 		for _, h := range hosts {
-			password := "否"
+			password := "no"
 			if h.HasPassword {
-				password = "是"
+				password = "yes"
 			}
 			fmt.Printf("%-16s %-16s %-10s %-8s %-8s\n", h.Name, h.Address(), h.User, h.Category, password)
 		}
@@ -75,34 +75,34 @@ func main() {
 			tui.Fatal(err.Error(), nil)
 		}
 		m := collector.Collect(context.Background(), h)
-		fmt.Printf("服务器：%s/%s\n", h.Category, h.Name)
-		fmt.Printf("在线: %v\n", m.Online)
-		fmt.Printf("系统: %s\n", m.OS)
-		fmt.Printf("内核: %s\n", m.Kernel)
-		fmt.Printf("架构: %s\n", m.Arch)
+		fmt.Printf("Server: %s/%s\n", h.Category, h.Name)
+		fmt.Printf("Online: %v\n", m.Online)
+		fmt.Printf("OS: %s\n", m.OS)
+		fmt.Printf("Kernel: %s\n", m.Kernel)
+		fmt.Printf("Arch: %s\n", m.Arch)
 		fmt.Printf("CPU: %.0f%% %s %s\n", m.CPUPercent, cpuCoresText(m), m.CPUModel)
-		fmt.Printf("内存: %.0f%% %s / %s\n", m.MemPercent(), bytesHuman(m.MemUsed), bytesHuman(m.MemTotal))
+		fmt.Printf("Memory: %.0f%% %s / %s\n", m.MemPercent(), bytesHuman(m.MemUsed), bytesHuman(m.MemTotal))
 		fmt.Printf("Swap: %.0f%% %s / %s\n", m.SwapPercent(), bytesHuman(m.SwapUsed), bytesHuman(m.SwapTotal))
-		fmt.Printf("磁盘: %.0f%% %s / %s\n", m.DiskPercent(), bytesHuman(m.DiskUsed), bytesHuman(m.DiskTotal))
-		fmt.Printf("磁盘挂载: %s %s\n", m.DiskMountpoint, m.DiskFilesystem)
+		fmt.Printf("Disk: %.0f%% %s / %s\n", m.DiskPercent(), bytesHuman(m.DiskUsed), bytesHuman(m.DiskTotal))
+		fmt.Printf("Disk mount: %s %s\n", m.DiskMountpoint, m.DiskFilesystem)
 		fmt.Printf("inode: %.0f%% %s / %s\n", m.InodePercent(), countHuman(m.InodeUsed), countHuman(m.InodeTotal))
 		if m.HealthTotal() > 0 {
-			fmt.Printf("健康端口: %d/%d %s\n", m.HealthOK(), m.HealthTotal(), healthPortsText(m))
+			fmt.Printf("Health ports: %d/%d %s\n", m.HealthOK(), m.HealthTotal(), healthPortsText(m))
 		}
-		fmt.Printf("容器: %d/%d 运行，停止 %d，故障 %d\n", m.DockerRunning, dockerTotal(m), m.DockerStopped, m.DockerFailed)
+		fmt.Printf("Containers: %d/%d running, stopped %d, failed %d\n", m.DockerRunning, dockerTotal(m), m.DockerStopped, m.DockerFailed)
 		if len(m.DockerRunningNames) > 0 {
-			fmt.Printf("运行容器: %s\n", strings.Join(m.DockerRunningNames, "、"))
+			fmt.Printf("Running containers: %s\n", strings.Join(m.DockerRunningNames, ", "))
 		}
 		if len(m.DockerStoppedNames) > 0 {
-			fmt.Printf("停止容器: %s\n", strings.Join(m.DockerStoppedNames, "、"))
+			fmt.Printf("Stopped containers: %s\n", strings.Join(m.DockerStoppedNames, ", "))
 		}
 		if len(m.DockerFailedNames) > 0 {
-			fmt.Printf("故障容器: %s\n", strings.Join(m.DockerFailedNames, "、"))
+			fmt.Printf("Failed containers: %s\n", strings.Join(m.DockerFailedNames, ", "))
 		}
-		fmt.Printf("负载: %s %s %s\n", m.Load1, m.Load5, m.Load15)
-		fmt.Printf("运行: %s\n", m.Uptime)
+		fmt.Printf("Load: %s %s %s\n", m.Load1, m.Load5, m.Load15)
+		fmt.Printf("Uptime: %s\n", m.Uptime)
 		if m.Error != "" {
-			fmt.Printf("错误: %s\n", m.Error)
+			fmt.Printf("Error: %s\n", m.Error)
 		}
 		return
 	}
@@ -118,14 +118,14 @@ func main() {
 	}
 
 	if err := tui.Run(hosts, passwords); err != nil {
-		tui.Fatal("运行 TUI 失败", err)
+		tui.Fatal("failed to run TUI", err)
 	}
 }
 
 func findHost(hosts []host.Host, query string) (host.Host, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return host.Host{}, fmt.Errorf("服务器名称不能为空")
+		return host.Host{}, fmt.Errorf("server name cannot be empty")
 	}
 	if strings.Contains(query, "/") {
 		category, name, _ := strings.Cut(query, "/")
@@ -136,7 +136,7 @@ func findHost(hosts []host.Host, query string) (host.Host, error) {
 				return h, nil
 			}
 		}
-		return host.Host{}, fmt.Errorf("没有找到指定服务器：%s", query)
+		return host.Host{}, fmt.Errorf("server not found: %s", query)
 	}
 	matches := make([]host.Host, 0, 2)
 	for _, h := range hosts {
@@ -152,16 +152,16 @@ func findHost(hosts []host.Host, query string) (host.Host, error) {
 		for _, h := range matches {
 			options = append(options, h.Category+"/"+h.Name)
 		}
-		return host.Host{}, fmt.Errorf("服务器名称不唯一，请使用 分类/名称：%s", strings.Join(options, "、"))
+		return host.Host{}, fmt.Errorf("server name is ambiguous; use category/name: %s", strings.Join(options, ", "))
 	}
-	return host.Host{}, fmt.Errorf("没有找到指定服务器：%s", query)
+	return host.Host{}, fmt.Errorf("server not found: %s", query)
 }
 
 func cpuCoresText(metrics monitor.Metrics) string {
 	if metrics.CPUCores <= 0 {
 		return "-"
 	}
-	return fmt.Sprintf("%d核", metrics.CPUCores)
+	return fmt.Sprintf("%d cores", metrics.CPUCores)
 }
 
 func dockerTotal(metrics monitor.Metrics) int {
@@ -208,11 +208,11 @@ func countHuman(value uint64) string {
 func healthPortsText(metrics monitor.Metrics) string {
 	parts := make([]string, 0, len(metrics.HealthPorts))
 	for _, port := range metrics.HealthPorts {
-		status := "失败"
+		status := "failed"
 		if port.Healthy {
-			status = "正常"
+			status = "ok"
 		}
-		parts = append(parts, fmt.Sprintf("%d%s", port.Port, status))
+		parts = append(parts, fmt.Sprintf("%d:%s", port.Port, status))
 	}
 	return strings.Join(parts, " ")
 }
