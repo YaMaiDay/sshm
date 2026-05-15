@@ -7698,30 +7698,30 @@ func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
 		deploymentFieldLine(m, 0, "来源", deploySourceText(m.deploymentForm.Source)+"  ←/→", innerWidth),
 		deploymentFieldLine(m, 1, "获取方式", deployFetchModeText(m.deploymentForm.FetchMode)+"  ←/→", innerWidth),
 		deploymentFieldLine(m, 2, "服务器", m.deploymentServerText(innerWidth), innerWidth),
-		deploymentFieldLine(m, 3, "应用名称", m.deploymentInputText(3, 28), innerWidth),
-		deploymentFieldLine(m, 4, "仓库", m.deploymentInputText(4, 34), innerWidth),
+		deploymentFieldLine(m, 3, "应用名称", m.deploymentInputText(3, deploymentInputWidth()), innerWidth),
+		deploymentFieldLine(m, 4, "仓库", m.deploymentInputText(4, deploymentInputWidth()), innerWidth),
 	}
 	if m.deploymentForm.Source == config.DeploySourceRelease {
 		lines = append(lines,
-			deploymentFieldLine(m, 6, "版本", m.deploymentInputText(6, 18), innerWidth),
-			deploymentFieldLine(m, 7, "资源文件/匹配", m.deploymentInputText(7, 28), innerWidth),
+			deploymentFieldLine(m, 6, "版本", m.deploymentInputText(6, deploymentInputWidth()), innerWidth),
+			deploymentFieldLine(m, 7, "资源文件/匹配", m.deploymentInputText(7, deploymentInputWidth()), innerWidth),
 		)
 	} else {
-		lines = append(lines, deploymentFieldLine(m, 5, "分支", m.deploymentInputText(5, 18), innerWidth))
+		lines = append(lines, deploymentFieldLine(m, 5, "分支", m.deploymentInputText(5, deploymentInputWidth()), innerWidth))
 	}
-	lines = append(lines, deploymentFieldLine(m, 8, "项目目录", m.deploymentInputText(8, 34), innerWidth))
+	lines = append(lines, deploymentFieldLine(m, 8, "项目目录", m.deploymentInputText(8, deploymentInputWidth()), innerWidth))
 	if m.deploymentForm.Source == config.DeploySourceRelease {
-		lines = append(lines, deploymentFieldLine(m, 9, "下载地址", m.deploymentInputText(9, 34), innerWidth))
+		lines = append(lines, deploymentFieldLine(m, 9, "下载地址", m.deploymentInputText(9, deploymentInputWidth()), innerWidth))
 		lines = append(lines, deploymentReleaseHintLines(innerWidth)...)
 	}
 	lines = append(lines,
 		"",
 		deploymentSectionTitle("GitHub 凭证"),
 		deploymentFieldLine(m, 10, "凭证类型", deployCredentialText(m.deploymentForm.Credential)+"  ←/→", innerWidth),
-		deploymentFieldLine(m, 11, "凭证参数", m.deploymentInputText(11, 28), innerWidth),
+		deploymentFieldLine(m, 11, "凭证参数", m.deploymentInputText(11, deploymentInputWidth()), innerWidth),
 		"",
 		deploymentSectionTitle("串行部署"),
-		deploymentFieldLine(m, 12, "等待时间", m.deploymentInputText(12, 12)+"  秒", innerWidth),
+		deploymentFieldLine(m, 12, "等待时间", m.deploymentInputText(12, deploymentInputWidth())+"  秒", innerWidth),
 		mutedStyle.Render(fit("说明：多选部署时，此应用完成后等待该秒数再执行下一个。", innerWidth)),
 		"",
 		deploymentSectionTitle("部署流程"),
@@ -7739,6 +7739,10 @@ func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
 
 func deploymentSectionTitle(value string) string {
 	return "  " + sectionTitle(value)
+}
+
+func deploymentInputWidth() int {
+	return 34
 }
 
 func deploymentReleaseHintLines(width int) []string {
