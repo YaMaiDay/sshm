@@ -1988,6 +1988,82 @@ func TestResourceDetailRRefreshesInsteadOfRestarting(t *testing.T) {
 	}
 }
 
+func TestResourceListTPinsDiscoveredContainer(t *testing.T) {
+	home := t.TempDir()
+	m := Model{
+		home:              home,
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceContainers,
+		resourceFilter:    resourceFilterAll,
+		states: []hostState{{
+			Host:             host.Host{Category: "prod", Name: "api-01"},
+			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second"}},
+		}},
+	}
+	next, _ := m.updateResourceList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	got := next.(Model)
+	if !strings.Contains(got.status, "Pinned") {
+		t.Fatalf("status = %q, want pinned", got.status)
+	}
+	file, _, err := config.LoadResources(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Items) != 1 || !file.Items[0].Pinned || file.Items[0].PinnedOrder == 0 {
+		t.Fatalf("pinned resource not saved: %#v", file.Items)
+	}
+}
+
+func TestResourceSortKeepsPinnedFirstThenSortsByCPU(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceContainers,
+		resourceFilter:    resourceFilterAll,
+		resourceSort:      resourceSortCPU,
+		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{
+			{Server: "prod/api-01", Kind: config.ResourceKindContainer, Name: "api", Pinned: true, PinnedOrder: 1},
+		}},
+		states: []hostState{{
+			Host: host.Host{Category: "prod", Name: "api-01"},
+			ContainerDetails: []containerDetail{
+				{Name: "api", Status: "Up 1 second", CPU: "10%"},
+				{Name: "db", Status: "Up 1 second", CPU: "90%"},
+				{Name: "web", Status: "Up 1 second", CPU: "50%"},
+			},
+		}},
+	}
+	refs := m.filteredResourceIndexes()
+	names := []string{}
+	for _, ref := range refs {
+		name, _ := m.resourceNameForRef(ref)
+		names = append(names, name)
+	}
+	want := []string{"api", "db", "web"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("sorted names = %#v, want %#v", names, want)
+	}
+}
+
+func TestResourceSortShortcutCyclesSortMode(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceContainers,
+		resourceFilter:    resourceFilterAll,
+		states: []hostState{{
+			Host:             host.Host{Category: "prod", Name: "api-01"},
+			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second"}},
+		}},
+	}
+	next, _ := m.updateResourceList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	got := next.(Model)
+	if got.resourceSort != resourceSortStatus || !strings.Contains(got.status, "Sort") {
+		t.Fatalf("sort after y = %v status=%q, want status sort", got.resourceSort, got.status)
+	}
+}
+
 func TestResourceManagerXDoesNotRemoveDockerFavorite(t *testing.T) {
 	home := t.TempDir()
 	file := config.ResourcesFile{Items: []config.ManagedResource{{

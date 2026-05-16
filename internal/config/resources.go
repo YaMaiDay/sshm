@@ -24,6 +24,8 @@ type ManagedResource struct {
 	Kind           string `toml:"kind"`
 	Name           string `toml:"name"`
 	Favorite       bool   `toml:"favorite,omitempty"`
+	Pinned         bool   `toml:"pinned,omitempty"`
+	PinnedOrder    int64  `toml:"pinned_order,omitempty"`
 	StartCommand   string `toml:"start_command,omitempty"`
 	StopCommand    string `toml:"stop_command,omitempty"`
 	RestartCommand string `toml:"restart_command,omitempty"`
@@ -79,6 +81,9 @@ func NormalizeManagedResources(items []ManagedResource) []ManagedResource {
 		item.DeleteCommand = strings.TrimSpace(item.DeleteCommand)
 		item.LogCommand = strings.TrimSpace(item.LogCommand)
 		item.HealthCommand = strings.TrimSpace(item.HealthCommand)
+		if !item.Pinned {
+			item.PinnedOrder = 0
+		}
 		if item.Server == "" || item.Kind == "" || item.Name == "" {
 			continue
 		}

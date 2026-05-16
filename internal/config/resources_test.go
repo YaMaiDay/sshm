@@ -8,7 +8,7 @@ import (
 func TestSaveLoadResources(t *testing.T) {
 	home := t.TempDir()
 	file := ResourcesFile{Items: []ManagedResource{
-		{Server: "prod/api-01", Kind: ResourceKindService, Name: "api.service", StartCommand: "systemctl start api.service"},
+		{Server: "prod/api-01", Kind: ResourceKindService, Name: "api.service", Favorite: true, Pinned: true, PinnedOrder: 7, StartCommand: "systemctl start api.service"},
 		{Server: "prod/api-01", Kind: ResourceKindService, Name: "api.service"},
 		{Server: "prod/api-01", Kind: ResourceKindContainer, Name: "api"},
 	}}
@@ -24,6 +24,9 @@ func TestSaveLoadResources(t *testing.T) {
 	}
 	if len(got.Items) != 2 {
 		t.Fatalf("items = %#v, want deduped 2", got.Items)
+	}
+	if !got.Items[0].Favorite || !got.Items[0].Pinned || got.Items[0].PinnedOrder != 7 {
+		t.Fatalf("favorite/pinned not preserved: %+v", got.Items[0])
 	}
 	info, err := os.Stat(ResourcesPath(home))
 	if err != nil {

@@ -2,6 +2,13 @@
 
 This file records user-visible changes. Historical release notes are available in GitHub Releases.
 
+## v0.1.47 - 2026-05-16
+
+### Added
+
+- Add resource pinning with `t`, using the same pinned-first behavior as the dashboard.
+- Add resource sorting with `y`, cycling through default, status, name, CPU, memory, and port ordering.
+
 ## v0.1.46 - 2026-05-16
 
 ### Changed

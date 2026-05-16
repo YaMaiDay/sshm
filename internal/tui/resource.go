@@ -160,6 +160,13 @@ func (m Model) updateResourceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.resourceScroll = 0
 	case "f":
 		return m.toggleManagedResource()
+	case "t":
+		return m.toggleResourcePinned()
+	case "y":
+		m.resourceSort = (m.resourceSort + 1) % 6
+		m.resourceIndex = 0
+		m.resourceScroll = 0
+		m.status = m.t("Sort: ", "排序：") + m.resourceSortName(m.resourceSort)
 	case "x":
 		return m.startSelectedResourceRemoveConfirm()
 	case "j", "down":
@@ -1381,6 +1388,60 @@ func (m Model) toggleManagedResource() (tea.Model, tea.Cmd) {
 		m.status = m.t("Removed from favorites: ", "已取消收藏：") + name
 	}
 	return m, clearStatusAfter(2 * time.Second)
+}
+
+func (m Model) toggleResourcePinned() (tea.Model, tea.Cmd) {
+	name, ok := m.selectedResourceName()
+	if !ok || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+		return m, nil
+	}
+	ref, _ := m.selectedResourceRef()
+	server := m.resourceServerKey(m.resourceHostIndex)
+	kind := configResourceKind(ref.Kind)
+	if kind == "" {
+		return m, nil
+	}
+	idx := findManagedResource(m.resourceFile.Items, server, kind, name)
+	pinnedNow := false
+	if idx < 0 {
+		item := defaultManagedResource(server, kind, name)
+		item.Pinned = true
+		item.PinnedOrder = nextResourcePinnedOrder(m.resourceFile.Items)
+		m.resourceFile.Items = append(m.resourceFile.Items, item)
+		pinnedNow = true
+	} else if m.resourceFile.Items[idx].Pinned {
+		m.resourceFile.Items[idx].Pinned = false
+		m.resourceFile.Items[idx].PinnedOrder = 0
+		if ref.Kind == resourceContainers && !m.resourceFile.Items[idx].Favorite && !containerResourceHasCustomConfig(m.resourceFile.Items[idx]) {
+			m.resourceFile.Items = append(m.resourceFile.Items[:idx], m.resourceFile.Items[idx+1:]...)
+		}
+	} else {
+		m.resourceFile.Items[idx].Pinned = true
+		m.resourceFile.Items[idx].PinnedOrder = nextResourcePinnedOrder(m.resourceFile.Items)
+		pinnedNow = true
+	}
+	if err := config.SaveResources(m.home, m.resourceFile); err != nil {
+		m.status = m.t("Failed to update pin: ", "置顶更新失败：") + err.Error()
+		return m, nil
+	}
+	m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
+	m.applyManagedResources(m.resourceHostIndex)
+	if pinnedNow {
+		m.status = m.t("Pinned: ", "已置顶：") + name
+	} else {
+		m.status = m.t("Unpinned: ", "已取消置顶：") + name
+	}
+	return m, clearStatusAfter(2 * time.Second)
+}
+
+func nextResourcePinnedOrder(items []config.ManagedResource) int64 {
+	var maxOrder int64
+	for _, item := range items {
+		if item.PinnedOrder > maxOrder {
+			maxOrder = item.PinnedOrder
+		}
+	}
+	return maxOrder + 1
 }
 
 func (m Model) hasManagedResources(index int) bool {

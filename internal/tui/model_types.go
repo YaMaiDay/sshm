@@ -153,6 +153,17 @@ const (
 	resourceFilterStopped
 )
 
+type resourceSortMode int
+
+const (
+	resourceSortDefault resourceSortMode = iota
+	resourceSortStatus
+	resourceSortName
+	resourceSortCPU
+	resourceSortMemory
+	resourceSortPort
+)
+
 type resourcePortFilterMode int
 
 const (
@@ -452,6 +463,7 @@ type Model struct {
 	resourceScope                 resourceScopeMode
 	resourceView                  resourceViewMode
 	resourceFilter                resourceFilterMode
+	resourceSort                  resourceSortMode
 	resourcePortFilter            resourcePortFilterMode
 	resourceIndex                 int
 	resourceScroll                int

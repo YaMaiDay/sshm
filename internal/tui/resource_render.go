@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -59,6 +60,9 @@ func (m Model) resourceHeaderText() string {
 		cardMutedStyle.Render(m.resourceViewName(m.resourceView)),
 		m.resourceFilterHeaderText(),
 	}
+	if m.resourceSort != resourceSortDefault {
+		parts = append(parts, mutedStyle.Render(m.resourceSortName(m.resourceSort)))
+	}
 	if refresh := m.resourceRefreshHeaderText(); refresh != "" {
 		parts = append(parts, mutedStyle.Render(refresh))
 	}
@@ -93,6 +97,23 @@ func (m Model) resourceKindHeaderText() string {
 		return detailValueStyle.Render(name)
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(resourceKindColor(m.resourceKind)).Render(name)
+}
+
+func (m Model) resourceSortName(sortMode resourceSortMode) string {
+	switch sortMode {
+	case resourceSortStatus:
+		return m.t("Status", "状态")
+	case resourceSortName:
+		return m.t("Name", "名称")
+	case resourceSortCPU:
+		return "CPU"
+	case resourceSortMemory:
+		return m.t("Memory", "内存")
+	case resourceSortPort:
+		return m.t("Port", "端口")
+	default:
+		return m.t("Default", "默认")
+	}
 }
 
 func (m Model) resourceFilterHeaderText() string {
@@ -299,9 +320,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
 		kind := containerDetailKind(item)
 		title := m.resourceTypeBadge(ref.Kind) + " " + item.Name
-		if item.Favorite {
-			title = favoriteStyle.Render("★") + " " + title
-		}
+		title = m.resourceMarkedTitle(ref, title, item.Favorite)
 		dot := coloredContainerStatus("●", kind)
 		meta := cardMutedStyle.Render(m.containerCardMeta(item))
 		innerWidth := width - 4
@@ -328,9 +347,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 		if item.Missing {
 			dot = mutedStyle.Render("●")
 		}
-		if item.Favorite {
-			title = favoriteStyle.Render("★") + " " + title
-		}
+		title = m.resourceMarkedTitle(ref, title, item.Favorite)
 		process := emptyDash(item.Process)
 		if item.PID != "" {
 			process += "  pid:" + item.PID
@@ -349,9 +366,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 	if ref.Kind == resourceProcesses {
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
 		title := m.resourceTypeBadge(ref.Kind) + " " + emptyDash(item.Process)
-		if item.ProcessFavorite {
-			title = favoriteStyle.Render("★") + " " + title
-		}
+		title = m.resourceMarkedTitle(ref, title, item.ProcessFavorite)
 		extra, hasExtra := m.processExtraForCard(item)
 		meta := cardMutedStyle.Render(m.processCardMeta(extra, hasExtra))
 		executable := m.processCardExecutable(item, extra, hasExtra)
@@ -370,9 +385,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 	item := m.mergedServiceDetail(m.states[m.resourceHostIndex].ServiceDetails[ref.Index])
 	kind := serviceDetailKind(item)
 	title := m.resourceTypeBadge(ref.Kind) + " " + item.Unit
-	if item.Favorite {
-		title = favoriteStyle.Render("★") + " " + title
-	}
+	title = m.resourceMarkedTitle(ref, title, item.Favorite)
 	dot := coloredServiceStatus("●", kind)
 	meta := cardMutedStyle.Render(m.serviceCardMeta(item))
 	stateLine := emptyDash(serviceRawState(item))
@@ -389,6 +402,17 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 		cardBottomLine(width, borderStyle),
 	)
 	return strings.Join(lines, "\n")
+}
+
+func (m Model) resourceMarkedTitle(ref resourceRef, title string, favorite bool) string {
+	marks := ""
+	if pinned, _ := m.resourceRefPinned(ref); pinned {
+		marks += pinnedStyle.Render("▲") + " "
+	}
+	if favorite {
+		marks += favoriteStyle.Render("★") + " "
+	}
+	return marks + title
 }
 
 func (m Model) resourceTypeBadge(kind resourceKind) string {
@@ -481,22 +505,22 @@ func (m Model) resourceListLine(ref resourceRef, selected bool, width int) strin
 		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
 		kind := containerDetailKind(item)
 		displayName := m.resourceTypeBadge(ref.Kind) + " " + item.Name
-		return m.resourceListColumns(prefix, item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), coloredContainerStatus(emptyDash(item.Status), kind), containerResourceText(item), firstNonEmpty(item.Image, simplifyDockerPorts(item.Ports)), width, nameWidth, statusWidth, infoWidth)
+		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), coloredContainerStatus(emptyDash(item.Status), kind), containerResourceText(item), firstNonEmpty(item.Image, simplifyDockerPorts(item.Ports)), width, nameWidth, statusWidth, infoWidth)
 	}
 	if ref.Kind == resourcePorts {
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
 		displayName := m.resourceTypeBadge(ref.Kind) + " " + fmt.Sprintf("%s/%s", item.Protocol, item.Port)
-		return m.resourceListColumns(prefix, item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), m.portStatusStyled(item), portListenText(item), portProcessDetailText(item), width, nameWidth, statusWidth, infoWidth)
+		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), m.portStatusStyled(item), portListenText(item), portProcessDetailText(item), width, nameWidth, statusWidth, infoWidth)
 	}
 	if ref.Kind == resourceProcesses {
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
 		displayName := m.resourceTypeBadge(ref.Kind) + " " + emptyDash(item.Process)
-		return m.resourceListColumns(prefix, item.ProcessFavorite, nameStyle.Render(fitANSI(displayName, nameWidth)), portListenText(item), "PID "+emptyDash(item.PID), m.portRiskText(item), width, nameWidth, statusWidth, infoWidth)
+		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.ProcessFavorite, nameStyle.Render(fitANSI(displayName, nameWidth)), portListenText(item), "PID "+emptyDash(item.PID), m.portRiskText(item), width, nameWidth, statusWidth, infoWidth)
 	}
 	item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
 	kind := serviceDetailKind(item)
 	displayName := m.resourceTypeBadge(ref.Kind) + " " + item.Unit
-	return m.resourceListColumns(prefix, item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), coloredServiceStatus(m.serviceStatusText(item), kind), serviceResourceText(item), m.serviceUnitFileStateText(item.UnitFileState), width, nameWidth, statusWidth, infoWidth)
+	return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), coloredServiceStatus(m.serviceStatusText(item), kind), serviceResourceText(item), m.serviceUnitFileStateText(item.UnitFileState), width, nameWidth, statusWidth, infoWidth)
 }
 
 func resourceListColumnWidths(width int) (int, int, int) {
@@ -516,7 +540,16 @@ func resourceListColumnWidths(width int) (int, int, int) {
 	return nameWidth, statusWidth, infoWidth
 }
 
-func (m Model) resourceListColumns(prefix string, favorite bool, name string, status string, info string, extra string, width int, nameWidth int, statusWidth int, infoWidth int) string {
+func (m Model) resourceRefPinnedOnly(ref resourceRef) bool {
+	pinned, _ := m.resourceRefPinned(ref)
+	return pinned
+}
+
+func (m Model) resourceListColumns(prefix string, pinned bool, favorite bool, name string, status string, info string, extra string, width int, nameWidth int, statusWidth int, infoWidth int) string {
+	pinnedMark := " "
+	if pinned {
+		pinnedMark = pinnedStyle.Render("▲")
+	}
 	favoriteMark := " "
 	if favorite {
 		favoriteMark = favoriteStyle.Render("★")
@@ -524,10 +557,10 @@ func (m Model) resourceListColumns(prefix string, favorite bool, name string, st
 	name = padVisible(fitANSI(name, nameWidth), nameWidth)
 	status = padVisible(fitANSI(status, statusWidth), statusWidth)
 	info = cardMutedStyle.Render(padVisible(fitANSI(info, infoWidth), infoWidth))
-	used := 2 + 1 + 1 + 1 + 1 + nameWidth + 2 + statusWidth + 2 + infoWidth + 2
+	used := 2 + 1 + 1 + 1 + 1 + 1 + 1 + nameWidth + 2 + statusWidth + 2 + infoWidth + 2
 	extraWidth := maxInt(8, width-used)
 	extra = cardMutedStyle.Render(fitANSI(extra, extraWidth))
-	return fitANSI(fmt.Sprintf("  %s %s %s  %s  %s  %s", prefix, favoriteMark, name, status, info, extra), width)
+	return fitANSI(fmt.Sprintf("  %s %s %s %s  %s  %s  %s", prefix, pinnedMark, favoriteMark, name, status, info, extra), width)
 }
 
 func containerMemoryText(item containerDetail) string {
@@ -1972,7 +2005,172 @@ func (m Model) filteredResourceIndexes() []resourceRef {
 		}
 		indexes = append(indexes, ref)
 	}
+	m.sortResourceRefs(indexes)
 	return indexes
+}
+
+func (m Model) sortResourceRefs(refs []resourceRef) {
+	sort.SliceStable(refs, func(i, j int) bool {
+		a := refs[i]
+		b := refs[j]
+		if m.resourceKind == resourceAll && a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		aPinned, aOrder := m.resourceRefPinned(a)
+		bPinned, bOrder := m.resourceRefPinned(b)
+		if aPinned != bPinned {
+			return aPinned
+		}
+		if aPinned && bPinned && aOrder != bOrder {
+			return aOrder > bOrder
+		}
+		if m.resourceSort == resourceSortDefault {
+			return false
+		}
+		switch m.resourceSort {
+		case resourceSortStatus:
+			ar := m.resourceStatusRank(a)
+			br := m.resourceStatusRank(b)
+			if ar != br {
+				return ar < br
+			}
+		case resourceSortName:
+			return m.resourceSortNameValue(a) < m.resourceSortNameValue(b)
+		case resourceSortCPU:
+			av, aok := m.resourceCPUValue(a)
+			bv, bok := m.resourceCPUValue(b)
+			if aok && bok && av != bv {
+				return av > bv
+			}
+			if aok != bok {
+				return aok
+			}
+		case resourceSortMemory:
+			av, aok := m.resourceMemoryValue(a)
+			bv, bok := m.resourceMemoryValue(b)
+			if aok && bok && av != bv {
+				return av > bv
+			}
+			if aok != bok {
+				return aok
+			}
+		case resourceSortPort:
+			ap, aok := m.resourcePortValue(a)
+			bp, bok := m.resourcePortValue(b)
+			if aok && bok && ap != bp {
+				return ap < bp
+			}
+			if aok != bok {
+				return aok
+			}
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		return m.resourceSortNameValue(a) < m.resourceSortNameValue(b)
+	})
+}
+
+func (m Model) resourceRefPinned(ref resourceRef) (bool, int64) {
+	name, ok := m.resourceNameForRef(ref)
+	if !ok {
+		return false, 0
+	}
+	item, ok := m.managedResource(ref.Kind, name)
+	if !ok {
+		return false, 0
+	}
+	return item.Pinned, item.PinnedOrder
+}
+
+func (m Model) resourceSortNameValue(ref resourceRef) string {
+	name, _ := m.resourceNameForRef(ref)
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func (m Model) resourceStatusRank(ref resourceRef) int {
+	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+		return 9
+	}
+	switch ref.Kind {
+	case resourceContainers:
+		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
+		switch containerDetailKind(item) {
+		case "failed", "missing":
+			return 0
+		case "running":
+			return 1
+		case "stopped":
+			return 2
+		default:
+			return 3
+		}
+	case resourceServices:
+		item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
+		switch serviceDetailKind(item) {
+		case "failed", "missing":
+			return 0
+		case "running", "active":
+			return 1
+		case "stopped":
+			return 2
+		default:
+			return 3
+		}
+	case resourceProcesses:
+		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		if item.Missing || strings.TrimSpace(item.PID) == "" {
+			return 2
+		}
+		return 1
+	case resourcePorts:
+		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		if item.Missing {
+			return 2
+		}
+		if strings.EqualFold(strings.TrimSpace(item.State), "LISTEN") || strings.TrimSpace(item.State) == "" {
+			return 1
+		}
+		return 3
+	default:
+		return 9
+	}
+}
+
+func (m Model) resourceCPUValue(ref resourceRef) (float64, bool) {
+	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+		return 0, false
+	}
+	switch ref.Kind {
+	case resourceContainers:
+		return parsePercentText(m.states[m.resourceHostIndex].ContainerDetails[ref.Index].CPU)
+	default:
+		return 0, false
+	}
+}
+
+func (m Model) resourceMemoryValue(ref resourceRef) (float64, bool) {
+	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+		return 0, false
+	}
+	switch ref.Kind {
+	case resourceContainers:
+		return parsePercentText(m.states[m.resourceHostIndex].ContainerDetails[ref.Index].MemPerc)
+	default:
+		return 0, false
+	}
+}
+
+func (m Model) resourcePortValue(ref resourceRef) (int, bool) {
+	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+		return 0, false
+	}
+	if ref.Kind == resourcePorts || ref.Kind == resourceProcesses {
+		port := strings.TrimSpace(m.states[m.resourceHostIndex].PortDetails[ref.Index].Port)
+		n, err := strconv.Atoi(port)
+		return n, err == nil
+	}
+	return 0, false
 }
 
 func (m Model) currentResourceRefs() []resourceRef {
@@ -2898,8 +3096,8 @@ func (m Model) resourceListHelp() string {
 		partsEN = append(partsEN, "Edit e")
 		partsZH = append(partsZH, "编辑 e")
 	}
-	partsEN = append(partsEN, "Favorite f", "Favorites v")
-	partsZH = append(partsZH, "收藏 f", "收藏 v")
+	partsEN = append(partsEN, "Pin t", "Favorite f", "Favorites v")
+	partsZH = append(partsZH, "置顶 t", "收藏 f", "收藏 v")
 	partsEN = append(partsEN, "Type Tab")
 	partsZH = append(partsZH, "类型 Tab")
 	if kind == resourcePorts {
@@ -2909,8 +3107,8 @@ func (m Model) resourceListHelp() string {
 		partsEN = append(partsEN, "Status g")
 		partsZH = append(partsZH, "状态 g")
 	}
-	partsEN = append(partsEN, "View z")
-	partsZH = append(partsZH, "视图 z")
+	partsEN = append(partsEN, "View z", "Sort y")
+	partsZH = append(partsZH, "视图 z", "排序 y")
 	if kind == resourceServices || kind == resourceContainers || kind == resourceProcesses {
 		partsEN = append(partsEN, "Logs o", "Start s", "Stop p", "Restart c")
 		partsZH = append(partsZH, "日志 o", "启动 s", "停止 p", "重启 c")
