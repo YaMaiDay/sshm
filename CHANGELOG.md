@@ -2,6 +2,13 @@
 
 This file records user-visible changes. Historical release notes are available in GitHub Releases.
 
+## v0.1.48 - 2026-05-16
+
+### Changed
+
+- Document where the installed executable and user data files live after installation.
+- Use lighter resource type symbols for services, processes, and ports to avoid conflicting with the pinned marker.
+
 ## v0.1.47 - 2026-05-16
 
 ### Added

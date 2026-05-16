@@ -70,6 +70,39 @@ type .\checksums.txt
 
 After the local SHA256 matches `checksums.txt`, extract and run the binary. Releases also include `sbom.spdx.json` and GitHub Artifact Attestations for build provenance.
 
+## 📦 Installed Files And User Data
+
+sshm installs as one executable file. Your servers, settings, resources, deployments, transfers, and history are stored separately in your user data directory, so upgrading or reinstalling sshm replaces the program but keeps your data.
+
+### Executable
+
+| Platform | Default executable |
+| --- | --- |
+| macOS Apple Silicon | `/opt/homebrew/bin/sshm` |
+| macOS Intel | `/usr/local/bin/sshm` |
+| Linux | `/usr/local/bin/sshm` |
+| Windows | `%LOCALAPPDATA%\Programs\sshm\sshm.exe` |
+
+The executable is the program itself. For example, when `which sshm` prints `/opt/homebrew/bin/sshm`, the terminal runs that file when you type `sshm`.
+
+Set `SSHM_INSTALL_DIR` to install the executable somewhere else.
+
+### User Data
+
+| Path | Description |
+| --- | --- |
+| `~/.config/sshm/config.toml` | App settings: language, refresh interval, timeouts, thresholds, and common directories |
+| `~/.config/sshm/servers.toml` | Server list, categories, favorites, pinned servers, and bastion references |
+| `~/.config/sshm/commands.toml` | Command templates |
+| `~/.config/sshm/history.toml` | Command execution history |
+| `~/.config/sshm/transfers.toml` | Upload/download task history |
+| `~/.config/sshm/deployments.toml` | Deployment apps and deployment records |
+| `~/.config/sshm/resources.toml` | Resource manager favorites, pins, and custom resource commands |
+| `~/.config/sshm/resource_cache.toml` | Cached resource discovery results |
+| `~/.config/sshm/state.toml` | Local state such as last login time |
+
+To back up or move sshm to another machine, copy `~/.config/sshm/`. On Windows, app settings may use `%APPDATA%\sshm\config.toml`; other user data uses `%USERPROFILE%\.config\sshm\`.
+
 ## ✨ Features
 
 |  |  |

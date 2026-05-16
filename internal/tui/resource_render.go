@@ -424,13 +424,13 @@ func (m Model) resourceTypeBadge(kind resourceKind) string {
 		mark = "🐳"
 	case resourceServices:
 		label = m.t("[Service]", "[服务]")
-		mark = "●"
+		mark = "□"
 	case resourceProcesses:
 		label = m.t("[Process]", "[进程]")
-		mark = "■"
+		mark = "◇"
 	case resourcePorts:
 		label = m.t("[Port]", "[端口]")
-		mark = "▲"
+		mark = "◌"
 	default:
 		label = m.t("[Resource]", "[资源]")
 	}
