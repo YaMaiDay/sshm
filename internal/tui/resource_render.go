@@ -904,11 +904,11 @@ func (m Model) resourceDetailHelp() string {
 	switch m.currentSelectedResourceKind() {
 	case resourcePorts:
 	case resourceProcesses, resourceServices, resourceContainers:
-		partsEN = append(partsEN, "Logs o", "Start s", "Stop p", "Restart r")
-		partsZH = append(partsZH, "日志 o", "启动 s", "停止 p", "重启 r")
+		partsEN = append(partsEN, "Logs o", "Start s", "Stop p", "Restart c")
+		partsZH = append(partsZH, "日志 o", "启动 s", "停止 p", "重启 c")
 	}
-	partsEN = append(partsEN, "Back Space/Esc")
-	partsZH = append(partsZH, "返回 Space/Esc")
+	partsEN = append(partsEN, "Refresh r", "Back Space/Esc")
+	partsZH = append(partsZH, "刷新 r", "返回 Space/Esc")
 	return m.t(strings.Join(partsEN, "  "), strings.Join(partsZH, "  "))
 }
 
@@ -2912,8 +2912,8 @@ func (m Model) resourceListHelp() string {
 	partsEN = append(partsEN, "View z")
 	partsZH = append(partsZH, "视图 z")
 	if kind == resourceServices || kind == resourceContainers || kind == resourceProcesses {
-		partsEN = append(partsEN, "Logs o")
-		partsZH = append(partsZH, "日志 o")
+		partsEN = append(partsEN, "Logs o", "Start s", "Stop p", "Restart c")
+		partsZH = append(partsZH, "日志 o", "启动 s", "停止 p", "重启 c")
 	}
 	partsEN = append(partsEN, "Refresh r", "Search /", "Back Esc")
 	partsZH = append(partsZH, "刷新 r", "搜索 /", "返回 Esc")

@@ -1933,6 +1933,61 @@ func TestResourceListXDoesNotRemoveDockerFavorite(t *testing.T) {
 	}
 }
 
+func TestResourceActionShortcutsAreConsistentOnListAndDetail(t *testing.T) {
+	base := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceServices,
+		resourceFilter:    resourceFilterAll,
+		states: []hostState{{
+			Host:           host.Host{Category: "prod", Name: "api-01"},
+			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
+		}},
+	}
+
+	for key, action := range map[rune]resourceActionKind{
+		's': resourceActionStart,
+		'p': resourceActionStop,
+		'c': resourceActionRestart,
+	} {
+		next, _ := base.updateResourceList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+		got := next.(Model)
+		if got.mode != modeResourceConfirm || got.resourceAction != action {
+			t.Fatalf("list key %q mode/action = %v/%v, want confirm/%v", key, got.mode, got.resourceAction, action)
+		}
+
+		detail := base
+		detail.mode = modeResourceDetail
+		next, _ = detail.updateResourceDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+		got = next.(Model)
+		if got.mode != modeResourceConfirm || got.resourceAction != action {
+			t.Fatalf("detail key %q mode/action = %v/%v, want confirm/%v", key, got.mode, got.resourceAction, action)
+		}
+	}
+}
+
+func TestResourceDetailRRefreshesInsteadOfRestarting(t *testing.T) {
+	m := Model{
+		width:             120,
+		mode:              modeResourceDetail,
+		resourceHostIndex: 0,
+		resourceKind:      resourceServices,
+		resourceFilter:    resourceFilterAll,
+		states: []hostState{{
+			Host:           host.Host{Category: "prod", Name: "api-01"},
+			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
+		}},
+	}
+	next, _ := m.updateResourceDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	got := next.(Model)
+	if got.mode == modeResourceConfirm || got.resourceAction == resourceActionRestart {
+		t.Fatalf("detail r should refresh, not restart: mode/action=%v/%v", got.mode, got.resourceAction)
+	}
+	if !got.resourceLoading || got.resourceLoadingKind != resourceServices {
+		t.Fatalf("detail r should start resource refresh: loading=%v kind=%v", got.resourceLoading, got.resourceLoadingKind)
+	}
+}
+
 func TestResourceManagerXDoesNotRemoveDockerFavorite(t *testing.T) {
 	home := t.TempDir()
 	file := config.ResourcesFile{Items: []config.ManagedResource{{

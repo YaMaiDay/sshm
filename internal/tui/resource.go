@@ -188,15 +188,13 @@ func (m Model) updateResourceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.resourceScroll = 0
 	case "s":
-		m.cycleResourceListFilter()
-		m.resourceIndex = 0
+		return m.startResourceAction(resourceActionStart)
+	case "p":
+		return m.startResourceAction(resourceActionStop)
+	case "c":
+		return m.startResourceAction(resourceActionRestart)
 	case "r":
-		m.resourceLoading = true
-		m.resourceLoadingKind = m.resourceKind
-		m.resourceLoadingPending = resourceLoadPartCount(m.resourceKind)
-		m.resourceManualRefresh = true
-		m.status = m.t("Refreshing resources...", "正在刷新资源...")
-		return m, m.fetchResourceDetails(m.resourceHostIndex, m.resourceKind)
+		return m.refreshResourceDetails(m.resourceKind)
 	case " ", "enter":
 		m.mode = modeResourceDetail
 		m.resourceScroll = 0
@@ -293,10 +291,64 @@ func (m Model) updateResourceDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startResourceAction(resourceActionStart)
 	case "p":
 		return m.startResourceAction(resourceActionStop)
-	case "r":
+	case "c":
 		return m.startResourceAction(resourceActionRestart)
+	case "r":
+		m, refreshCmd := m.refreshResourceDetails(m.resourceKind)
+		m, extraCmd := m.refreshSelectedResourceExtra()
+		return m, tea.Batch(refreshCmd, extraCmd)
 	}
 	return m, nil
+}
+
+func (m Model) refreshResourceDetails(kind resourceKind) (Model, tea.Cmd) {
+	m.resourceLoading = true
+	m.resourceLoadingKind = kind
+	m.resourceLoadingPending = resourceLoadPartCount(kind)
+	m.resourceManualRefresh = true
+	m.status = m.t("Refreshing resources...", "正在刷新资源...")
+	return m, m.fetchResourceDetails(m.resourceHostIndex, kind)
+}
+
+func (m Model) refreshSelectedResourceExtra() (Model, tea.Cmd) {
+	ref, ok := m.selectedResourceRef()
+	if !ok {
+		return m, nil
+	}
+	switch ref.Kind {
+	case resourceContainers:
+		item, ok := m.selectedContainer()
+		if !ok {
+			return m, nil
+		}
+		m.resourceContainerExtraName = item.Name
+		m.resourceContainerExtra = containerExtraDetail{}
+		m.resourceContainerExtraErr = ""
+		m.resourceContainerExtraLoading = true
+		return m, m.fetchContainerExtraDetail(m.resourceHostIndex, item.Name)
+	case resourceServices:
+		item, ok := m.selectedService()
+		if !ok {
+			return m, nil
+		}
+		m.resourceServiceExtraName = item.Unit
+		m.resourceServiceExtra = serviceDetail{}
+		m.resourceServiceExtraErr = ""
+		m.resourceServiceExtraLoading = true
+		return m, m.fetchServiceExtraDetail(m.resourceHostIndex, item.Unit)
+	case resourceProcesses:
+		item, ok := m.selectedProcess()
+		if !ok {
+			return m, nil
+		}
+		m.resourceProcessExtraPID = item.PID
+		m.resourceProcessExtra = processExtraDetail{}
+		m.resourceProcessExtraErr = ""
+		m.resourceProcessExtraLoading = true
+		return m, m.fetchProcessExtraDetail(m.resourceHostIndex, item.PID)
+	default:
+		return m, nil
+	}
 }
 
 func (m Model) fetchContainerExtraDetail(index int, name string) tea.Cmd {

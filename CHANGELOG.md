@@ -2,6 +2,13 @@
 
 This file records user-visible changes. Historical release notes are available in GitHub Releases.
 
+## v0.1.46 - 2026-05-16
+
+### Changed
+
+- Make resource action shortcuts consistent between the resource list and detail pages: start `s`, stop `p`, restart `c`, and refresh `r`.
+- Resource start, stop, and restart actions still require confirmation before running.
+
 ## v0.1.45 - 2026-05-16
 
 ### Added
