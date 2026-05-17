@@ -67,9 +67,9 @@ func settingsFormFromConfig(cfg config.AppConfig) settingsForm {
 }
 
 func (m Model) startSettings() Model {
-	m.settingsForm = settingsFormFromConfig(m.appConfig)
-	m.settingsField = 0
-	m.settingsCursor = m.settingsValueLen()
+	m.settings.Form = settingsFormFromConfig(m.appConfig)
+	m.settings.Field = 0
+	m.settings.Cursor = m.settingsValueLen()
 	m.mode = modeSettings
 	if m.isChineseUI() {
 		m.status = "设置"
@@ -90,13 +90,13 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab", "up":
 		m.moveSettingsField(-1)
 	case "left":
-		if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode || m.settingsField == settingsCustomDirs {
+		if m.settings.Field == settingsLanguage || m.settings.Field == settingsASCIIMode || m.settings.Field == settingsCustomDirs {
 			m.toggleSettingChoice()
 		} else {
 			m.moveSettingsCursor(-1)
 		}
 	case "right":
-		if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode || m.settingsField == settingsCustomDirs {
+		if m.settings.Field == settingsLanguage || m.settings.Field == settingsASCIIMode || m.settings.Field == settingsCustomDirs {
 			m.toggleSettingChoice()
 		} else {
 			m.moveSettingsCursor(1)
@@ -120,7 +120,7 @@ func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace":
 		m.settingsBackspace()
 	default:
-		if len(msg.Runes) > 0 && m.settingsField != settingsLanguage && m.settingsField != settingsASCIIMode && m.settingsField != settingsCustomDirs {
+		if len(msg.Runes) > 0 && m.settings.Field != settingsLanguage && m.settings.Field != settingsASCIIMode && m.settings.Field != settingsCustomDirs {
 			m.settingsAppend(string(msg.Runes))
 		}
 	}
@@ -132,51 +132,51 @@ func (m Model) settingsText(en string, zh string) string {
 }
 
 func (m *Model) moveSettingsField(delta int) {
-	m.settingsField = moveIndex(m.settingsField, settingsFieldCount(), delta)
-	m.settingsCursor = m.settingsValueLen()
+	m.settings.Field = moveIndex(m.settings.Field, settingsFieldCount(), delta)
+	m.settings.Cursor = m.settingsValueLen()
 }
 
 func settingsFieldCount() int { return settingsRemoteDirs + 1 }
 
 func (m *Model) toggleSettingChoice() {
-	switch m.settingsField {
+	switch m.settings.Field {
 	case settingsLanguage:
-		if m.settingsForm.Language == "zh" {
-			m.settingsForm.Language = "en"
+		if m.settings.Form.Language == "zh" {
+			m.settings.Form.Language = "en"
 		} else {
-			m.settingsForm.Language = "zh"
+			m.settings.Form.Language = "zh"
 		}
 	case settingsASCIIMode:
-		m.settingsForm.ASCIIMode = !m.settingsForm.ASCIIMode
+		m.settings.Form.ASCIIMode = !m.settings.Form.ASCIIMode
 	case settingsCustomDirs:
-		m.settingsForm.CustomDirs = !m.settingsForm.CustomDirs
+		m.settings.Form.CustomDirs = !m.settings.Form.CustomDirs
 	}
 }
 
 func (m Model) settingsValue() string {
-	switch m.settingsField {
+	switch m.settings.Field {
 	case settingsRefreshInterval:
-		return m.settingsForm.RefreshInterval
+		return m.settings.Form.RefreshInterval
 	case settingsConnectTimeout:
-		return m.settingsForm.ConnectTimeout
+		return m.settings.Form.ConnectTimeout
 	case settingsCommandTimeout:
-		return m.settingsForm.CommandTimeout
+		return m.settings.Form.CommandTimeout
 	case settingsCPUWarn:
-		return m.settingsForm.CPUWarn
+		return m.settings.Form.CPUWarn
 	case settingsCPUCrit:
-		return m.settingsForm.CPUCrit
+		return m.settings.Form.CPUCrit
 	case settingsMemWarn:
-		return m.settingsForm.MemWarn
+		return m.settings.Form.MemWarn
 	case settingsMemCrit:
-		return m.settingsForm.MemCrit
+		return m.settings.Form.MemCrit
 	case settingsDiskWarn:
-		return m.settingsForm.DiskWarn
+		return m.settings.Form.DiskWarn
 	case settingsDiskCrit:
-		return m.settingsForm.DiskCrit
+		return m.settings.Form.DiskCrit
 	case settingsLocalDirs:
-		return m.settingsForm.LocalDirs
+		return m.settings.Form.LocalDirs
 	case settingsRemoteDirs:
-		return m.settingsForm.RemoteDirs
+		return m.settings.Form.RemoteDirs
 	default:
 		return ""
 	}
@@ -187,101 +187,101 @@ func (m Model) settingsValueLen() int {
 }
 
 func (m *Model) setSettingsValue(value string) {
-	switch m.settingsField {
+	switch m.settings.Field {
 	case settingsRefreshInterval:
-		m.settingsForm.RefreshInterval = value
+		m.settings.Form.RefreshInterval = value
 	case settingsConnectTimeout:
-		m.settingsForm.ConnectTimeout = value
+		m.settings.Form.ConnectTimeout = value
 	case settingsCommandTimeout:
-		m.settingsForm.CommandTimeout = value
+		m.settings.Form.CommandTimeout = value
 	case settingsCPUWarn:
-		m.settingsForm.CPUWarn = value
+		m.settings.Form.CPUWarn = value
 	case settingsCPUCrit:
-		m.settingsForm.CPUCrit = value
+		m.settings.Form.CPUCrit = value
 	case settingsMemWarn:
-		m.settingsForm.MemWarn = value
+		m.settings.Form.MemWarn = value
 	case settingsMemCrit:
-		m.settingsForm.MemCrit = value
+		m.settings.Form.MemCrit = value
 	case settingsDiskWarn:
-		m.settingsForm.DiskWarn = value
+		m.settings.Form.DiskWarn = value
 	case settingsDiskCrit:
-		m.settingsForm.DiskCrit = value
+		m.settings.Form.DiskCrit = value
 	case settingsLocalDirs:
-		m.settingsForm.LocalDirs = value
+		m.settings.Form.LocalDirs = value
 	case settingsRemoteDirs:
-		m.settingsForm.RemoteDirs = value
+		m.settings.Form.RemoteDirs = value
 	}
 }
 
 func (m *Model) settingsAppend(s string) {
 	value := []rune(m.settingsValue())
-	m.settingsCursor = clampInt(m.settingsCursor, 0, len(value))
+	m.settings.Cursor = clampInt(m.settings.Cursor, 0, len(value))
 	insert := []rune(s)
-	next := append([]rune{}, value[:m.settingsCursor]...)
+	next := append([]rune{}, value[:m.settings.Cursor]...)
 	next = append(next, insert...)
-	next = append(next, value[m.settingsCursor:]...)
+	next = append(next, value[m.settings.Cursor:]...)
 	m.setSettingsValue(string(next))
-	m.settingsCursor += len(insert)
+	m.settings.Cursor += len(insert)
 }
 
 func (m *Model) settingsBackspace() {
-	if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode || m.settingsField == settingsCustomDirs {
+	if m.settings.Field == settingsLanguage || m.settings.Field == settingsASCIIMode || m.settings.Field == settingsCustomDirs {
 		return
 	}
 	value := []rune(m.settingsValue())
-	if m.settingsCursor <= 0 || len(value) == 0 {
+	if m.settings.Cursor <= 0 || len(value) == 0 {
 		return
 	}
-	m.settingsCursor = clampInt(m.settingsCursor, 0, len(value))
-	next := append([]rune{}, value[:m.settingsCursor-1]...)
-	next = append(next, value[m.settingsCursor:]...)
+	m.settings.Cursor = clampInt(m.settings.Cursor, 0, len(value))
+	next := append([]rune{}, value[:m.settings.Cursor-1]...)
+	next = append(next, value[m.settings.Cursor:]...)
 	m.setSettingsValue(string(next))
-	m.settingsCursor--
+	m.settings.Cursor--
 }
 
 func (m *Model) moveSettingsCursor(delta int) {
-	m.settingsCursor = clampInt(m.settingsCursor+delta, 0, m.settingsValueLen())
+	m.settings.Cursor = clampInt(m.settings.Cursor+delta, 0, m.settingsValueLen())
 }
 
 func (m Model) settingsConfigFromForm() (config.AppConfig, error) {
 	cfg := m.appConfig
-	cfg.Language = strings.TrimSpace(m.settingsForm.Language)
+	cfg.Language = strings.TrimSpace(m.settings.Form.Language)
 	if cfg.Language != "zh" && cfg.Language != "en" {
 		return cfg, fmt.Errorf("%s", m.settingsText("language must be zh or en", "语言只能是 zh 或 en"))
 	}
-	refreshInterval, err := parseSettingSeconds(m.settingsText("refresh interval", "刷新间隔"), m.settingsForm.RefreshInterval, m.isChineseUI())
+	refreshInterval, err := parseSettingSeconds(m.settingsText("refresh interval", "刷新间隔"), m.settings.Form.RefreshInterval, m.isChineseUI())
 	if err != nil {
 		return cfg, err
 	}
-	connectTimeout, err := parseSettingSeconds(m.settingsText("connect timeout", "连接超时"), m.settingsForm.ConnectTimeout, m.isChineseUI())
+	connectTimeout, err := parseSettingSeconds(m.settingsText("connect timeout", "连接超时"), m.settings.Form.ConnectTimeout, m.isChineseUI())
 	if err != nil {
 		return cfg, err
 	}
-	commandTimeout, err := parseSettingSeconds(m.settingsText("command timeout", "命令超时"), m.settingsForm.CommandTimeout, m.isChineseUI())
+	commandTimeout, err := parseSettingSeconds(m.settingsText("command timeout", "命令超时"), m.settings.Form.CommandTimeout, m.isChineseUI())
 	if err != nil {
 		return cfg, err
 	}
 	cfg.RefreshInterval = refreshInterval
 	cfg.ConnectTimeout = connectTimeout
 	cfg.CommandTimeout = commandTimeout
-	cfg.ASCIIMode = m.settingsForm.ASCIIMode
-	cfg.CustomDirs = m.settingsForm.CustomDirs
-	if cfg.Thresholds.CPUWarn, err = parseSettingPercent(m.settingsText("CPU warn", "CPU 警告"), m.settingsForm.CPUWarn, m.isChineseUI()); err != nil {
+	cfg.ASCIIMode = m.settings.Form.ASCIIMode
+	cfg.CustomDirs = m.settings.Form.CustomDirs
+	if cfg.Thresholds.CPUWarn, err = parseSettingPercent(m.settingsText("CPU warn", "CPU 警告"), m.settings.Form.CPUWarn, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.CPUCrit, err = parseSettingPercent(m.settingsText("CPU critical", "CPU 严重"), m.settingsForm.CPUCrit, m.isChineseUI()); err != nil {
+	if cfg.Thresholds.CPUCrit, err = parseSettingPercent(m.settingsText("CPU critical", "CPU 严重"), m.settings.Form.CPUCrit, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.MemWarn, err = parseSettingPercent(m.settingsText("memory warn", "内存警告"), m.settingsForm.MemWarn, m.isChineseUI()); err != nil {
+	if cfg.Thresholds.MemWarn, err = parseSettingPercent(m.settingsText("memory warn", "内存警告"), m.settings.Form.MemWarn, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.MemCrit, err = parseSettingPercent(m.settingsText("memory critical", "内存严重"), m.settingsForm.MemCrit, m.isChineseUI()); err != nil {
+	if cfg.Thresholds.MemCrit, err = parseSettingPercent(m.settingsText("memory critical", "内存严重"), m.settings.Form.MemCrit, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.DiskWarn, err = parseSettingPercent(m.settingsText("disk warn", "磁盘警告"), m.settingsForm.DiskWarn, m.isChineseUI()); err != nil {
+	if cfg.Thresholds.DiskWarn, err = parseSettingPercent(m.settingsText("disk warn", "磁盘警告"), m.settings.Form.DiskWarn, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
-	if cfg.Thresholds.DiskCrit, err = parseSettingPercent(m.settingsText("disk critical", "磁盘严重"), m.settingsForm.DiskCrit, m.isChineseUI()); err != nil {
+	if cfg.Thresholds.DiskCrit, err = parseSettingPercent(m.settingsText("disk critical", "磁盘严重"), m.settings.Form.DiskCrit, m.isChineseUI()); err != nil {
 		return cfg, err
 	}
 	if cfg.Thresholds.CPUWarn > cfg.Thresholds.CPUCrit {
@@ -293,8 +293,8 @@ func (m Model) settingsConfigFromForm() (config.AppConfig, error) {
 	if cfg.Thresholds.DiskWarn > cfg.Thresholds.DiskCrit {
 		return cfg, fmt.Errorf("%s", m.settingsText("disk warn threshold cannot exceed critical threshold", "磁盘警告阈值不能大于严重阈值"))
 	}
-	cfg.LocalDirs = splitSettingList(m.settingsForm.LocalDirs)
-	cfg.RemoteDirs = splitSettingList(m.settingsForm.RemoteDirs)
+	cfg.LocalDirs = splitSettingList(m.settings.Form.LocalDirs)
+	cfg.RemoteDirs = splitSettingList(m.settings.Form.RemoteDirs)
 	return config.NormalizeAppConfig(cfg), nil
 }
 

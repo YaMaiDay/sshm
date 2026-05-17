@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/config"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 )
 
 func buildDeploymentScript(app config.DeploymentApp, rollback bool) string {
@@ -276,26 +277,11 @@ func appendDeploymentStageTitle(b *strings.Builder, title string) {
 }
 
 func shellSingleQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+	return remotescript.SingleQuote(value)
 }
 
 func shellEnvName(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	for i, r := range value {
-		if i == 0 {
-			if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') {
-				return ""
-			}
-			continue
-		}
-		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9') {
-			return ""
-		}
-	}
-	return value
+	return remotescript.EnvName(value)
 }
 
 func parseDeploymentVersions(output string) (string, string) {

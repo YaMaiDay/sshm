@@ -6,6 +6,7 @@ import (
 	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
 	"github.com/YaMaiDay/sshm/internal/dbmonitor"
+	"github.com/YaMaiDay/sshm/internal/execresult"
 	"github.com/YaMaiDay/sshm/internal/host"
 )
 
@@ -25,11 +26,7 @@ type PartResult struct {
 	Err        error
 }
 
-type CommandResult struct {
-	Output   string
-	Err      error
-	ExitCode int
-}
+type CommandResult = execresult.Result
 
 type ContainerDetailResult struct {
 	Detail  ContainerExtraDetail

@@ -8,17 +8,15 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/YaMaiDay/sshm/internal/execresult"
 	"github.com/YaMaiDay/sshm/internal/host"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 	"github.com/YaMaiDay/sshm/internal/sshconfig"
 )
 
 type Cleanup func()
 
-type CommandResult struct {
-	Output   string
-	ExitCode int
-	Err      error
-}
+type CommandResult = execresult.Result
 
 func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 	args, target, cleanup := sshArgs(h)
@@ -259,16 +257,7 @@ func shellQuoteArgs(args []string) []string {
 }
 
 func shellQuote(value string) string {
-	if value == "" {
-		return "''"
-	}
-	if strings.IndexFunc(value, func(r rune) bool {
-		return !(r == '_' || r == '-' || r == '/' || r == '.' || r == ':' || r == '=' || r == ',' ||
-			(r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'))
-	}) == -1 {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+	return remotescript.Quote(value)
 }
 
 func ensureRsyncSource(path string) string {

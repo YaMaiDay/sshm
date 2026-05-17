@@ -5,6 +5,7 @@ import (
 
 	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
+	"github.com/YaMaiDay/sshm/internal/execresult"
 	"github.com/YaMaiDay/sshm/internal/host"
 )
 
@@ -14,11 +15,7 @@ type Result struct {
 	CurrentVersion  string
 }
 
-type CommandResult struct {
-	Output   string
-	Err      error
-	ExitCode int
-}
+type CommandResult = execresult.Result
 
 type Service struct{}
 

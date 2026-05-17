@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	commandservice "github.com/YaMaiDay/sshm/internal/command"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 )
 
 func (m Model) commandOutputMaxScroll() int {
@@ -38,7 +39,7 @@ func (m Model) runCommand(index int, script string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
-		result := (commandservice.Service{}).Run(ctx, m.states[index].Host, script)
+		result := (commandservice.Service{}).Run(ctx, m.states[index].Host, remotescript.NewUserScript(script))
 		return commandDoneMsg{Result: commandResultFromCommand(result)}
 	}
 }

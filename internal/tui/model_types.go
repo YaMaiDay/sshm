@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/YaMaiDay/sshm/internal/config"
+	"github.com/YaMaiDay/sshm/internal/execresult"
 	"github.com/YaMaiDay/sshm/internal/fsselect"
 	"github.com/YaMaiDay/sshm/internal/host"
 	"github.com/YaMaiDay/sshm/internal/monitor"
@@ -270,11 +271,7 @@ type loginRecordsMsg struct {
 	SSHDErrText   string
 }
 
-type commandResult struct {
-	Output   string
-	Err      error
-	ExitCode int
-}
+type commandResult = execresult.Result
 
 type commandDoneMsg struct {
 	Result commandResult
@@ -367,6 +364,12 @@ type activeTransfer struct {
 	Total      int64
 	Active     bool
 	Cancel     context.CancelFunc
+}
+
+type settingsState struct {
+	Form   settingsForm
+	Field  int
+	Cursor int
 }
 
 type Model struct {
@@ -464,9 +467,7 @@ type Model struct {
 	deploymentFavoriteOnly        bool
 	activeDeployment              activeDeployment
 	deploymentOutputScroll        int
-	settingsForm                  settingsForm
-	settingsField                 int
-	settingsCursor                int
+	settings                      settingsState
 	anomalyIndex                  int
 	anomalyFilter                 anomalyFilterMode
 	transferJobsBack              viewMode

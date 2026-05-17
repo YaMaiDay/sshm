@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	commandservice "github.com/YaMaiDay/sshm/internal/command"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 )
 
 func (m Model) startBatchSelect() Model {
@@ -334,7 +335,7 @@ func (m Model) runBatchJob(job int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
-		result := (commandservice.Service{}).Run(ctx, h, script)
+		result := (commandservice.Service{}).Run(ctx, h, remotescript.NewUserScript(script))
 		return batchCommandDoneMsg{Job: job, Result: commandResultFromCommand(result)}
 	}
 }

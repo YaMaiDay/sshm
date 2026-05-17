@@ -6,7 +6,9 @@ import (
 
 	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
+	"github.com/YaMaiDay/sshm/internal/execresult"
 	"github.com/YaMaiDay/sshm/internal/host"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 )
 
 type BatchTarget struct {
@@ -16,16 +18,12 @@ type BatchTarget struct {
 	Err      error
 }
 
-type Result struct {
-	Output   string
-	Err      error
-	ExitCode int
-}
+type Result = execresult.Result
 
 type Service struct{}
 
-func (Service) Run(ctx context.Context, h host.Host, script string) Result {
-	result, cleanup := actions.RemoteCommandContext(ctx, h, script)
+func (Service) Run(ctx context.Context, h host.Host, script remotescript.UserScript) Result {
+	result, cleanup := actions.RemoteCommandContext(ctx, h, script.String())
 	cleanup()
 	return Result{Output: result.Output, Err: result.Err, ExitCode: result.ExitCode}
 }

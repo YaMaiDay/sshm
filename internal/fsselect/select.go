@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/host"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 	"github.com/YaMaiDay/sshm/internal/sshconfig"
 )
 
@@ -196,5 +197,5 @@ func sortItems(items []Item) {
 }
 
 func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+	return remotescript.SingleQuote(s)
 }

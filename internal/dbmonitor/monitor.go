@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/config"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 )
 
 type Runtime struct {
@@ -424,16 +425,7 @@ func formatSeconds(value string) string {
 }
 
 func shellQuote(value string) string {
-	if value == "" {
-		return "''"
-	}
-	if strings.IndexFunc(value, func(r rune) bool {
-		return !(r == '_' || r == '-' || r == '/' || r == '.' || r == ':' || r == '=' || r == ',' || r == '@' ||
-			(r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'))
-	}) == -1 {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+	return remotescript.Quote(value)
 }
 
 func firstNonEmpty(values ...string) string {

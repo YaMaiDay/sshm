@@ -20,20 +20,20 @@ func TestSettingsSaveAppConfig(t *testing.T) {
 		collector: monitor.NewCollector(config.PasswordStore{}),
 	}
 	m = m.startSettings()
-	m.settingsForm.Language = "en"
-	m.settingsForm.RefreshInterval = "30"
-	m.settingsForm.ConnectTimeout = "8"
-	m.settingsForm.CommandTimeout = "20"
-	m.settingsForm.ASCIIMode = true
-	m.settingsForm.CustomDirs = true
-	m.settingsForm.CPUWarn = "60"
-	m.settingsForm.CPUCrit = "90"
-	m.settingsForm.MemWarn = "61"
-	m.settingsForm.MemCrit = "91"
-	m.settingsForm.DiskWarn = "62"
-	m.settingsForm.DiskCrit = "92"
-	m.settingsForm.LocalDirs = "~/Downloads, /tmp"
-	m.settingsForm.RemoteDirs = "/opt, /data"
+	m.settings.Form.Language = "en"
+	m.settings.Form.RefreshInterval = "30"
+	m.settings.Form.ConnectTimeout = "8"
+	m.settings.Form.CommandTimeout = "20"
+	m.settings.Form.ASCIIMode = true
+	m.settings.Form.CustomDirs = true
+	m.settings.Form.CPUWarn = "60"
+	m.settings.Form.CPUCrit = "90"
+	m.settings.Form.MemWarn = "61"
+	m.settings.Form.MemCrit = "91"
+	m.settings.Form.DiskWarn = "62"
+	m.settings.Form.DiskCrit = "92"
+	m.settings.Form.LocalDirs = "~/Downloads, /tmp"
+	m.settings.Form.RemoteDirs = "/opt, /data"
 
 	next, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
 	got := next.(Model)
@@ -52,18 +52,18 @@ func TestSettingsSaveAppConfig(t *testing.T) {
 func TestSettingsTextFieldsAcceptShortcutLetters(t *testing.T) {
 	m := Model{appConfig: config.DefaultAppConfig()}
 	m = m.startSettings()
-	m.settingsField = settingsLocalDirs
-	m.settingsForm.LocalDirs = "/tm"
-	m.settingsCursor = len([]rune(m.settingsForm.LocalDirs))
+	m.settings.Field = settingsLocalDirs
+	m.settings.Form.LocalDirs = "/tm"
+	m.settings.Cursor = len([]rune(m.settings.Form.LocalDirs))
 	next, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
 	got := next.(Model)
-	if got.settingsForm.LocalDirs != "/tmp" {
-		t.Fatalf("LocalDirs = %q, want /tmp", got.settingsForm.LocalDirs)
+	if got.settings.Form.LocalDirs != "/tmp" {
+		t.Fatalf("LocalDirs = %q, want /tmp", got.settings.Form.LocalDirs)
 	}
 	next, _ = got.updateSettings(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	got = next.(Model)
-	if got.settingsForm.LocalDirs != "/tmpq" || got.mode != modeSettings {
-		t.Fatalf("LocalDirs/mode = %q/%v, want /tmpq/settings", got.settingsForm.LocalDirs, got.mode)
+	if got.settings.Form.LocalDirs != "/tmpq" || got.mode != modeSettings {
+		t.Fatalf("LocalDirs/mode = %q/%v, want /tmpq/settings", got.settings.Form.LocalDirs, got.mode)
 	}
 }
 
@@ -146,12 +146,12 @@ func TestSettingsASCIIModeIsSecondSelectableField(t *testing.T) {
 	m := Model{home: t.TempDir(), appConfig: config.DefaultAppConfig(), collector: monitor.NewCollector(config.PasswordStore{})}
 	m = m.startSettings()
 	m.moveSettingsField(1)
-	if m.settingsField != settingsASCIIMode {
-		t.Fatalf("second settings field = %d, want ASCII mode", m.settingsField)
+	if m.settings.Field != settingsASCIIMode {
+		t.Fatalf("second settings field = %d, want ASCII mode", m.settings.Field)
 	}
 	next, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyRight})
 	got := next.(Model)
-	if !got.settingsForm.ASCIIMode {
+	if !got.settings.Form.ASCIIMode {
 		t.Fatal("ASCII mode should toggle on with right arrow")
 	}
 }
@@ -171,9 +171,9 @@ func TestSettingsDisplaysDurationAsSeconds(t *testing.T) {
 func TestSettingsAcceptsSecondsWithoutUnit(t *testing.T) {
 	m := Model{home: t.TempDir(), appConfig: config.DefaultAppConfig(), collector: monitor.NewCollector(config.PasswordStore{})}
 	m = m.startSettings()
-	m.settingsForm.RefreshInterval = "15"
-	m.settingsForm.ConnectTimeout = "3.5"
-	m.settingsForm.CommandTimeout = "40"
+	m.settings.Form.RefreshInterval = "15"
+	m.settings.Form.ConnectTimeout = "3.5"
+	m.settings.Form.CommandTimeout = "40"
 	cfg, err := m.settingsConfigFromForm()
 	if err != nil {
 		t.Fatal(err)
@@ -193,8 +193,8 @@ func mustMkdir(t *testing.T, path string) {
 func TestSettingsRejectsInvalidThresholdOrder(t *testing.T) {
 	m := Model{home: t.TempDir(), appConfig: config.DefaultAppConfig(), collector: monitor.NewCollector(config.PasswordStore{})}
 	m = m.startSettings()
-	m.settingsForm.CPUWarn = "95"
-	m.settingsForm.CPUCrit = "90"
+	m.settings.Form.CPUWarn = "95"
+	m.settings.Form.CPUCrit = "90"
 	next, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyEnter})
 	got := next.(Model)
 	if got.mode != modeSettings || got.status == "" {

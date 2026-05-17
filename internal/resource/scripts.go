@@ -2,9 +2,9 @@ package resource
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/config"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 )
 
 func ServiceDetailScript() string {
@@ -348,11 +348,11 @@ func isDefaultActionCommand(command string) bool {
 func managedActionCommand(command string, managed config.ManagedResource) string {
 	switch command {
 	case "start":
-		return strings.TrimSpace(managed.StartCommand)
+		return remotescript.UserCommand(managed.StartCommand)
 	case "stop":
-		return strings.TrimSpace(managed.StopCommand)
+		return remotescript.UserCommand(managed.StopCommand)
 	case "restart":
-		return strings.TrimSpace(managed.RestartCommand)
+		return remotescript.UserCommand(managed.RestartCommand)
 	default:
 		return ""
 	}
@@ -380,14 +380,14 @@ func LogScript(kind string, name string, lines int) string {
 }
 
 func ManagedLogScript(kind string, name string, lines int, managed config.ManagedResource) string {
-	if cmd := strings.TrimSpace(managed.LogCommand); cmd != "" {
+	if cmd := remotescript.UserCommand(managed.LogCommand); cmd != "" {
 		return SudoFallbackScript(cmd, "sudo -n "+cmd)
 	}
 	return LogScript(kind, name, lines)
 }
 
 func LogPreview(kind string, name string, lines int, managed config.ManagedResource) string {
-	if cmd := strings.TrimSpace(managed.LogCommand); cmd != "" {
+	if cmd := remotescript.UserCommand(managed.LogCommand); cmd != "" {
 		return cmd
 	}
 	if lines <= 0 {
@@ -407,31 +407,9 @@ func LogPreview(kind string, name string, lines int, managed config.ManagedResou
 }
 
 func SudoFallbackScript(command string, sudoCommand string) string {
-	return fmt.Sprintf(`out=$(%s 2>&1)
-code=$?
-if [ "$code" -ne 0 ]; then
-  first="$out"
-  out=$(%s 2>&1)
-  code=$?
-  if [ "$code" -ne 0 ]; then
-    case "$first $out" in
-      *"permission denied"*|*"Permission denied"*|*"not in the docker group"*|*"password is required"*|*"a password is required"*|*"Authentication is required"*) echo "__SSHM_PERMISSION_DENIED__" ;;
-    esac
-  fi
-fi
-printf '%%s\n' "$out"
-exit "$code"`, command, sudoCommand)
+	return remotescript.SudoFallback(command, sudoCommand)
 }
 
 func QuoteShell(value string) string {
-	if value == "" {
-		return "''"
-	}
-	if strings.IndexFunc(value, func(r rune) bool {
-		return !(r == '_' || r == '-' || r == '/' || r == '.' || r == ':' || r == '=' || r == ',' || r == '@' ||
-			(r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'))
-	}) == -1 {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+	return remotescript.Quote(value)
 }
