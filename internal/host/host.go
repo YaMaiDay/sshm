@@ -1,5 +1,7 @@
 package host
 
+import "strings"
+
 type Host struct {
 	Name         string
 	HostName     string
@@ -24,6 +26,20 @@ type Host struct {
 	HasPassword  bool
 }
 
+type Endpoint struct {
+	Address      string
+	User         string
+	Port         string
+	IdentityFile string
+}
+
+func (e Endpoint) Target() string {
+	if e.User == "" {
+		return e.Address
+	}
+	return e.User + "@" + e.Address
+}
+
 func (h Host) Address() string {
 	if h.HostName != "" {
 		return h.HostName
@@ -31,20 +47,32 @@ func (h Host) Address() string {
 	return h.Name
 }
 
-func (h Host) Target() string {
-	address := h.Address()
-	if h.User == "" {
-		return address
+func (h Host) Endpoint() Endpoint {
+	return Endpoint{
+		Address:      strings.TrimSpace(h.Address()),
+		User:         strings.TrimSpace(h.User),
+		Port:         strings.TrimSpace(h.Port),
+		IdentityFile: strings.TrimSpace(h.IdentityFile),
 	}
-	return h.User + "@" + address
+}
+
+func (h Host) JumpEndpoint() Endpoint {
+	return Endpoint{
+		Address:      strings.TrimSpace(h.JumpHost),
+		User:         strings.TrimSpace(h.JumpUser),
+		Port:         strings.TrimSpace(h.JumpPort),
+		IdentityFile: strings.TrimSpace(h.JumpKeyPath),
+	}
+}
+
+func (h Host) Target() string {
+	return h.Endpoint().Target()
 }
 
 func (h Host) JumpTarget() string {
-	if h.JumpHost == "" {
+	endpoint := h.JumpEndpoint()
+	if endpoint.Address == "" {
 		return ""
 	}
-	if h.JumpUser == "" {
-		return h.JumpHost
-	}
-	return h.JumpUser + "@" + h.JumpHost
+	return endpoint.Target()
 }

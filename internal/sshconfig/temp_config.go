@@ -100,13 +100,16 @@ func BuildConnection(h host.Host) (Connection, error) {
 }
 
 func renderJumpConfig(h host.Host) string {
+	target := h.Endpoint()
+	jump := h.JumpEndpoint()
+
 	var b strings.Builder
 	b.WriteString("Host sshm-jump\n")
-	writeConfigValue(&b, "HostName", h.JumpHost)
-	writeConfigValue(&b, "User", h.JumpUser)
-	writeConfigValue(&b, "Port", defaultPort(h.JumpPort))
-	writeConfigValue(&b, "IdentityFile", h.JumpKeyPath)
-	if strings.TrimSpace(h.JumpKeyPath) != "" {
+	writeConfigValue(&b, "HostName", jump.Address)
+	writeConfigValue(&b, "User", jump.User)
+	writeConfigValue(&b, "Port", defaultPort(jump.Port))
+	writeConfigValue(&b, "IdentityFile", jump.IdentityFile)
+	if jump.IdentityFile != "" {
 		b.WriteString("    IdentitiesOnly yes\n")
 		b.WriteString("    IdentityAgent none\n")
 	}
@@ -115,11 +118,11 @@ func renderJumpConfig(h host.Host) string {
 	b.WriteString("    ControlPath none\n\n")
 
 	b.WriteString("Host sshm-target\n")
-	writeConfigValue(&b, "HostName", h.Address())
-	writeConfigValue(&b, "User", h.User)
-	writeConfigValue(&b, "Port", defaultPort(h.Port))
-	writeConfigValue(&b, "IdentityFile", h.IdentityFile)
-	if strings.TrimSpace(h.IdentityFile) != "" {
+	writeConfigValue(&b, "HostName", target.Address)
+	writeConfigValue(&b, "User", target.User)
+	writeConfigValue(&b, "Port", defaultPort(target.Port))
+	writeConfigValue(&b, "IdentityFile", target.IdentityFile)
+	if target.IdentityFile != "" {
 		b.WriteString("    IdentitiesOnly yes\n")
 		b.WriteString("    IdentityAgent none\n")
 	}
