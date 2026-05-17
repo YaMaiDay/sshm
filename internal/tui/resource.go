@@ -45,6 +45,8 @@ func resourceLoadPartCount(kind resourceKind) int {
 	switch kind {
 	case resourceAll:
 		return 3
+	case resourceDatabases:
+		return 3
 	case resourceContainers, resourcePorts:
 		return 1
 	default:
@@ -56,7 +58,7 @@ func (m *Model) applyCachedResourceDetails(index int, kind resourceKind) {
 	if index < 0 || index >= len(m.states) {
 		return
 	}
-	if kind != resourceAll && kind != resourceContainers {
+	if kind != resourceAll && kind != resourceContainers && kind != resourceDatabases {
 		return
 	}
 	if len(m.states[index].ContainerDetails) > 0 {
@@ -73,6 +75,7 @@ func (m *Model) applyCachedResourceDetails(index int, kind resourceKind) {
 	m.states[index].ContainerDetails = containerDetailsFromCache(items)
 	m.states[index].ContainerError = ""
 	associatePortContainers(m.states[index].PortDetails, m.states[index].ContainerDetails)
+	m.states[index].DatabaseDetails, m.states[index].DatabaseError = deriveDatabaseDetails(m.states[index].ServiceDetails, m.states[index].ContainerDetails, m.states[index].PortDetails)
 }
 
 func (m Model) fetchResourceDetails(index int, kind resourceKind) tea.Cmd {
@@ -88,6 +91,13 @@ func (m Model) fetchResourceDetails(index int, kind resourceKind) tea.Cmd {
 	}
 	if kind == resourceAll || kind == resourcePorts {
 		cmds = append(cmds, m.fetchResourcePart(index, kind, resourcePorts))
+	}
+	if kind == resourceDatabases {
+		cmds = append(cmds,
+			m.fetchResourcePart(index, kind, resourceServices),
+			m.fetchResourcePart(index, kind, resourceContainers),
+			m.fetchResourcePart(index, kind, resourcePorts),
+		)
 	}
 	return tea.Batch(cmds...)
 }
@@ -111,21 +121,21 @@ func (m Model) fetchResourcePart(index int, requested resourceKind, part resourc
 			serviceCleanup()
 			msg.Services, msg.ServiceErr = parseServiceDetails(serviceResult.Output)
 			if serviceResult.Err != nil && msg.ServiceErr == "" {
-				msg.ServiceErr = serviceResult.Err.Error()
+				msg.ServiceErr = m.resourceRemoteErrorText(serviceResult.Err)
 			}
 		case resourceContainers:
 			containerResult, containerCleanup := actions.RemoteCommandContext(ctx, h, containerDetailScript())
 			containerCleanup()
 			msg.Containers, msg.ContainerErr = parseContainerDetails(containerResult.Output)
 			if containerResult.Err != nil && msg.ContainerErr == "" {
-				msg.ContainerErr = containerResult.Err.Error()
+				msg.ContainerErr = m.resourceRemoteErrorText(containerResult.Err)
 			}
 		case resourcePorts:
 			portResult, portCleanup := actions.RemoteCommandContext(ctx, h, portDetailScript())
 			portCleanup()
 			msg.Ports, msg.PortsErrText = parsePortDetails(portResult.Output)
 			if portResult.Err != nil && msg.PortsErrText == "" {
-				msg.PortsErrText = portResult.Err.Error()
+				msg.PortsErrText = m.resourceRemoteErrorText(portResult.Err)
 			}
 		}
 		return msg
@@ -143,7 +153,7 @@ func (m Model) updateResourceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		m.resourceDetailName = ""
 	case "tab":
-		m.resourceKind = (m.resourceKind + 1) % 5
+		m.resourceKind = (m.resourceKind + 1) % 6
 		m.resourceIndex = 0
 		m.resourceScroll = 0
 	case "g":
@@ -240,6 +250,15 @@ func (m Model) updateResourceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.fetchProcessExtraDetail(m.resourceHostIndex, item.PID)
 			}
 		}
+		if ref, ok := m.selectedResourceRef(); ok && ref.Kind == resourceDatabases {
+			if item, ok := m.selectedDatabase(); ok {
+				m.resourceDatabaseExtraName = item.Name
+				m.resourceDatabaseExtra = databaseExtraDetail{}
+				m.resourceDatabaseExtraErr = ""
+				m.resourceDatabaseExtraLoading = true
+				return m, m.fetchDatabaseExtraDetail(m.resourceHostIndex, item.Name)
+			}
+		}
 	}
 	return m, nil
 }
@@ -282,12 +301,18 @@ func (m Model) updateResourceDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q", " ":
 		m.mode = modeResourceList
 		m.resourceDetailName = ""
-	case "j", "down":
-		m.resourceScroll++
-	case "k", "up":
-		if m.resourceScroll > 0 {
-			m.resourceScroll--
-		}
+	case "j":
+		m = m.moveResourceDetailScroll(1)
+	case "down":
+		m = m.moveResourceDetailScroll(3)
+	case "k":
+		m = m.moveResourceDetailScroll(-1)
+	case "up":
+		m = m.moveResourceDetailScroll(-3)
+	case "pgdown", "ctrl+d":
+		m = m.moveResourceDetailScroll(maxInt(1, m.resourceDetailBodyHeight()/2))
+	case "pgup", "ctrl+u":
+		m = m.moveResourceDetailScroll(-maxInt(1, m.resourceDetailBodyHeight()/2))
 	case "o":
 		return m.openResourceLog()
 	case "e":
@@ -306,6 +331,21 @@ func (m Model) updateResourceDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(refreshCmd, extraCmd)
 	}
 	return m, nil
+}
+
+func (m Model) moveResourceDetailScroll(delta int) Model {
+	maxScroll := m.resourceDetailMaxScroll()
+	m.resourceScroll = moveClampedInt(m.resourceScroll, delta, 0, maxScroll)
+	return m
+}
+
+func (m Model) resourceDetailBodyHeight() int {
+	return maxInt(1, m.height-4)
+}
+
+func (m Model) resourceDetailMaxScroll() int {
+	lines := expandLines(m.resourceDetailLines())
+	return maxInt(0, len(lines)-m.resourceDetailBodyHeight())
 }
 
 func (m Model) refreshResourceDetails(kind resourceKind) (Model, tea.Cmd) {
@@ -353,6 +393,16 @@ func (m Model) refreshSelectedResourceExtra() (Model, tea.Cmd) {
 		m.resourceProcessExtraErr = ""
 		m.resourceProcessExtraLoading = true
 		return m, m.fetchProcessExtraDetail(m.resourceHostIndex, item.PID)
+	case resourceDatabases:
+		item, ok := m.selectedDatabase()
+		if !ok {
+			return m, nil
+		}
+		m.resourceDatabaseExtraName = item.Name
+		m.resourceDatabaseExtra = databaseExtraDetail{}
+		m.resourceDatabaseExtraErr = ""
+		m.resourceDatabaseExtraLoading = true
+		return m, m.fetchDatabaseExtraDetail(m.resourceHostIndex, item.Name)
 	default:
 		return m, nil
 	}
@@ -374,7 +424,7 @@ func (m Model) fetchContainerExtraDetail(index int, name string) tea.Cmd {
 		cleanup()
 		detail, errText := parseContainerExtraDetail(result.Output)
 		if result.Err != nil && errText == "" {
-			errText = result.Err.Error()
+			errText = m.resourceRemoteErrorText(result.Err)
 		}
 		return resourceContainerDetailMsg{Index: index, Name: name, Detail: detail, Err: errText}
 	}
@@ -398,7 +448,7 @@ func (m Model) fetchServiceExtraDetail(index int, name string) tea.Cmd {
 		if strings.TrimSpace(detail.Unit) != "" {
 			errText = ""
 		} else if result.Err != nil && errText == "" {
-			errText = result.Err.Error()
+			errText = m.resourceRemoteErrorText(result.Err)
 		}
 		if !meaningfulResourceDetailError(errText) {
 			errText = ""
@@ -423,10 +473,96 @@ func (m Model) fetchProcessExtraDetail(index int, pid string) tea.Cmd {
 		cleanup()
 		detail, errText := parseProcessExtraDetail(result.Output)
 		if result.Err != nil && errText == "" {
-			errText = result.Err.Error()
+			errText = m.resourceRemoteErrorText(result.Err)
 		}
 		return resourceProcessDetailMsg{Index: index, PID: pid, Detail: detail, Err: errText}
 	}
+}
+
+func (m Model) fetchDatabaseExtraDetail(index int, name string) tea.Cmd {
+	if index < 0 || index >= len(m.states) || strings.TrimSpace(name) == "" {
+		return nil
+	}
+	item, ok := m.managedResource(resourceDatabases, name)
+	if !ok || strings.TrimSpace(item.DBEngine) == "" {
+		return func() tea.Msg {
+			return resourceDatabaseDetailMsg{Index: index, Name: name, Detail: databaseExtraDetail{}, Err: m.t("Database connection is not configured. Press e to configure it.", "未配置数据库连接。按 e 配置。")}
+		}
+	}
+	h := m.states[index].Host
+	timeout := m.appConfig.CommandDuration()
+	if timeout < 20*time.Second {
+		timeout = 20 * time.Second
+	}
+	db := databaseDetail{}
+	for _, detail := range m.states[index].DatabaseDetails {
+		if detail.Name == name {
+			db = detail
+			break
+		}
+	}
+	script := databaseMetricScriptForDetail(item, db)
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		result, cleanup := actions.RemoteCommandContext(ctx, h, script)
+		cleanup()
+		detail, errText := parseDatabaseExtraDetail(result.Output)
+		if result.Err != nil && errText == "" {
+			errText = m.resourceRemoteErrorText(result.Err)
+		}
+		detail.Engine = item.DBEngine
+		detail.Host = item.DBHost
+		detail.Port = item.DBPort
+		detail.User = item.DBUser
+		detail.Database = strings.TrimSpace(item.DBName)
+		if detail.Database == "" {
+			detail.Database = databaseDefaultName(item.DBEngine)
+		}
+		if databaseMissingCredentialHint(item, errText) {
+			errText = m.t("Database credentials are not configured or authentication failed. Press e to set user/password.", "未配置数据库账号密码或认证失败。按 e 配置用户和密码。")
+		}
+		return resourceDatabaseDetailMsg{Index: index, Name: name, Detail: detail, Err: errText}
+	}
+}
+
+func (m Model) fetchDatabaseCardExtras(index int) tea.Cmd {
+	if index < 0 || index >= len(m.states) {
+		return nil
+	}
+	if m.resourceKind != resourceDatabases && m.resourceKind != resourceAll && m.resourceAddKind != resourceDatabases {
+		return nil
+	}
+	cmds := []tea.Cmd{}
+	for _, db := range m.states[index].DatabaseDetails {
+		if !db.Managed || db.Missing || strings.TrimSpace(db.Name) == "" {
+			continue
+		}
+		if cache, ok := m.databaseExtraCache(db.Name); ok && (cache.Loading || cache.Err == "" && cache.Detail.Version != "") {
+			continue
+		}
+		m.setDatabaseExtraCache(db.Name, databaseExtraDetail{}, "", true)
+		cmds = append(cmds, m.fetchDatabaseExtraDetail(index, db.Name))
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m Model) databaseExtraCache(name string) (databaseExtraCache, bool) {
+	if m.resourceDatabaseExtraCache == nil {
+		return databaseExtraCache{}, false
+	}
+	cache, ok := m.resourceDatabaseExtraCache[name]
+	return cache, ok
+}
+
+func (m *Model) setDatabaseExtraCache(name string, detail databaseExtraDetail, errText string, loading bool) {
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	if m.resourceDatabaseExtraCache == nil {
+		m.resourceDatabaseExtraCache = map[string]databaseExtraCache{}
+	}
+	m.resourceDatabaseExtraCache[name] = databaseExtraCache{Detail: detail, Err: strings.TrimSpace(errText), Loading: loading}
 }
 
 func meaningfulResourceDetailError(value string) bool {
@@ -449,6 +585,29 @@ func meaningfulResourceDetailError(value string) bool {
 		}
 	}
 	return false
+}
+
+func (m Model) resourceRemoteErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return m.friendlyResourceErrorText(err.Error())
+}
+
+func (m Model) friendlyResourceErrorText(value string) string {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return ""
+	}
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "exit status 255"):
+		return m.t("SSH connection failed", "SSH连接失败")
+	case strings.Contains(lower, "context deadline exceeded"):
+		return m.t("Resource read timed out", "资源读取超时")
+	default:
+		return text
+	}
 }
 
 func (m Model) startResourceAdd() (tea.Model, tea.Cmd) {
@@ -512,11 +671,121 @@ func (m Model) updateResourceAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.resetResourceManageSelection()
 	case "enter", "f":
 		return m.toggleResourceManagerFavorite()
+	case "n":
+		return m.startResourceExternalDatabaseAdd()
 	case "x":
 		return m.startResourceManageRemoveConfirm()
 	case "e":
 		if m.resourceManagePane == 1 {
 			return m.startResourceManageEdit()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) startResourceExternalDatabaseAdd() (tea.Model, tea.Cmd) {
+	if m.resourceAddKind != resourceDatabases {
+		m.status = m.t("Manual add is available for databases only.", "手动新增仅支持数据库。")
+		return m, clearStatusAfter(2 * time.Second)
+	}
+	server := m.resourceServerKey(m.resourceHostIndex)
+	item := defaultManagedResource(server, config.ResourceKindDatabase, "")
+	m.resourceAddName = ""
+	m.resourceAddField = 0
+	m.resourceAddCursor = 0
+	m.resourceCommandForm = resourceCommandForm{
+		Server:     server,
+		Kind:       resourceDatabases,
+		Name:       "",
+		DBEngine:   item.DBEngine,
+		DBHost:     item.DBHost,
+		DBPort:     item.DBPort,
+		DBUser:     item.DBUser,
+		DBPassword: item.DBPassword,
+		DBName:     item.DBName,
+		DBInstance: item.DBInstance,
+		DBNote:     item.DBNote,
+	}
+	m.mode = modeResourceAddEdit
+	m.status = m.t("Add external database", "新增外部数据库")
+	return m, nil
+}
+
+func (m Model) startResourceDatabaseDiscoveredAdd(ref resourceRef) (tea.Model, tea.Cmd) {
+	if ref.Kind != resourceDatabases || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+		return m, nil
+	}
+	items := m.states[m.resourceHostIndex].DatabaseDetails
+	if ref.Index < 0 || ref.Index >= len(items) {
+		return m, nil
+	}
+	db := items[ref.Index]
+	item := defaultDatabaseManagedResource(m.resourceServerKey(m.resourceHostIndex), db)
+	m.resourceAddName = ""
+	m.resourceAddField = 0
+	m.resourceAddCursor = 0
+	m.resourceCommandForm = resourceCommandForm{
+		Server:        item.Server,
+		Kind:          resourceDatabases,
+		Name:          item.Name,
+		DBEngine:      item.DBEngine,
+		DBHost:        item.DBHost,
+		DBPort:        item.DBPort,
+		DBUser:        item.DBUser,
+		DBPassword:    item.DBPassword,
+		DBName:        item.DBName,
+		DBInstance:    item.DBInstance,
+		DBNote:        item.DBNote,
+		DBSource:      db.Source,
+		DBStatus:      db.Status,
+		DBRawStatus:   db.RawStatus,
+		DBEndpoint:    db.Endpoint,
+		DBContainer:   db.Container,
+		DBImage:       db.Image,
+		DBServiceUnit: db.ServiceUnit,
+		DBProcess:     db.Process,
+		DBPID:         db.PID,
+	}
+	m.mode = modeResourceAddEdit
+	m.status = m.t("Configure database", "配置数据库")
+	return m, nil
+}
+
+func (m Model) updateResourceAddEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := shortcutKey(msg)
+	switch key {
+	case "esc":
+		m.mode = modeResourceAdd
+		m.status = m.t("Canceled.", "已取消。")
+	case "tab", "down":
+		m.moveResourceAddField(1)
+	case "shift+tab", "up":
+		m.moveResourceAddField(-1)
+	case "left":
+		if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+			m.cycleResourceCommandDatabaseEngine(-1)
+			return m, nil
+		}
+		m.moveResourceAddCursor(-1)
+	case "right":
+		if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+			m.cycleResourceCommandDatabaseEngine(1)
+			return m, nil
+		}
+		m.moveResourceAddCursor(1)
+	case "backspace":
+		if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+			return m, nil
+		}
+		m.resourceAddBackspace()
+	case "enter":
+		return m.saveResourceAdd()
+	default:
+		if len(msg.Runes) > 0 {
+			if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+				return m, nil
+			}
+			m.resourceAddAppend(string(msg.Runes))
 		}
 	}
 	return m, nil
@@ -558,7 +827,7 @@ func (m *Model) moveResourceManageSelection(delta int) {
 			m.resourceManageFavoriteIndex = 0
 			return
 		}
-		m.resourceManageFavoriteIndex = moveIndex(m.resourceManageFavoriteIndex, count, delta)
+		m.resourceManageFavoriteIndex = clampInt(m.resourceManageFavoriteIndex+delta, 0, count-1)
 		return
 	}
 	count := len(m.resourceManageDiscoveredRefs())
@@ -566,7 +835,7 @@ func (m *Model) moveResourceManageSelection(delta int) {
 		m.resourceManageDiscoveredIndex = 0
 		return
 	}
-	m.resourceManageDiscoveredIndex = moveIndex(m.resourceManageDiscoveredIndex, count, delta)
+	m.resourceManageDiscoveredIndex = clampInt(m.resourceManageDiscoveredIndex+delta, 0, count-1)
 }
 
 func (m Model) toggleResourceManagerFavorite() (tea.Model, tea.Cmd) {
@@ -586,15 +855,30 @@ func (m Model) toggleResourceManagerFavorite() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	ref := refs[clampInt(m.resourceManageDiscoveredIndex, 0, len(refs)-1)]
+	if ref.Kind == resourceDatabases {
+		return m.startResourceDatabaseDiscoveredAdd(ref)
+	}
 	name, ok := m.resourceNameForRef(ref)
 	if !ok || strings.TrimSpace(name) == "" {
 		return m, nil
 	}
-	if findManagedResource(m.resourceFile.Items, server, kind, name) >= 0 {
-		m.status = m.t("Resource already added: ", "资源已添加：") + name
+	if idx := findManagedResource(m.resourceFile.Items, server, kind, name); idx >= 0 {
+		if m.resourceFile.Items[idx].Added {
+			m.status = m.t("Resource already added: ", "资源已添加：") + name
+			return m, clearStatusAfter(2 * time.Second)
+		}
+		m.resourceFile.Items[idx].Added = true
+		if err := config.SaveResources(m.home, m.resourceFile); err != nil {
+			m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
+			return m, nil
+		}
+		m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
+		m.applyManagedResources(m.resourceHostIndex)
+		m.status = m.t("Added to resources: ", "已添加资源：") + name
 		return m, clearStatusAfter(2 * time.Second)
 	}
 	item := defaultManagedResource(server, kind, name)
+	item.Added = true
 	m.resourceFile.Items = append(m.resourceFile.Items, item)
 	if err := config.SaveResources(m.home, m.resourceFile); err != nil {
 		m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
@@ -620,20 +904,7 @@ func (m Model) startResourceManageRemoveConfirm() (tea.Model, tea.Cmd) {
 		return m, clearStatusAfter(2 * time.Second)
 	}
 	item := items[clampInt(m.resourceManageFavoriteIndex, 0, len(items)-1)]
-	if item.Kind == config.ResourceKindContainer {
-		m.status = m.dockerRemoveUnavailableText()
-		return m, clearStatusAfter(2 * time.Second)
-	}
-	m.confirm = confirmAction{
-		Kind:     confirmRemoveResource,
-		Title:    m.t("Remove Resource", "确认移出资源"),
-		Lines:    m.resourceRemoveConfirmLines(item),
-		Back:     modeResourceAdd,
-		Resource: item,
-	}
-	m.mode = modeConfirmAction
-	m.status = m.t("Confirm remove resource", "确认移出资源")
-	return m, nil
+	return m.removeManagedResource(item)
 }
 
 func (m Model) startSelectedResourceRemoveConfirm() (tea.Model, tea.Cmd) {
@@ -642,10 +913,6 @@ func (m Model) startSelectedResourceRemoveConfirm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	ref, _ := m.selectedResourceRef()
-	if ref.Kind == resourceContainers {
-		m.status = m.dockerRemoveUnavailableText()
-		return m, clearStatusAfter(2 * time.Second)
-	}
 	item, ok := m.managedResource(ref.Kind, name)
 	if !ok {
 		m.status = m.t("This resource is not added.", "该资源未添加。")
@@ -661,10 +928,6 @@ func (m Model) startSelectedResourceRemoveConfirm() (tea.Model, tea.Cmd) {
 	m.mode = modeConfirmAction
 	m.status = m.t("Confirm remove resource", "确认移出资源")
 	return m, nil
-}
-
-func (m Model) dockerRemoveUnavailableText() string {
-	return m.t("Containers cannot be deleted.", "容器无法删除。")
 }
 
 func (m Model) resourceRemoveConfirmLines(item config.ManagedResource) []string {
@@ -711,6 +974,14 @@ func (m Model) startResourceManageEdit() (tea.Model, tea.Cmd) {
 		RestartCommand: item.RestartCommand,
 		LogCommand:     item.LogCommand,
 		HealthCommand:  item.HealthCommand,
+		DBEngine:       item.DBEngine,
+		DBHost:         item.DBHost,
+		DBPort:         item.DBPort,
+		DBUser:         item.DBUser,
+		DBPassword:     item.DBPassword,
+		DBName:         item.DBName,
+		DBInstance:     item.DBInstance,
+		DBNote:         item.DBNote,
 	}
 	m.resourceCommandField = 0
 	m.resourceCommandCursor = len([]rune(m.resourceCommandFieldValue(0)))
@@ -726,11 +997,14 @@ func (m *Model) moveResourceAddField(delta int) {
 }
 
 func resourceAddFieldCount(kind resourceKind) int {
-	return 2 + resourceCommandFieldCount(kind)
+	if kind == resourceDatabases {
+		return resourceCommandFieldCount(kind)
+	}
+	return 1 + resourceCommandFieldCount(kind)
 }
 
 func (m *Model) cycleResourceAddKind(delta int) {
-	kinds := []resourceKind{resourceServices, resourceProcesses, resourcePorts}
+	kinds := []resourceKind{resourceContainers, resourceServices, resourceProcesses, resourcePorts, resourceDatabases}
 	idx := 0
 	for i, kind := range kinds {
 		if kind == m.resourceAddKind {
@@ -760,28 +1034,48 @@ func (m *Model) applyResourceAddDefaults() {
 		RestartCommand: item.RestartCommand,
 		LogCommand:     item.LogCommand,
 		HealthCommand:  item.HealthCommand,
+		DBEngine:       item.DBEngine,
+		DBHost:         item.DBHost,
+		DBPort:         item.DBPort,
+		DBUser:         item.DBUser,
+		DBPassword:     item.DBPassword,
+		DBName:         item.DBName,
+		DBInstance:     item.DBInstance,
+		DBNote:         item.DBNote,
 	}
 }
 
 func (m Model) resourceAddFieldValue(field int) string {
+	if m.resourceAddKind == resourceDatabases {
+		return m.resourceCommandFieldValue(field)
+	}
 	switch field {
-	case 1:
+	case 0:
 		return m.resourceAddName
 	default:
-		return m.resourceCommandFieldValue(field - 2)
+		return m.resourceCommandFieldValue(field - 1)
 	}
 }
 
 func (m *Model) setResourceAddFieldValue(field int, value string) {
-	if field == 1 {
-		m.resourceAddName = value
-		m.applyResourceAddDefaults()
+	if m.resourceAddKind == resourceDatabases {
+		m.setResourceCommandFieldValue(field, value)
 		return
 	}
-	m.setResourceCommandFieldValue(field-2, value)
+	if field == 0 {
+		m.resourceAddName = value
+		if m.resourceAddKind != resourceDatabases {
+			m.applyResourceAddDefaults()
+		}
+		return
+	}
+	m.setResourceCommandFieldValue(field-1, value)
 }
 
 func (m *Model) moveResourceAddCursor(delta int) {
+	if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+		return
+	}
 	value := []rune(m.resourceAddFieldValue(m.resourceAddField))
 	m.resourceAddCursor = clampInt(m.resourceAddCursor+delta, 0, len(value))
 }
@@ -810,26 +1104,87 @@ func (m *Model) resourceAddBackspace() {
 
 func (m Model) saveResourceAdd() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.resourceAddName)
-	if name == "" {
-		m.status = m.t("Resource name cannot be empty.", "资源名称不能为空。")
-		return m, nil
-	}
-	if m.resourceAddKind == resourcePorts && !strings.Contains(name, "/") {
-		name = "tcp/" + name
-	}
 	server := m.resourceServerKey(m.resourceHostIndex)
 	kind := configResourceKind(m.resourceAddKind)
-	if findManagedResource(m.resourceFile.Items, server, kind, name) >= 0 {
-		m.status = m.t("Resource already added: ", "资源已添加：") + name
-		return m, nil
+	if m.resourceAddKind == resourceDatabases {
+		if strings.TrimSpace(m.resourceCommandForm.DBEngine) == "" {
+			m.resourceCommandForm.DBEngine = "MySQL"
+		}
+		if strings.TrimSpace(m.resourceCommandForm.DBHost) == "" {
+			m.resourceCommandForm.DBHost = "127.0.0.1"
+		}
+		if strings.TrimSpace(m.resourceCommandForm.DBPort) == "" {
+			m.resourceCommandForm.DBPort = databaseDefaultPort(m.resourceCommandForm.DBEngine)
+		}
+		name = strings.TrimSpace(m.resourceCommandForm.DBName)
+		if name == "" {
+			m.status = m.t("Database name cannot be empty.", "库名不能为空。")
+			return m, nil
+		}
+	} else {
+		if name == "" {
+			m.status = m.t("Resource name cannot be empty.", "资源名称不能为空。")
+			return m, nil
+		}
+		if m.resourceAddKind == resourcePorts && !strings.Contains(name, "/") {
+			name = "tcp/" + name
+		}
+	}
+	if idx := findManagedResource(m.resourceFile.Items, server, kind, name); idx >= 0 {
+		if m.resourceFile.Items[idx].Added && !(m.resourceAddKind == resourceDatabases && !managedDatabaseResourceConfigured(m.resourceFile.Items[idx])) {
+			m.status = m.t("Resource already added: ", "资源已添加：") + name
+			return m, nil
+		}
+		m.resourceFile.Items[idx].Added = true
+		m.resourceFile.Items[idx].StartCommand = strings.TrimSpace(m.resourceCommandForm.StartCommand)
+		m.resourceFile.Items[idx].StopCommand = strings.TrimSpace(m.resourceCommandForm.StopCommand)
+		m.resourceFile.Items[idx].RestartCommand = strings.TrimSpace(m.resourceCommandForm.RestartCommand)
+		m.resourceFile.Items[idx].DeleteCommand = ""
+		m.resourceFile.Items[idx].LogCommand = strings.TrimSpace(m.resourceCommandForm.LogCommand)
+		m.resourceFile.Items[idx].HealthCommand = strings.TrimSpace(m.resourceCommandForm.HealthCommand)
+		m.resourceFile.Items[idx].DBEngine = strings.TrimSpace(m.resourceCommandForm.DBEngine)
+		m.resourceFile.Items[idx].DBHost = strings.TrimSpace(m.resourceCommandForm.DBHost)
+		m.resourceFile.Items[idx].DBPort = strings.TrimSpace(m.resourceCommandForm.DBPort)
+		m.resourceFile.Items[idx].DBUser = strings.TrimSpace(m.resourceCommandForm.DBUser)
+		m.resourceFile.Items[idx].DBPassword = strings.TrimSpace(m.resourceCommandForm.DBPassword)
+		m.resourceFile.Items[idx].DBName = strings.TrimSpace(m.resourceCommandForm.DBName)
+		m.resourceFile.Items[idx].DBInstance = strings.TrimSpace(m.resourceCommandForm.DBInstance)
+		m.resourceFile.Items[idx].DBNote = strings.TrimSpace(m.resourceCommandForm.DBNote)
+		if err := config.SaveResources(m.home, m.resourceFile); err != nil {
+			m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
+			return m, nil
+		}
+		m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
+		m.applyManagedResources(m.resourceHostIndex)
+		m.resourceScope = resourceScopeDiscovered
+		m.resourceKind = m.resourceAddKind
+		m.resourceIndex = 0
+		m.resourceScroll = 0
+		if m.mode == modeResourceAddEdit {
+			m.mode = modeResourceAdd
+			m.resourceManagePane = 1
+		} else {
+			m.mode = modeResourceList
+		}
+		m.status = m.t("Added to resources: ", "已添加资源：") + name
+		return m, clearStatusAfter(2 * time.Second)
 	}
 	item := defaultManagedResource(server, kind, name)
+	item.Added = true
 	item.StartCommand = strings.TrimSpace(m.resourceCommandForm.StartCommand)
 	item.StopCommand = strings.TrimSpace(m.resourceCommandForm.StopCommand)
 	item.RestartCommand = strings.TrimSpace(m.resourceCommandForm.RestartCommand)
 	item.DeleteCommand = ""
 	item.LogCommand = strings.TrimSpace(m.resourceCommandForm.LogCommand)
 	item.HealthCommand = strings.TrimSpace(m.resourceCommandForm.HealthCommand)
+	item.DBEngine = strings.TrimSpace(m.resourceCommandForm.DBEngine)
+	item.DBHost = strings.TrimSpace(m.resourceCommandForm.DBHost)
+	item.DBPort = strings.TrimSpace(m.resourceCommandForm.DBPort)
+	item.DBUser = strings.TrimSpace(m.resourceCommandForm.DBUser)
+	item.DBPassword = strings.TrimSpace(m.resourceCommandForm.DBPassword)
+	item.DBName = strings.TrimSpace(m.resourceCommandForm.DBName)
+	item.DBInstance = strings.TrimSpace(m.resourceCommandForm.DBInstance)
+	item.DBNote = strings.TrimSpace(m.resourceCommandForm.DBNote)
 	m.resourceFile.Items = append(m.resourceFile.Items, item)
 	if err := config.SaveResources(m.home, m.resourceFile); err != nil {
 		m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
@@ -841,7 +1196,12 @@ func (m Model) saveResourceAdd() (tea.Model, tea.Cmd) {
 	m.resourceKind = m.resourceAddKind
 	m.resourceIndex = 0
 	m.resourceScroll = 0
-	m.mode = modeResourceList
+	if m.mode == modeResourceAddEdit {
+		m.mode = modeResourceAdd
+		m.resourceManagePane = 1
+	} else {
+		m.mode = modeResourceList
+	}
 	m.status = m.t("Added to resources: ", "已添加资源：") + name
 	return m, clearStatusAfter(2 * time.Second)
 }
@@ -859,10 +1219,32 @@ func (m Model) startResourceCommandEdit() (tea.Model, tea.Cmd) {
 	kind := configResourceKind(ref.Kind)
 	idx := findManagedResource(m.resourceFile.Items, server, kind, name)
 	if idx < 0 {
+		if ref.Kind == resourceDatabases {
+			item := defaultManagedResource(server, kind, name)
+			if db, ok := m.selectedDatabase(); ok {
+				item = defaultDatabaseManagedResource(server, db)
+			}
+			item.Added = true
+			m.resourceFile.Items = append(m.resourceFile.Items, item)
+			if err := config.SaveResources(m.home, m.resourceFile); err != nil {
+				m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
+				return m, nil
+			}
+			m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
+			m.applyManagedResources(m.resourceHostIndex)
+			idx = findManagedResource(m.resourceFile.Items, server, kind, name)
+		}
+	}
+	if idx < 0 {
 		m.status = m.t("Add this resource before editing commands.", "请先添加该资源，再编辑命令。")
 		return m, clearStatusAfter(2 * time.Second)
 	}
 	item := m.resourceFile.Items[idx]
+	if ref.Kind == resourceDatabases {
+		if db, ok := m.selectedDatabase(); ok {
+			item = mergeDatabaseDiscoveredDefaults(item, defaultDatabaseManagedResource(server, db))
+		}
+	}
 	m.resourceCommandForm = resourceCommandForm{
 		Server:         server,
 		Kind:           ref.Kind,
@@ -872,6 +1254,14 @@ func (m Model) startResourceCommandEdit() (tea.Model, tea.Cmd) {
 		RestartCommand: item.RestartCommand,
 		LogCommand:     item.LogCommand,
 		HealthCommand:  item.HealthCommand,
+		DBEngine:       item.DBEngine,
+		DBHost:         item.DBHost,
+		DBPort:         item.DBPort,
+		DBUser:         item.DBUser,
+		DBPassword:     item.DBPassword,
+		DBName:         item.DBName,
+		DBInstance:     item.DBInstance,
+		DBNote:         item.DBNote,
 	}
 	m.resourceCommandField = 0
 	m.resourceCommandCursor = len([]rune(m.resourceCommandFieldValue(0)))
@@ -884,16 +1274,24 @@ func (m Model) startResourceCommandEdit() (tea.Model, tea.Cmd) {
 func (m Model) updateResourceCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
-	case "esc", "q":
+	case "esc":
 		m.mode = m.resourceCommandReturnMode()
 		m.status = m.t("Canceled.", "已取消。")
-	case "tab", "down", "j":
+	case "tab", "down":
 		m.moveResourceCommandField(1)
-	case "shift+tab", "up", "k":
+	case "shift+tab", "up":
 		m.moveResourceCommandField(-1)
-	case "left", "h":
+	case "left":
+		if m.resourceCommandForm.Kind == resourceDatabases && m.resourceCommandField == 0 {
+			m.cycleResourceCommandDatabaseEngine(-1)
+			return m, nil
+		}
 		m.moveResourceCommandCursor(-1)
-	case "right", "l":
+	case "right":
+		if m.resourceCommandForm.Kind == resourceDatabases && m.resourceCommandField == 0 {
+			m.cycleResourceCommandDatabaseEngine(1)
+			return m, nil
+		}
 		m.moveResourceCommandCursor(1)
 	case "backspace":
 		if resourceCommandFieldCount(m.resourceCommandForm.Kind) == 0 {
@@ -916,6 +1314,9 @@ func (m Model) updateResourceCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		if len(msg.Runes) > 0 {
 			if resourceCommandFieldCount(m.resourceCommandForm.Kind) == 0 {
+				return m, nil
+			}
+			if m.resourceCommandForm.Kind == resourceDatabases && m.resourceCommandField == 0 {
 				return m, nil
 			}
 			m.resourceCommandAppend(string(msg.Runes))
@@ -945,10 +1346,44 @@ func resourceCommandFieldCount(kind resourceKind) int {
 	if kind == resourcePorts {
 		return 1
 	}
+	if kind == resourceDatabases {
+		return 7
+	}
 	return 4
 }
 
+func (m *Model) cycleResourceCommandDatabaseEngine(delta int) {
+	oldEngine := strings.TrimSpace(m.resourceCommandForm.DBEngine)
+	oldDefaultPort := databaseDefaultPort(oldEngine)
+	oldDefaultUser := databaseDefaultUser(oldEngine)
+	oldDefaultName := databaseDefaultName(oldEngine)
+	engines := databaseEngineChoices()
+	idx := 0
+	for i, engine := range engines {
+		if strings.EqualFold(engine, oldEngine) {
+			idx = i
+			break
+		}
+	}
+	idx = moveIndex(idx, len(engines), delta)
+	next := engines[idx]
+	m.resourceCommandForm.DBEngine = next
+	if strings.TrimSpace(m.resourceCommandForm.DBPort) == "" || strings.TrimSpace(m.resourceCommandForm.DBPort) == oldDefaultPort {
+		m.resourceCommandForm.DBPort = databaseDefaultPort(next)
+	}
+	if strings.TrimSpace(m.resourceCommandForm.DBUser) == "" || strings.TrimSpace(m.resourceCommandForm.DBUser) == oldDefaultUser {
+		m.resourceCommandForm.DBUser = databaseDefaultUser(next)
+	}
+	if strings.TrimSpace(m.resourceCommandForm.DBName) == "" || strings.TrimSpace(m.resourceCommandForm.DBName) == oldDefaultName {
+		m.resourceCommandForm.DBName = databaseDefaultName(next)
+	}
+	m.resourceCommandCursor = len([]rune(m.resourceCommandFieldValue(m.resourceCommandField)))
+}
+
 func (m *Model) moveResourceCommandCursor(delta int) {
+	if m.resourceCommandForm.Kind == resourceDatabases && m.resourceCommandField == 0 {
+		return
+	}
 	value := []rune(m.resourceCommandFieldValue(m.resourceCommandField))
 	m.resourceCommandCursor = clampInt(m.resourceCommandCursor+delta, 0, len(value))
 }
@@ -956,16 +1391,43 @@ func (m *Model) moveResourceCommandCursor(delta int) {
 func (m Model) resourceCommandFieldValue(field int) string {
 	switch field {
 	case 0:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			return m.resourceCommandForm.DBEngine
+		}
 		if m.resourceCommandForm.Kind == resourcePorts {
 			return m.resourceCommandForm.HealthCommand
 		}
 		return m.resourceCommandForm.StartCommand
 	case 1:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			return m.resourceCommandForm.DBHost
+		}
 		return m.resourceCommandForm.StopCommand
 	case 2:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			return m.resourceCommandForm.DBPort
+		}
 		return m.resourceCommandForm.RestartCommand
 	case 3:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			return m.resourceCommandForm.DBUser
+		}
 		return m.resourceCommandForm.LogCommand
+	case 4:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			return m.resourceCommandForm.DBPassword
+		}
+		return ""
+	case 5:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			return m.resourceCommandForm.DBName
+		}
+		return ""
+	case 6:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			return m.resourceCommandForm.DBNote
+		}
+		return ""
 	default:
 		return ""
 	}
@@ -974,17 +1436,45 @@ func (m Model) resourceCommandFieldValue(field int) string {
 func (m *Model) setResourceCommandFieldValue(field int, value string) {
 	switch field {
 	case 0:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			m.resourceCommandForm.DBEngine = normalizeDatabaseEngine(value)
+			return
+		}
 		if m.resourceCommandForm.Kind == resourcePorts {
 			m.resourceCommandForm.HealthCommand = value
 		} else {
 			m.resourceCommandForm.StartCommand = value
 		}
 	case 1:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			m.resourceCommandForm.DBHost = value
+			return
+		}
 		m.resourceCommandForm.StopCommand = value
 	case 2:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			m.resourceCommandForm.DBPort = value
+			return
+		}
 		m.resourceCommandForm.RestartCommand = value
 	case 3:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			m.resourceCommandForm.DBUser = value
+			return
+		}
 		m.resourceCommandForm.LogCommand = value
+	case 4:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			m.resourceCommandForm.DBPassword = value
+		}
+	case 5:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			m.resourceCommandForm.DBName = value
+		}
+	case 6:
+		if m.resourceCommandForm.Kind == resourceDatabases {
+			m.resourceCommandForm.DBNote = value
+		}
 	}
 }
 
@@ -1025,11 +1515,23 @@ func (m *Model) saveResourceCommandForm() error {
 	item.DeleteCommand = ""
 	item.LogCommand = strings.TrimSpace(m.resourceCommandForm.LogCommand)
 	item.HealthCommand = strings.TrimSpace(m.resourceCommandForm.HealthCommand)
+	item.DBEngine = strings.TrimSpace(m.resourceCommandForm.DBEngine)
+	item.DBHost = strings.TrimSpace(m.resourceCommandForm.DBHost)
+	item.DBPort = strings.TrimSpace(m.resourceCommandForm.DBPort)
+	item.DBUser = strings.TrimSpace(m.resourceCommandForm.DBUser)
+	item.DBPassword = strings.TrimSpace(m.resourceCommandForm.DBPassword)
+	item.DBName = strings.TrimSpace(m.resourceCommandForm.DBName)
+	item.DBInstance = strings.TrimSpace(m.resourceCommandForm.DBInstance)
+	item.DBNote = strings.TrimSpace(m.resourceCommandForm.DBNote)
+	if m.resourceCommandForm.Kind == resourceDatabases && item.DBName != "" {
+		item.Name = item.DBName
+	}
 	m.resourceFile.Items[idx] = item
 	if err := config.SaveResources(m.home, m.resourceFile); err != nil {
 		return err
 	}
 	m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
+	m.applyManagedResources(m.resourceHostIndex)
 	return nil
 }
 
@@ -1039,11 +1541,9 @@ func (m Model) updateResourceLog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = modeResourceList
 	case "j", "down":
-		m.resourceLogScroll++
+		m.resourceLogScroll = moveClampedInt(m.resourceLogScroll, 1, 0, m.resourceLogMaxScroll())
 	case "k", "up":
-		if m.resourceLogScroll > 0 {
-			m.resourceLogScroll--
-		}
+		m.resourceLogScroll = moveClampedInt(m.resourceLogScroll, -1, 0, m.resourceLogMaxScroll())
 	case "r":
 		return m.openResourceLog()
 	}
@@ -1074,11 +1574,9 @@ func (m Model) updateResourceOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeResourceList
 		m.resourceAction = resourceActionNone
 	case "j", "down":
-		m.resourceScroll++
+		m.resourceScroll = moveClampedInt(m.resourceScroll, 1, 0, m.resourceOutputMaxScroll())
 	case "k", "up":
-		if m.resourceScroll > 0 {
-			m.resourceScroll--
-		}
+		m.resourceScroll = moveClampedInt(m.resourceScroll, -1, 0, m.resourceOutputMaxScroll())
 	case "r":
 		if !m.resourceActionRunning && m.resourceAction != resourceActionNone {
 			m.mode = modeResourceOutput
@@ -1244,6 +1742,7 @@ func (m Model) handleResourceLoad(msg resourceLoadMsg) (tea.Model, tea.Cmd) {
 		m.resourcePortAt = now
 	}
 	associatePortContainers(m.states[msg.Index].PortDetails, m.states[msg.Index].ContainerDetails)
+	m.states[msg.Index].DatabaseDetails, m.states[msg.Index].DatabaseError = deriveDatabaseDetails(m.states[msg.Index].ServiceDetails, m.states[msg.Index].ContainerDetails, m.states[msg.Index].PortDetails)
 	m.applyManagedResources(msg.Index)
 	m.resourceCollectedAt = now
 	if m.resourceLoadingPending > 0 {
@@ -1258,7 +1757,7 @@ func (m Model) handleResourceLoad(msg resourceLoadMsg) (tea.Model, tea.Cmd) {
 		}
 		m.resourceManualRefresh = false
 		m.status = m.resourceRefreshStatus
-		return m, nil
+		return m, m.fetchDatabaseCardExtras(msg.Index)
 	}
 	m.status = m.t("Loading resources...", "正在读取资源...")
 	return m, nil
@@ -1309,6 +1808,19 @@ func (m Model) handleResourceProcessDetail(msg resourceProcessDetailMsg) (tea.Mo
 	return m, nil
 }
 
+func (m Model) handleResourceDatabaseDetail(msg resourceDatabaseDetailMsg) (tea.Model, tea.Cmd) {
+	if msg.Index != m.resourceHostIndex {
+		return m, nil
+	}
+	m.setDatabaseExtraCache(msg.Name, msg.Detail, msg.Err, false)
+	if msg.Name == m.resourceDatabaseExtraName {
+		m.resourceDatabaseExtraLoading = false
+		m.resourceDatabaseExtra = msg.Detail
+		m.resourceDatabaseExtraErr = msg.Err
+	}
+	return m, nil
+}
+
 func (m Model) handleResourceLog(msg resourceLogMsg) (tea.Model, tea.Cmd) {
 	if msg.Index != m.resourceHostIndex || msg.Kind != m.resourceLogKind || msg.Name != m.resourceLogName {
 		return m, nil
@@ -1355,27 +1867,11 @@ func (m Model) toggleManagedResource() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	idx := findManagedResource(m.resourceFile.Items, server, kind, name)
-	if idx < 0 {
-		if ref.Kind == resourceContainers {
-			item := config.ManagedResource{Server: server, Kind: kind, Name: name, Favorite: true}
-			m.resourceFile.Items = append(m.resourceFile.Items, item)
-			if err := config.SaveResources(m.home, m.resourceFile); err != nil {
-				m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
-				return m, nil
-			}
-			m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
-			m.applyManagedResources(m.resourceHostIndex)
-			m.status = m.t("Added to favorites: ", "已收藏：") + name
-			return m, clearStatusAfter(2 * time.Second)
-		}
+	if idx < 0 || !m.resourceFile.Items[idx].Added {
 		m.status = m.t("Add this resource first with a.", "请先按 a 添加该资源。")
 		return m, clearStatusAfter(2 * time.Second)
 	}
 	m.resourceFile.Items[idx].Favorite = !m.resourceFile.Items[idx].Favorite
-	if ref.Kind == resourceContainers && !m.resourceFile.Items[idx].Favorite && !containerResourceHasCustomConfig(m.resourceFile.Items[idx]) {
-		m.resourceFile.Items = append(m.resourceFile.Items[:idx], m.resourceFile.Items[idx+1:]...)
-		idx = -1
-	}
 	if err := config.SaveResources(m.home, m.resourceFile); err != nil {
 		m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
 		return m, nil
@@ -1403,18 +1899,13 @@ func (m Model) toggleResourcePinned() (tea.Model, tea.Cmd) {
 	}
 	idx := findManagedResource(m.resourceFile.Items, server, kind, name)
 	pinnedNow := false
-	if idx < 0 {
-		item := defaultManagedResource(server, kind, name)
-		item.Pinned = true
-		item.PinnedOrder = nextResourcePinnedOrder(m.resourceFile.Items)
-		m.resourceFile.Items = append(m.resourceFile.Items, item)
-		pinnedNow = true
-	} else if m.resourceFile.Items[idx].Pinned {
+	if idx < 0 || !m.resourceFile.Items[idx].Added {
+		m.status = m.t("Add this resource first with a.", "请先按 a 添加该资源。")
+		return m, clearStatusAfter(2 * time.Second)
+	}
+	if m.resourceFile.Items[idx].Pinned {
 		m.resourceFile.Items[idx].Pinned = false
 		m.resourceFile.Items[idx].PinnedOrder = 0
-		if ref.Kind == resourceContainers && !m.resourceFile.Items[idx].Favorite && !containerResourceHasCustomConfig(m.resourceFile.Items[idx]) {
-			m.resourceFile.Items = append(m.resourceFile.Items[:idx], m.resourceFile.Items[idx+1:]...)
-		}
 	} else {
 		m.resourceFile.Items[idx].Pinned = true
 		m.resourceFile.Items[idx].PinnedOrder = nextResourcePinnedOrder(m.resourceFile.Items)
@@ -1447,7 +1938,7 @@ func nextResourcePinnedOrder(items []config.ManagedResource) int64 {
 func (m Model) hasManagedResources(index int) bool {
 	server := m.resourceServerKey(index)
 	for _, item := range m.resourceFile.Items {
-		if item.Server == server {
+		if item.Server == server && item.Added {
 			return true
 		}
 	}
@@ -1469,6 +1960,7 @@ func (m *Model) applyManagedResources(index int) {
 	server := m.resourceServerKey(index)
 	managed := m.managedResourcesForServer(server)
 	state := &m.states[index]
+	state.DatabaseDetails = removeConfiguredDatabaseDetails(state.DatabaseDetails)
 	for i := range state.ServiceDetails {
 		state.ServiceDetails[i].Managed = false
 		state.ServiceDetails[i].Favorite = false
@@ -1486,7 +1978,15 @@ func (m *Model) applyManagedResources(index int) {
 		state.PortDetails[i].ProcessFavorite = false
 		state.PortDetails[i].Missing = false
 	}
+	for i := range state.DatabaseDetails {
+		state.DatabaseDetails[i].Managed = false
+		state.DatabaseDetails[i].Favorite = false
+		state.DatabaseDetails[i].Missing = false
+	}
 	for _, item := range managed {
+		if !item.Added {
+			continue
+		}
 		switch item.Kind {
 		case config.ResourceKindService:
 			found := false
@@ -1545,8 +2045,80 @@ func (m *Model) applyManagedResources(index int) {
 			if !found {
 				state.PortDetails = append(state.PortDetails, portDetail{Protocol: proto, Port: port, Count: 0, Managed: true, Favorite: item.Favorite, Missing: true})
 			}
+		case config.ResourceKindDatabase:
+			if !managedDatabaseResourceConfigured(item) {
+				continue
+			}
+			state.DatabaseDetails = append(state.DatabaseDetails, m.databaseDetailForManagedResource(item, state.DatabaseDetails))
 		}
 	}
+}
+
+func removeConfiguredDatabaseDetails(items []databaseDetail) []databaseDetail {
+	out := items[:0]
+	for _, item := range items {
+		if item.Configured {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func managedDatabaseResourceConfigured(item config.ManagedResource) bool {
+	if item.Kind != config.ResourceKindDatabase || !item.Added {
+		return false
+	}
+	return strings.TrimSpace(item.DBEngine) != "" &&
+		strings.TrimSpace(item.DBHost) != "" &&
+		strings.TrimSpace(item.DBPort) != "" &&
+		strings.TrimSpace(item.DBName) != ""
+}
+
+func (m Model) databaseDetailForManagedResource(item config.ManagedResource, discovered []databaseDetail) databaseDetail {
+	detail := databaseDetail{
+		Name:       firstNonEmpty(item.Name, item.DBName),
+		Engine:     firstNonEmpty(item.DBEngine, "Database"),
+		Source:     m.t("Configured", "配置"),
+		Status:     "unknown",
+		RawStatus:  m.t("Configured", "已配置"),
+		Endpoint:   databaseManagedEndpoint(item),
+		Protocol:   "tcp",
+		Port:       strings.TrimSpace(item.DBPort),
+		Managed:    true,
+		Favorite:   item.Favorite,
+		Configured: true,
+	}
+	if match, ok := managedDatabaseInstanceDetail(item, discovered); ok {
+		detail.Source = match.Source
+		detail.Status = match.Status
+		detail.RawStatus = match.RawStatus
+		detail.Endpoint = firstNonEmpty(databaseManagedEndpoint(item), match.Endpoint)
+		detail.ServiceUnit = match.ServiceUnit
+		detail.Container = match.Container
+		detail.Image = match.Image
+		detail.Process = match.Process
+		detail.PID = match.PID
+		detail.Protocol = firstNonEmpty(match.Protocol, detail.Protocol)
+		detail.Port = firstNonEmpty(strings.TrimSpace(item.DBPort), match.Port)
+	}
+	return detail
+}
+
+func managedDatabaseInstanceDetail(item config.ManagedResource, discovered []databaseDetail) (databaseDetail, bool) {
+	instance := strings.TrimSpace(item.DBInstance)
+	for _, db := range discovered {
+		if instance != "" && strings.EqualFold(db.Name, instance) {
+			return db, true
+		}
+	}
+	port := strings.TrimSpace(item.DBPort)
+	for _, db := range discovered {
+		if port != "" && strings.Contains(db.Endpoint, port) && strings.EqualFold(normalizeDatabaseEngine(db.Engine), normalizeDatabaseEngine(item.DBEngine)) {
+			return db, true
+		}
+	}
+	return databaseDetail{}, false
 }
 
 func (m Model) managedResourcesForServer(server string) []config.ManagedResource {
@@ -1578,6 +2150,8 @@ func configResourceKind(kind resourceKind) string {
 		return config.ResourceKindProcess
 	case resourcePorts:
 		return config.ResourceKindPort
+	case resourceDatabases:
+		return config.ResourceKindDatabase
 	default:
 		return ""
 	}
@@ -1593,6 +2167,8 @@ func resourceKindFromConfig(kind string) resourceKind {
 		return resourceProcesses
 	case config.ResourceKindPort:
 		return resourcePorts
+	case config.ResourceKindDatabase:
+		return resourceDatabases
 	default:
 		return resourceAll
 	}
@@ -1616,8 +2192,77 @@ func defaultManagedResource(server string, kind string, name string) config.Mana
 	case config.ResourceKindPort:
 		_, port := splitManagedPortName(name)
 		item.HealthCommand = "curl -f http://127.0.0.1:" + shellQuoteLocal(port) + "/health"
+	case config.ResourceKindDatabase:
+		item.DBEngine = "MySQL"
+		item.DBHost = "127.0.0.1"
+		item.DBPort = "3306"
+		item.DBUser = "root"
 	}
 	return item
+}
+
+func defaultDatabaseManagedResource(server string, db databaseDetail) config.ManagedResource {
+	item := config.ManagedResource{Server: server, Kind: config.ResourceKindDatabase, Added: true}
+	item.DBEngine = firstNonEmpty(normalizeDatabaseEngine(db.Engine), "MySQL")
+	item.DBHost = databaseDefaultHost(db)
+	item.DBPort = databaseDefaultPortForDetail(db)
+	item.DBUser = databaseDefaultUser(item.DBEngine)
+	item.DBName = databaseDefaultName(item.DBEngine)
+	item.Name = firstNonEmpty(item.DBName, db.Name)
+	item.DBInstance = strings.TrimSpace(db.Name)
+	return item
+}
+
+func mergeDatabaseDiscoveredDefaults(item config.ManagedResource, defaults config.ManagedResource) config.ManagedResource {
+	if strings.TrimSpace(item.DBEngine) == "" || databaseConnectionLooksGenericDefault(item, defaults) {
+		item.DBEngine = defaults.DBEngine
+		item.DBHost = defaults.DBHost
+		item.DBPort = defaults.DBPort
+		item.DBUser = defaults.DBUser
+		item.DBName = defaults.DBName
+		item.DBInstance = defaults.DBInstance
+		return item
+	}
+	if strings.TrimSpace(item.DBHost) == "" {
+		item.DBHost = defaults.DBHost
+	}
+	if strings.TrimSpace(item.DBPort) == "" {
+		item.DBPort = defaults.DBPort
+	}
+	if strings.TrimSpace(item.DBUser) == "" {
+		item.DBUser = defaults.DBUser
+	}
+	if strings.TrimSpace(item.DBName) == "" {
+		item.DBName = defaults.DBName
+	}
+	if strings.TrimSpace(item.DBInstance) == "" {
+		item.DBInstance = defaults.DBInstance
+	}
+	return item
+}
+
+func databaseConnectionLooksGenericDefault(item config.ManagedResource, defaults config.ManagedResource) bool {
+	if strings.EqualFold(strings.TrimSpace(item.DBEngine), strings.TrimSpace(defaults.DBEngine)) {
+		return false
+	}
+	generic := defaultManagedResource(item.Server, config.ResourceKindDatabase, item.Name)
+	return strings.EqualFold(strings.TrimSpace(item.DBEngine), strings.TrimSpace(generic.DBEngine)) &&
+		strings.TrimSpace(item.DBHost) == strings.TrimSpace(generic.DBHost) &&
+		strings.TrimSpace(item.DBPort) == strings.TrimSpace(generic.DBPort) &&
+		strings.TrimSpace(item.DBUser) == strings.TrimSpace(generic.DBUser) &&
+		strings.TrimSpace(item.DBName) == strings.TrimSpace(generic.DBName)
+}
+
+func databaseManagedEndpoint(item config.ManagedResource) string {
+	host := strings.TrimSpace(item.DBHost)
+	port := strings.TrimSpace(item.DBPort)
+	if host == "" {
+		return ""
+	}
+	if port == "" {
+		return host
+	}
+	return host + ":" + port
 }
 
 func containerResourceHasCustomConfig(item config.ManagedResource) bool {
@@ -1689,7 +2334,7 @@ func resourceActionScript(kind resourceKind, action resourceActionKind, name str
 	if action == resourceActionDelete {
 		return ""
 	}
-	if kind == resourceProcesses || kind == resourcePorts {
+	if kind == resourceProcesses || kind == resourcePorts || kind == resourceDatabases {
 		return ""
 	}
 	target := shellQuoteLocal(name)
@@ -1734,7 +2379,7 @@ func resourceLogScript(kind resourceKind, name string, lines int) string {
 		sudoCmd := fmt.Sprintf("sudo -n journalctl -u %s -n %d --no-pager", target, lines)
 		return sudoFallbackScript(cmd, sudoCmd)
 	}
-	if kind == resourceProcesses || kind == resourcePorts {
+	if kind == resourceProcesses || kind == resourcePorts || kind == resourceDatabases {
 		return ""
 	}
 	cmd := fmt.Sprintf("docker logs --tail %d %s", lines, target)
@@ -1783,7 +2428,10 @@ func (m Model) managedResource(kind resourceKind, name string) (config.ManagedRe
 		return config.ManagedResource{}, false
 	}
 	for _, item := range m.resourceFile.Items {
-		if item.Server == server && item.Kind == configKind && item.Name == name {
+		if item.Server == server && item.Kind == configKind && item.Name == name && item.Added {
+			if item.Kind == config.ResourceKindDatabase && !managedDatabaseResourceConfigured(item) {
+				continue
+			}
 			return item, true
 		}
 	}

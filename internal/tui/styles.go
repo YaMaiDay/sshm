@@ -26,6 +26,7 @@ var (
 	detailDangerStyle   = lipgloss.NewStyle().Foreground(red)
 	detailLabelStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	detailValueStyle    = lipgloss.NewStyle().Foreground(valueGray)
+	detailSizeStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("15"))
 
 	cardStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

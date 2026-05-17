@@ -157,7 +157,7 @@ func parseNonNegativeInt(value string) int {
 func (m Model) updateDeploymentEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
-	case "esc", "q", "ctrl+c":
+	case "esc", "ctrl+c":
 		return m.startDeploymentList(m.activeDeployment.HostIndex), nil
 	case "tab", "down":
 		m.deploymentField = deploymentNextField(m.deploymentField, 1, m.deploymentForm.Source)

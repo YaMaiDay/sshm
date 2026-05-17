@@ -53,6 +53,7 @@ const (
 	modeResourceList
 	modeResourceDetail
 	modeResourceAdd
+	modeResourceAddEdit
 	modeResourceLog
 	modeResourceCommandEdit
 	modeResourceConfirm
@@ -128,6 +129,7 @@ const (
 	resourceServices
 	resourceProcesses
 	resourcePorts
+	resourceDatabases
 )
 
 type resourceViewMode int
@@ -216,6 +218,8 @@ type hostState struct {
 	PortDetailsError   string
 	ContainerDetails   []containerDetail
 	ContainerError     string
+	DatabaseDetails    []databaseDetail
+	DatabaseError      string
 }
 
 type collectMsg struct {
@@ -320,6 +324,13 @@ type resourceProcessDetailMsg struct {
 	Index  int
 	PID    string
 	Detail processExtraDetail
+	Err    string
+}
+
+type resourceDatabaseDetailMsg struct {
+	Index  int
+	Name   string
+	Detail databaseExtraDetail
 	Err    string
 }
 
@@ -515,6 +526,17 @@ type Model struct {
 	resourceProcessExtra          processExtraDetail
 	resourceProcessExtraLoading   bool
 	resourceProcessExtraErr       string
+	resourceDatabaseExtraName     string
+	resourceDatabaseExtra         databaseExtraDetail
+	resourceDatabaseExtraLoading  bool
+	resourceDatabaseExtraErr      string
+	resourceDatabaseExtraCache    map[string]databaseExtraCache
+}
+
+type databaseExtraCache struct {
+	Detail  databaseExtraDetail
+	Err     string
+	Loading bool
 }
 
 type resourceCommandForm struct {
@@ -527,6 +549,23 @@ type resourceCommandForm struct {
 	DeleteCommand  string
 	LogCommand     string
 	HealthCommand  string
+	DBEngine       string
+	DBHost         string
+	DBPort         string
+	DBUser         string
+	DBPassword     string
+	DBName         string
+	DBInstance     string
+	DBNote         string
+	DBSource       string
+	DBStatus       string
+	DBRawStatus    string
+	DBEndpoint     string
+	DBContainer    string
+	DBImage        string
+	DBServiceUnit  string
+	DBProcess      string
+	DBPID          string
 }
 
 type choice struct {
@@ -847,6 +886,68 @@ type containerDetail struct {
 	Managed       bool
 	Favorite      bool
 	Missing       bool
+}
+
+type databaseDetail struct {
+	Name        string
+	Engine      string
+	Source      string
+	Status      string
+	RawStatus   string
+	Endpoint    string
+	ServiceUnit string
+	Container   string
+	Image       string
+	Process     string
+	PID         string
+	Protocol    string
+	Port        string
+	Managed     bool
+	Favorite    bool
+	Missing     bool
+	Configured  bool
+}
+
+type databaseExtraDetail struct {
+	Configured      bool
+	Engine          string
+	Host            string
+	Port            string
+	User            string
+	Database        string
+	Version         string
+	Uptime          string
+	Connections     string
+	MaxConnections  string
+	ActiveConns     string
+	IdleConns       string
+	DatabaseCount   string
+	CacheHit        string
+	LockWaits       string
+	LongTx          string
+	Deadlocks       string
+	Questions       string
+	SlowQueries     string
+	SizeBytes       uint64
+	TotalBytes      uint64
+	DBTotalBytes    uint64
+	DatabaseTop     []databaseTableSize
+	DataBytes       uint64
+	IndexBytes      uint64
+	IndexTotalBytes uint64
+	TableCount      string
+	TableTop        []databaseTableSize
+	MemoryUsed      string
+	MemoryPeak      string
+	OpsPerSec       string
+	Clients         string
+	Keyspace        string
+	Raw             map[string]string
+}
+
+type databaseTableSize struct {
+	Name string
+	Size uint64
 }
 
 type containerMountDetail struct {

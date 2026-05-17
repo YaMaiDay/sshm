@@ -187,7 +187,7 @@ func (m Model) resourceRefreshHeaderText() string {
 }
 
 func (m Model) renderResourceBody(width int, height int) string {
-	if m.resourceLoading && len(m.filteredResourceIndexes()) == 0 {
+	if m.resourceLoading && len(m.filteredResourceIndexes()) == 0 && m.hasManagedResources(m.resourceHostIndex) {
 		text := m.t("Loading resources...", "正在加载资源...")
 		if m.resourceLoadingKind != resourceAll {
 			text = m.t("Loading ", "正在加载") + m.resourceKindName(m.resourceLoadingKind) + "..."
@@ -199,7 +199,7 @@ func (m Model) renderResourceBody(width int, height int) string {
 	}
 	indexes := m.filteredResourceIndexes()
 	if len(indexes) == 0 {
-		text := mutedStyle.Render(m.t("No matching resources", "没有匹配的资源"))
+		text := mutedStyle.Render(m.resourceEmptyText())
 		if errText := m.resourceErrorText(); errText != "" {
 			text = redStyle.Render(errText)
 		}
@@ -227,6 +227,16 @@ func (m Model) renderResourceBody(width int, height int) string {
 	lines, selectedTop, selectedBottom := m.resourceCardLines(indexes, width)
 	start, end := dashboardLineWindow(len(lines), selectedTop, selectedBottom, height)
 	return strings.Join(lines[start:end], "\n")
+}
+
+func (m Model) resourceEmptyText() string {
+	if strings.TrimSpace(m.resourceQuery) != "" || m.resourceFilter != resourceFilterAll || (m.resourceKind == resourcePorts && m.resourcePortFilter != resourcePortFilterAll) {
+		return m.t("No matching resources", "没有匹配的资源")
+	}
+	if m.resourceScope == resourceScopeManaged {
+		return m.t("No favorite resources. Press f to favorite an added resource.", "暂无收藏资源。选中已添加资源后按 f 收藏。")
+	}
+	return m.t("No added resources. Press a to open Resource Manager and add one.", "暂无已添加资源。按 a 进入资源管理添加。")
 }
 
 func (m Model) renderResourceListBox(lines []string, width int, height int) string {
@@ -258,28 +268,40 @@ func (m Model) resourceErrorTextForKind(kind resourceKind) string {
 		return ""
 	}
 	if kind == resourceContainers {
-		return strings.TrimSpace(m.states[m.resourceHostIndex].ContainerError)
+		return m.friendlyResourceErrorText(m.states[m.resourceHostIndex].ContainerError)
 	}
 	if kind == resourcePorts {
-		return strings.TrimSpace(m.states[m.resourceHostIndex].PortDetailsError)
+		return m.friendlyResourceErrorText(m.states[m.resourceHostIndex].PortDetailsError)
 	}
 	if kind == resourceProcesses {
-		return strings.TrimSpace(m.states[m.resourceHostIndex].PortDetailsError)
+		return m.friendlyResourceErrorText(m.states[m.resourceHostIndex].PortDetailsError)
+	}
+	if kind == resourceDatabases {
+		return m.friendlyResourceErrorText(m.states[m.resourceHostIndex].DatabaseError)
 	}
 	if kind == resourceAll {
 		parts := []string{}
-		if errText := strings.TrimSpace(m.states[m.resourceHostIndex].ContainerError); errText != "" {
+		seen := map[string]bool{}
+		add := func(errText string) {
+			errText = strings.TrimSpace(errText)
+			if errText == "" || seen[errText] {
+				return
+			}
+			seen[errText] = true
 			parts = append(parts, errText)
 		}
-		if errText := strings.TrimSpace(m.states[m.resourceHostIndex].ServiceError); errText != "" {
-			parts = append(parts, errText)
+		if errText := m.friendlyResourceErrorText(m.states[m.resourceHostIndex].ContainerError); errText != "" {
+			add(errText)
 		}
-		if errText := strings.TrimSpace(m.states[m.resourceHostIndex].PortDetailsError); errText != "" {
-			parts = append(parts, errText)
+		if errText := m.friendlyResourceErrorText(m.states[m.resourceHostIndex].ServiceError); errText != "" {
+			add(errText)
+		}
+		if errText := m.friendlyResourceErrorText(m.states[m.resourceHostIndex].PortDetailsError); errText != "" {
+			add(errText)
 		}
 		return strings.Join(parts, " / ")
 	}
-	return strings.TrimSpace(m.states[m.resourceHostIndex].ServiceError)
+	return m.friendlyResourceErrorText(m.states[m.resourceHostIndex].ServiceError)
 }
 
 func (m Model) resourceCardLines(indexes []resourceRef, width int) ([]string, int, int) {
@@ -382,6 +404,22 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 			cardBottomLine(width, borderStyle),
 		}, "\n")
 	}
+	if ref.Kind == resourceDatabases {
+		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		title := databaseTitleMark() + " " + databaseDisplayTitle(item)
+		title = m.resourceMarkedTitle(ref, title, item.Favorite)
+		meta := cardMutedStyle.Render(m.databaseCardMeta(item))
+		return strings.Join([]string{
+			cardTopLine(width, fitANSI(title, maxInt(8, width-12)), meta, m.databaseStatusDot(item), borderStyle),
+			cardContentLine(width, m.t("Status", "状态")+"  "+m.databaseStatusLine(item), borderStyle),
+			cardContentLine(width, m.t("Endpoint", "地址")+"  "+cardMutedStyle.Render(emptyDash(item.Endpoint)), borderStyle),
+			cardContentLine(width, m.databaseCardOwnerLine(item), borderStyle),
+			cardInnerSeparatorLine(width, borderStyle),
+			cardContentLine(width, m.databaseCardStorageLine(item, width), borderStyle),
+			cardContentLine(width, m.databaseCardCountLine(item), borderStyle),
+			cardBottomLine(width, borderStyle),
+		}, "\n")
+	}
 	item := m.mergedServiceDetail(m.states[m.resourceHostIndex].ServiceDetails[ref.Index])
 	kind := serviceDetailKind(item)
 	title := m.resourceTypeBadge(ref.Kind) + " " + item.Unit
@@ -431,10 +469,30 @@ func (m Model) resourceTypeBadge(kind resourceKind) string {
 	case resourcePorts:
 		label = m.t("[Port]", "[端口]")
 		mark = "◌"
+	case resourceDatabases:
+		label = m.t("[Database]", "[库]")
+		mark = "▤"
 	default:
 		label = m.t("[Resource]", "[资源]")
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(resourceKindColor(kind)).Render(mark + " " + label)
+}
+
+func databaseDisplayTitle(item databaseDetail) string {
+	engine := strings.TrimSpace(item.Engine)
+	name := strings.TrimSpace(item.Name)
+	if engine == "" {
+		return detailValueStyle.Render(emptyDash(name))
+	}
+	engineLabel := lipgloss.NewStyle().Bold(true).Foreground(resourceKindColor(resourceDatabases)).Render("[" + engine + "]")
+	if name == "" {
+		return engineLabel
+	}
+	return engineLabel + " " + detailValueStyle.Render(name)
+}
+
+func databaseTitleMark() string {
+	return lipgloss.NewStyle().Bold(true).Foreground(resourceKindColor(resourceDatabases)).Render("▤")
 }
 
 func resourceKindColor(kind resourceKind) lipgloss.Color {
@@ -447,6 +505,8 @@ func resourceKindColor(kind resourceKind) lipgloss.Color {
 		return lipgloss.Color("201")
 	case resourcePorts:
 		return yellow
+	case resourceDatabases:
+		return lipgloss.Color("208")
 	default:
 		return valueGray
 	}
@@ -516,6 +576,11 @@ func (m Model) resourceListLine(ref resourceRef, selected bool, width int) strin
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
 		displayName := m.resourceTypeBadge(ref.Kind) + " " + emptyDash(item.Process)
 		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.ProcessFavorite, nameStyle.Render(fitANSI(displayName, nameWidth)), portListenText(item), "PID "+emptyDash(item.PID), m.portRiskText(item), width, nameWidth, statusWidth, infoWidth)
+	}
+	if ref.Kind == resourceDatabases {
+		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		displayName := databaseTitleMark() + " " + databaseDisplayTitle(item)
+		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), m.databaseStatusStyled(item), item.Engine+"  "+emptyDash(item.Source), firstNonEmpty(item.Endpoint, item.RawStatus), width, nameWidth, statusWidth, infoWidth)
 	}
 	item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
 	kind := serviceDetailKind(item)
@@ -605,6 +670,213 @@ func (m Model) containerStatusLabel(item containerDetail) string {
 		return m.t("Stopped", "停止")
 	default:
 		return m.t("Unknown", "未知")
+	}
+}
+
+func (m Model) databaseStatusLabel(item databaseDetail) string {
+	if m.databaseConnectionAvailable(item) {
+		return m.t("Running", "运行")
+	}
+	switch item.Status {
+	case "missing":
+		return m.t("Not found", "未发现")
+	case "problem":
+		return m.t("Problem", "异常")
+	case "running":
+		return m.t("Running", "运行")
+	case "stopped":
+		return m.t("Stopped", "停止")
+	default:
+		return m.t("Unknown", "未知")
+	}
+}
+
+func (m Model) databaseStatusStyled(item databaseDetail) string {
+	if m.databaseConnectionAvailable(item) {
+		return greenStyle.Render(m.databaseStatusLabel(item))
+	}
+	switch item.Status {
+	case "running":
+		return greenStyle.Render(m.databaseStatusLabel(item))
+	case "problem", "missing":
+		return redStyle.Render(m.databaseStatusLabel(item))
+	case "stopped":
+		return mutedStyle.Render(m.databaseStatusLabel(item))
+	default:
+		return yellowStyle.Render(m.databaseStatusLabel(item))
+	}
+}
+
+func (m Model) databaseStatusLine(item databaseDetail) string {
+	raw := strings.TrimSpace(item.RawStatus)
+	if m.databaseConnectionAvailable(item) {
+		if raw == "" || strings.EqualFold(raw, m.t("Configured", "已配置")) {
+			raw = m.t("Connected", "已连接")
+		}
+		return greenStyle.Render(m.databaseStatusLabel(item)) + "  " + greenStyle.Render(raw)
+	}
+	if raw == "" {
+		raw = m.databaseStatusLabel(item)
+	}
+	switch item.Status {
+	case "running":
+		return greenStyle.Render(m.databaseStatusLabel(item)) + "  " + greenStyle.Render(raw)
+	case "problem", "missing":
+		return redStyle.Render(m.databaseStatusLabel(item)) + "  " + redStyle.Render(raw)
+	case "stopped":
+		return mutedStyle.Render(m.databaseStatusLabel(item)) + "  " + mutedStyle.Render(raw)
+	default:
+		return yellowStyle.Render(m.databaseStatusLabel(item)) + "  " + yellowStyle.Render(raw)
+	}
+}
+
+func (m Model) databaseStatusDot(item databaseDetail) string {
+	if m.databaseConnectionAvailable(item) {
+		return greenStyle.Render("●")
+	}
+	switch item.Status {
+	case "running":
+		return greenStyle.Render("●")
+	case "problem", "missing":
+		return redStyle.Render("●")
+	case "stopped":
+		return mutedStyle.Render("●")
+	default:
+		return yellowStyle.Render("●")
+	}
+}
+
+func (m Model) databaseConnectionAvailable(item databaseDetail) bool {
+	if item.Status == "running" {
+		return false
+	}
+	d, errText, ok := m.databaseCardExtra(item)
+	if !ok || strings.TrimSpace(errText) != "" {
+		return false
+	}
+	return strings.TrimSpace(d.Version) != ""
+}
+
+func (m Model) databaseFoundText(item databaseDetail, instance string) string {
+	if item.Missing {
+		return yesNoText(m.isChineseUI(), false)
+	}
+	if strings.TrimSpace(instance) != "" ||
+		strings.TrimSpace(item.Container) != "" ||
+		strings.TrimSpace(item.ServiceUnit) != "" ||
+		strings.TrimSpace(item.Process) != "" {
+		return yesNoText(m.isChineseUI(), true)
+	}
+	if item.Configured {
+		return m.t("External", "外部")
+	}
+	return yesNoText(m.isChineseUI(), true)
+}
+
+func (m Model) databaseCardOwnerLine(item databaseDetail) string {
+	if strings.TrimSpace(item.Container) != "" {
+		return m.t("Container", "容器") + "  " + cardMutedStyle.Render(item.Container)
+	}
+	if strings.TrimSpace(item.Process) != "" {
+		return m.t("Process", "进程") + "  " + cardMutedStyle.Render(item.Process)
+	}
+	if strings.TrimSpace(item.ServiceUnit) != "" {
+		return m.t("Service", "服务") + "  " + cardMutedStyle.Render(item.ServiceUnit)
+	}
+	return m.t("Source", "来源") + "  " + cardMutedStyle.Render(emptyDash(item.Source))
+}
+
+func (m Model) databaseCardStorageLine(item databaseDetail, width int) string {
+	label := m.t("Storage", "存储")
+	d, errText, ok := m.databaseCardExtra(item)
+	if !ok {
+		return label + "  " + cardMutedStyle.Render(m.t("Loading", "读取中"))
+	}
+	if errText != "" {
+		return label + "  " + m.databaseCardErrorText(errText)
+	}
+	if normalizeDatabaseEngine(item.Engine) == "Redis" {
+		return label + "  " + detailValueStyle.Render(emptyDash(firstNonEmpty(d.MemoryUsed, bytesHuman(d.SizeBytes))))
+	}
+	if d.SizeBytes > 0 && d.TotalBytes > 0 {
+		percent := float64(d.SizeBytes) * 100 / float64(d.TotalBytes)
+		thresholds := m.metricThresholds()
+		barWidth := 5
+		if width >= 42 {
+			barWidth = 6
+		}
+		return label + "  " + percentBarWidthWithThreshold(percent, barWidth, thresholds.DiskWarn, thresholds.DiskCrit) + "  " + bytesHuman(d.SizeBytes) + "/" + bytesHuman(d.TotalBytes)
+	}
+	if d.SizeBytes > 0 {
+		return label + "  " + detailValueStyle.Render(bytesHuman(d.SizeBytes))
+	}
+	return label + "  " + cardMutedStyle.Render("-")
+}
+
+func (m Model) databaseCardCountLine(item databaseDetail) string {
+	d, errText, ok := m.databaseCardExtra(item)
+	if !ok || errText != "" {
+		return m.t("Structure", "结构") + "  " + cardMutedStyle.Render("-")
+	}
+	if normalizeDatabaseEngine(item.Engine) == "Redis" {
+		return m.t("Structure", "结构") + "  " + cardMutedStyle.Render("Key ") + detailValueStyle.Render(emptyDash(d.Keyspace))
+	}
+	parts := []string{}
+	if d.DatabaseCount != "" {
+		parts = append(parts, cardMutedStyle.Render(m.t("DB ", "库 "))+detailValueStyle.Render(d.DatabaseCount))
+	}
+	if d.TableCount != "" {
+		parts = append(parts, cardMutedStyle.Render(m.t("Tables ", "表 "))+detailValueStyle.Render(d.TableCount))
+	}
+	if d.IndexTotalBytes > 0 {
+		parts = append(parts, cardMutedStyle.Render(m.t("Index ", "索引 "))+detailValueStyle.Render(bytesHuman(d.IndexTotalBytes)))
+	}
+	if len(parts) == 0 {
+		parts = append(parts, cardMutedStyle.Render("-"))
+	}
+	return m.t("Structure", "结构") + "  " + strings.Join(parts, cardMutedStyle.Render("  "))
+}
+
+func (m Model) databaseCardMeta(item databaseDetail) string {
+	if d, errText, ok := m.databaseCardExtra(item); ok && errText == "" {
+		if seconds := parseUint64Text(d.Raw["Uptime"]); seconds > 0 {
+			return m.dashboardDurationShort(time.Duration(seconds) * time.Second)
+		}
+	}
+	raw := strings.TrimSpace(item.RawStatus)
+	lower := strings.ToLower(raw)
+	switch {
+	case strings.HasPrefix(lower, "up "):
+		return m.dockerStatusDashboardMeta(raw, "Up")
+	case strings.HasPrefix(lower, "created"):
+		return m.dockerStatusDashboardMeta(raw, "Created")
+	default:
+		return ""
+	}
+}
+
+func (m Model) databaseCardExtra(item databaseDetail) (databaseExtraDetail, string, bool) {
+	if cache, ok := m.databaseExtraCache(item.Name); ok {
+		if cache.Loading {
+			return databaseExtraDetail{}, "", false
+		}
+		return cache.Detail, cache.Err, true
+	}
+	if m.resourceDatabaseExtraName != item.Name || m.resourceDatabaseExtraLoading {
+		return databaseExtraDetail{}, "", false
+	}
+	return m.resourceDatabaseExtra, strings.TrimSpace(m.resourceDatabaseExtraErr), true
+}
+
+func (m Model) databaseCardErrorText(errText string) string {
+	lower := strings.ToLower(errText)
+	switch {
+	case strings.Contains(errText, "未配置") || strings.Contains(lower, "credential") || strings.Contains(lower, "authentication"):
+		return yellowStyle.Render(m.t("Need credentials", "未配置账号"))
+	case strings.Contains(errText, "客户端不可用") || strings.Contains(lower, "client"):
+		return yellowStyle.Render(m.t("Client unavailable", "客户端不可用"))
+	default:
+		return redStyle.Render(m.t("Failed", "获取失败"))
 	}
 }
 
@@ -906,10 +1178,7 @@ func serviceProgramPath(item serviceDetail) string {
 func (m Model) renderResourceDetail() string {
 	width := detailFrameWidth(m.width)
 	lines := expandLines(m.resourceDetailLines())
-	bodyHeight := m.height - 4
-	if bodyHeight < 1 {
-		bodyHeight = 1
-	}
+	bodyHeight := m.resourceDetailBodyHeight()
 	maxScroll := maxInt(0, len(lines)-bodyHeight)
 	m.resourceScroll = clampInt(m.resourceScroll, 0, maxScroll)
 	if len(lines) > bodyHeight {
@@ -926,11 +1195,16 @@ func (m Model) renderResourceDetail() string {
 }
 
 func (m Model) resourceDetailHelp() string {
-	partsEN := []string{"Scroll ↑↓/jk"}
-	partsZH := []string{"滚动 ↑↓/jk"}
-	if m.selectedResourceManaged() {
-		partsEN = append(partsEN, "Edit e")
-		partsZH = append(partsZH, "编辑 e")
+	partsEN := []string{"Scroll ↑↓/jk", "Page Ctrl+u/d"}
+	partsZH := []string{"滚动 ↑↓/jk", "翻页 Ctrl+u/d"}
+	if m.selectedResourceManaged() || m.currentSelectedResourceKind() == resourceDatabases {
+		if m.currentSelectedResourceKind() == resourceDatabases {
+			partsEN = append(partsEN, "Config e")
+			partsZH = append(partsZH, "配置 e")
+		} else {
+			partsEN = append(partsEN, "Edit e")
+			partsZH = append(partsZH, "编辑 e")
+		}
 	}
 	partsEN = append(partsEN, "Remove x")
 	partsZH = append(partsZH, "移出 x")
@@ -976,6 +1250,10 @@ func (m Model) currentSelectedResourceName() string {
 		case resourcePorts:
 			if item, ok := m.selectedPort(); ok {
 				return item.Protocol + "/" + item.Port
+			}
+		case resourceDatabases:
+			if item, ok := m.selectedDatabase(); ok {
+				return item.Name
 			}
 		}
 	}
@@ -1085,6 +1363,47 @@ func (m Model) resourceDetailLines() []string {
 			m.detailRow(m.t("Restart", "重启"), "r  "+m.resourceCommandPreview(resourceProcesses, resourceActionRestart, item.Process)),
 			m.detailRow(m.t("Logs", "日志"), "o  "+m.resourceLogCommandPreview(resourceProcesses, item.Process, 200)),
 		)
+		return lines
+	}
+	if ref, ok := m.selectedResourceRef(); ok && ref.Kind == resourceDatabases {
+		item, ok := m.selectedDatabase()
+		if !ok {
+			return []string{m.t("No selected database", "没有选中的数据库")}
+		}
+		instance := ""
+		note := ""
+		if managed, ok := m.managedResource(resourceDatabases, item.Name); ok {
+			instance = managed.DBInstance
+			note = managed.DBNote
+		}
+		lines := []string{
+			sectionTitle(m.t("Basic", "基础信息")),
+			m.detailRow(m.t("Type", "类型"), m.t("Database schema", "库")),
+			m.detailRow(m.t("Server", "服务器"), m.resourceHostTitle()),
+			m.detailRow(m.t("Database", "库名"), item.Name),
+			m.detailRow(m.t("Instance", "实例"), emptyDash(instance)),
+			m.detailRow(m.t("Engine", "数据库"), item.Engine),
+			m.detailRow(m.t("Note", "备注"), emptyDash(note)),
+			m.detailRow(m.t("Favorites", "收藏"), yesNoText(m.isChineseUI(), item.Favorite)),
+			m.detailRow(m.t("Found", "发现"), m.databaseFoundText(item, instance)),
+			m.detailRow(m.t("Status", "状态"), m.databaseStatusLine(item)),
+			m.detailRow(m.t("Source", "来源"), emptyDash(item.Source)),
+			m.detailRow(m.t("Endpoint", "地址"), emptyDash(item.Endpoint)),
+			m.detailRow(m.t("Connection", "连接方式"), m.t("Run from server", "通过服务器执行")),
+			m.detailRow(m.t("Runner", "执行位置"), m.resourceHostTitle()),
+			m.detailRow(m.t("Jump host", "跳板机"), m.resourceHostJumpText(m.resourceHostIndex)),
+			"",
+			sectionTitle(m.t("Runtime", "运行信息")),
+			m.detailRow(m.t("Container", "容器"), emptyDash(item.Container)),
+			m.detailRow(m.t("Image", "镜像"), emptyDash(item.Image)),
+			m.detailRow(m.t("Service", "服务"), emptyDash(item.ServiceUnit)),
+			m.detailRow(m.t("Process", "进程"), emptyDash(item.Process)),
+			m.detailRow("PID", emptyDash(item.PID)),
+			m.detailRow(m.t("Protocol", "协议"), emptyDash(item.Protocol)),
+			m.detailRow(m.t("Port", "端口"), emptyDash(item.Port)),
+			"",
+		}
+		lines = append(lines, m.databaseExtraDetailLines(item)...)
 		return lines
 	}
 	item, ok := m.selectedService()
@@ -1403,6 +1722,146 @@ func (m Model) containerExtraDetailLines() []string {
 	return lines
 }
 
+func (m Model) databaseExtraDetailLines(item databaseDetail) []string {
+	lines := []string{"", sectionTitle(m.t("Deep metrics", "深度指标"))}
+	if m.resourceDatabaseExtraName != item.Name {
+		return append(lines, m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中")))
+	}
+	if m.resourceDatabaseExtraLoading {
+		return append(lines, m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中")))
+	}
+	if strings.TrimSpace(m.resourceDatabaseExtraErr) != "" {
+		lines = append(lines,
+			m.detailRow(m.t("Status", "状态"), redStyle.Render(m.resourceDatabaseExtraErr)),
+			m.detailRow(m.t("Config", "配置"), m.t("Press e to configure or update database connection.", "按 e 配置或更新数据库连接。")),
+		)
+		return lines
+	}
+	d := m.resourceDatabaseExtra
+	lines = append(lines,
+		m.detailRow(m.t("Version", "版本"), emptyDash(d.Version)),
+		m.detailRow(m.t("Uptime", "运行时间"), emptyDash(d.Uptime)),
+	)
+	lines = append(lines, "", sectionTitle(m.t("Storage", "存储")))
+	if d.SizeBytes > 0 || d.DataBytes > 0 || d.IndexBytes > 0 || d.DBTotalBytes > 0 || d.DatabaseCount != "" || len(d.DatabaseTop) > 0 || d.TableCount != "" || len(d.TableTop) > 0 {
+		if d.DatabaseCount != "" || d.DBTotalBytes > 0 {
+			total := detailValueStyle.Render(emptyDash(d.DatabaseCount))
+			if d.DBTotalBytes > 0 {
+				total += "  " + databaseSizeValue(bytesHuman(d.DBTotalBytes))
+			}
+			lines = append(lines, m.detailRow(m.t("Databases", "数据库"), total))
+		}
+		if len(d.DatabaseTop) > 0 {
+			lines = append(lines, m.detailRow(m.t("Database Top 10", "库排行 Top 10"), ""))
+			for _, database := range d.DatabaseTop {
+				lines = append(lines, m.databaseTableTopLine(database))
+			}
+		}
+		if strings.TrimSpace(d.Database) != "" {
+			lines = append(lines, m.detailRow(m.t("Current DB", "当前库"), d.Database))
+		}
+		lines = append(lines, m.detailRow(m.t("Used", "占用"), m.databaseStorageUsageText(d)))
+		if d.DataBytes > 0 {
+			lines = append(lines, m.detailRow(m.t("Data", "数据"), databaseSizeValue(bytesHuman(d.DataBytes))))
+		}
+		if d.IndexBytes > 0 {
+			lines = append(lines, m.detailRow(m.t("Index", "索引"), databaseSizeValue(bytesHuman(d.IndexBytes))))
+		}
+		if d.IndexTotalBytes > 0 {
+			lines = append(lines, m.detailRow(m.t("Total index", "总索引"), databaseSizeValue(bytesHuman(d.IndexTotalBytes))))
+		}
+		if d.TableCount != "" {
+			lines = append(lines, m.detailRow(m.t("Tables", "表总数"), d.TableCount))
+		}
+		if len(d.TableTop) > 0 {
+			lines = append(lines, m.detailRow(m.t("Table Top 10", "表排行 Top 10"), ""))
+			for _, table := range d.TableTop {
+				lines = append(lines, m.databaseTableTopLine(table))
+			}
+		}
+	} else if d.MemoryUsed != "" {
+		lines = append(lines,
+			m.detailRow(m.t("Used", "占用"), databaseSizeValue(d.MemoryUsed)),
+			m.detailRow(m.t("Peak", "峰值"), databaseSizeValue(emptyDash(d.MemoryPeak))),
+		)
+	} else {
+		lines = append(lines, m.detailRow(m.t("Used", "占用"), m.t("Not collected", "未获取")))
+	}
+	lines = append(lines, "", sectionTitle(m.t("Performance", "性能")))
+	if d.Connections != "" || d.MaxConnections != "" {
+		conn := emptyDash(d.Connections)
+		if d.MaxConnections != "" {
+			conn += " / " + d.MaxConnections
+		}
+		lines = append(lines, m.detailRow(m.t("Connections", "连接"), conn))
+	}
+	if d.ActiveConns != "" || d.IdleConns != "" {
+		lines = append(lines, m.detailRow(m.t("Connection state", "连接状态"), fmt.Sprintf("%s %s  %s %s", m.t("active", "活跃"), emptyDash(d.ActiveConns), m.t("idle", "空闲"), emptyDash(d.IdleConns))))
+	}
+	if d.CacheHit != "" {
+		lines = append(lines, m.detailRow(m.t("Cache hit", "缓存命中"), d.CacheHit))
+	}
+	if d.LockWaits != "" || d.LongTx != "" || d.Deadlocks != "" {
+		lines = append(lines,
+			m.detailRow(m.t("Lock waits", "锁等待"), emptyDash(d.LockWaits)),
+			m.detailRow(m.t("Long tx", "长事务"), emptyDash(d.LongTx)),
+			m.detailRow(m.t("Deadlocks", "死锁"), emptyDash(d.Deadlocks)),
+		)
+	}
+	if d.Questions != "" {
+		lines = append(lines, m.detailRow("Questions", d.Questions))
+	}
+	if d.SlowQueries != "" {
+		lines = append(lines, m.detailRow(m.t("Slow queries", "慢查询"), d.SlowQueries))
+	}
+	if d.OpsPerSec != "" || d.Clients != "" || d.Keyspace != "" {
+		lines = append(lines,
+			m.detailRow("OPS", emptyDash(d.OpsPerSec)),
+			m.detailRow(m.t("Clients", "客户端"), emptyDash(d.Clients)),
+			m.detailRow("Keyspace", emptyDash(d.Keyspace)),
+		)
+	}
+	return lines
+}
+
+func (m Model) databaseTableTopLine(table databaseTableSize) string {
+	const labelWidth = 10
+	nameWidth := 44
+	if m.detailContentWidth() < 72 {
+		nameWidth = 34
+	}
+	name := fitANSI(emptyDash(table.Name), nameWidth)
+	size := "-"
+	if table.Size > 0 {
+		size = bytesHuman(table.Size)
+	}
+	return strings.Repeat(" ", labelWidth) +
+		detailValueStyle.Render(padVisible(name, nameWidth)+"  ") +
+		databaseSizeValue(size)
+}
+
+func (m Model) databaseStorageUsageText(d databaseExtraDetail) string {
+	used := d.SizeBytes
+	total := d.TotalBytes
+	if used == 0 {
+		return m.t("Not collected", "未获取")
+	}
+	if total == 0 {
+		return databaseSizeValue(bytesHuman(used))
+	}
+	percent := float64(used) * 100 / float64(total)
+	thresholds := m.metricThresholds()
+	return fmt.Sprintf("%s  %s / %s", percentBarWithThreshold(percent, thresholds.DiskWarn, thresholds.DiskCrit), bytesHuman(used), bytesHuman(total))
+}
+
+func databaseSizeValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "-" {
+		return detailValueStyle.Render(emptyDash(value))
+	}
+	return detailSizeStyle.Render(value)
+}
+
 func expandLines(lines []string) []string {
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -1585,7 +2044,7 @@ func (m Model) renderResourceCommandEdit() string {
 		bodyWidth = 40
 	}
 	lines := []string{
-		detailSubTitle(m.t("Resource Commands", "资源命令")),
+		detailSubTitle(m.resourceCommandEditHeading()),
 		m.detailRow(m.t("Resource", "资源"), m.resourceCommandForm.Name),
 		m.detailRow(m.t("Type", "类型"), m.resourceKindName(m.resourceCommandForm.Kind)),
 		"",
@@ -1608,7 +2067,21 @@ func (m Model) renderResourceCommandEdit() string {
 		Width(width).
 		Render(strings.Join(lines[start:end], "\n"))
 	help := renderHelp(width, m.t("Save Enter  Move Tab/↑↓  Cursor ←→  Back Esc", "保存 Enter  移动 Tab/↑↓  光标 ←→  返回 Esc"))
-	return strings.Join([]string{titleStyle.Render(fitANSI(m.t("Edit Resource Commands", "编辑资源命令"), width)), body, help}, "\n")
+	return strings.Join([]string{titleStyle.Render(fitANSI(m.resourceCommandEditTitle(), width)), body, help}, "\n")
+}
+
+func (m Model) resourceCommandEditHeading() string {
+	if m.resourceCommandForm.Kind == resourceDatabases {
+		return m.t("Database Connection", "数据库连接")
+	}
+	return m.t("Resource Commands", "资源命令")
+}
+
+func (m Model) resourceCommandEditTitle() string {
+	if m.resourceCommandForm.Kind == resourceDatabases {
+		return m.t("Configure Database", "配置数据库")
+	}
+	return m.t("Edit Resource Commands", "编辑资源命令")
 }
 
 func (m Model) renderResourceAdd() string {
@@ -1666,8 +2139,156 @@ func (m Model) renderResourceAdd() string {
 		headerParts = append(headerParts, m.dashboardStatusHeaderText(m.status))
 	}
 	header := strings.Join(headerParts, "  ")
-	help := renderHelp(width, m.t("Move ↑↓/jk  Pane Tab  Type ←→/hl/g  Search /  Add Enter  Remove x  Edit e  Refresh r  Back Esc", "移动 ↑↓/jk  切栏 Tab  类型 ←→/hl/g  搜索 /  添加 Enter  移出 x  编辑 e  刷新 r  返回 Esc"))
+	help := renderHelp(width, m.resourceManageHelp())
 	return strings.Join([]string{titleStyle.Render(fitANSI(header, width)), lipgloss.JoinHorizontal(lipgloss.Top, left, right), help}, "\n")
+}
+
+func (m Model) resourceManageHelp() string {
+	partsEN := []string{"Move ↑↓/jk", "Pane Tab", "Type ←→/g", "Search /"}
+	partsZH := []string{"移动 ↑↓/jk", "切栏 Tab", "类型 ←→/g", "搜索 /"}
+	if m.resourceManagePane == 0 {
+		if m.resourceAddKind == resourceDatabases {
+			partsEN = append(partsEN, "Config Enter/f")
+			partsZH = append(partsZH, "配置 Enter/f")
+			partsEN = append(partsEN, "New n")
+			partsZH = append(partsZH, "新建 n")
+		} else {
+			partsEN = append(partsEN, "Add Enter/f")
+			partsZH = append(partsZH, "添加 Enter/f")
+		}
+	} else {
+		partsEN = append(partsEN, "Remove Enter/x", "Edit e")
+		partsZH = append(partsZH, "移出 Enter/x", "编辑 e")
+	}
+	partsEN = append(partsEN, "Refresh r", "Back q/Esc")
+	partsZH = append(partsZH, "刷新 r", "返回 q/Esc")
+	return m.t(strings.Join(partsEN, "  "), strings.Join(partsZH, "  "))
+}
+
+func (m Model) renderResourceAddEdit() string {
+	width := detailFrameWidth(m.width)
+	bodyWidth := width - 4
+	if bodyWidth < 40 {
+		bodyWidth = 40
+	}
+	lines := []string{
+		detailSubTitle(m.resourceAddDatabaseConfigTitle()),
+	}
+	lines = append(lines, m.resourceAddDatabaseInstanceLines()...)
+	lines = append(lines, "")
+	for i := 0; i < resourceAddFieldCount(m.resourceAddKind); i++ {
+		lines = append(lines, m.resourceAddEditFieldLine(i, bodyWidth))
+	}
+	bodyHeight := m.height - 3
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	start, end := visibleRange(len(lines), maxInt(0, m.resourceAddField+5), bodyHeight)
+	body := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines[start:end], "\n"))
+	help := renderHelp(width, m.t("Save Enter  Move Tab/↑↓  Cursor ←→  Back Esc", "保存 Enter  移动 Tab/↑↓  光标 ←→  返回 Esc"))
+	return strings.Join([]string{titleStyle.Render(fitANSI(m.resourceAddDatabaseConfigTitle(), width)), body, help}, "\n")
+}
+
+func (m Model) resourceAddDatabaseConfigTitle() string {
+	if strings.TrimSpace(m.resourceCommandForm.DBInstance) != "" {
+		return m.t("Configure Database", "配置数据库")
+	}
+	return m.t("Add External Database", "新增外部数据库")
+}
+
+func (m Model) resourceAddDatabaseInstanceLines() []string {
+	lines := []string{}
+	if strings.TrimSpace(m.resourceCommandForm.DBInstance) != "" {
+		lines = append(lines,
+			sectionTitle(m.t("Discovered instance", "发现实例")),
+			m.detailRow(m.t("Instance", "实例"), m.resourceCommandForm.DBInstance),
+			m.detailRow(m.t("Engine", "数据库"), emptyDash(m.resourceCommandForm.DBEngine)),
+			m.detailRow(m.t("Status", "状态"), m.resourceAddDatabaseStatusLine()),
+			m.detailRow(m.t("Source", "来源"), emptyDash(m.resourceCommandForm.DBSource)),
+			m.detailRow(m.t("Endpoint", "地址"), emptyDash(m.resourceCommandForm.DBEndpoint)),
+		)
+		if strings.TrimSpace(m.resourceCommandForm.DBContainer) != "" {
+			lines = append(lines, m.detailRow(m.t("Container", "容器"), m.resourceCommandForm.DBContainer))
+		}
+		if strings.TrimSpace(m.resourceCommandForm.DBImage) != "" {
+			lines = append(lines, m.detailRow(m.t("Image", "镜像"), m.resourceCommandForm.DBImage))
+		}
+		if strings.TrimSpace(m.resourceCommandForm.DBServiceUnit) != "" {
+			lines = append(lines, m.detailRow(m.t("Service", "服务"), m.resourceCommandForm.DBServiceUnit))
+		}
+		if strings.TrimSpace(m.resourceCommandForm.DBProcess) != "" {
+			lines = append(lines, m.detailRow(m.t("Process", "进程"), m.resourceCommandForm.DBProcess))
+		}
+		if strings.TrimSpace(m.resourceCommandForm.DBPID) != "" {
+			lines = append(lines, m.detailRow("PID", m.resourceCommandForm.DBPID))
+		}
+	} else {
+		lines = append(lines,
+			sectionTitle(m.t("Connection", "连接")),
+			m.detailRow(m.t("Source", "来源"), m.t("External", "外部")),
+		)
+	}
+	lines = append(lines,
+		m.detailRow(m.t("Connection", "连接方式"), m.t("Run from server", "通过服务器执行")),
+		m.detailRow(m.t("Runner", "执行位置"), m.resourceHostTitle()),
+		m.detailRow(m.t("Jump host", "跳板机"), m.resourceHostJumpText(m.resourceHostIndex)),
+		"",
+		sectionTitle(m.t("Database schema", "库配置")),
+	)
+	return lines
+}
+
+func (m Model) resourceAddDatabaseStatusLine() string {
+	raw := strings.TrimSpace(m.resourceCommandForm.DBRawStatus)
+	item := databaseDetail{Status: m.resourceCommandForm.DBStatus, RawStatus: raw}
+	return m.databaseStatusLine(item)
+}
+
+func (m Model) resourceAddEditFieldLine(field int, width int) string {
+	label := m.resourceAddEditFieldName(field)
+	value := m.resourceAddFieldValue(field)
+	inputWidth := width - 18
+	if inputWidth < 18 {
+		inputWidth = 18
+	}
+	display := commandInputText(value, m.resourceAddCursor, m.resourceAddField == field, inputWidth)
+	if m.resourceCommandForm.Kind == resourceDatabases && field == 0 {
+		display = m.resourceAddDatabaseEngineDisplay(inputWidth)
+	}
+	prefix := "  "
+	style := detailValueStyle
+	if m.resourceAddField == field {
+		prefix = "▶ "
+		style = blueStyle.Bold(true)
+	}
+	return fitANSI(prefix+style.Render(padVisible(label, 12))+"  "+display, width)
+}
+
+func (m Model) resourceAddDatabaseEngineDisplay(width int) string {
+	value := normalizeDatabaseEngine(m.resourceCommandForm.DBEngine)
+	if value == "" {
+		value = "MySQL"
+	}
+	text := value
+	if m.resourceAddField == 0 {
+		text = "← " + text + " →"
+	}
+	return fitANSI(text, width)
+}
+
+func (m Model) resourceAddEditFieldName(field int) string {
+	if m.resourceAddKind == resourceDatabases {
+		return m.resourceCommandFieldName(field)
+	}
+	if field == 0 {
+		return m.t("Name", "名称")
+	}
+	return m.resourceCommandFieldName(field - 1)
 }
 
 func (m Model) resourceManageTypeTabs() string {
@@ -1676,6 +2297,20 @@ func (m Model) resourceManageTypeTabs() string {
 
 func (m Model) resourceManageCollectedText() string {
 	return m.resourceRefreshHeaderText()
+}
+
+func (m Model) resourceHostJumpText(index int) string {
+	if index < 0 || index >= len(m.states) {
+		return m.t("None", "无")
+	}
+	h := m.states[index].Host
+	if strings.TrimSpace(h.JumpHostRef) != "" {
+		return h.JumpHostRef
+	}
+	if strings.TrimSpace(h.JumpTarget()) != "" {
+		return h.JumpTarget()
+	}
+	return m.t("None", "无")
 }
 
 func (m Model) resourceAddFieldLine(field int, label string, value string, width int) string {
@@ -1839,6 +2474,12 @@ func (m Model) resourceRefForManagedItem(item config.ManagedResource) (resourceR
 				return resourceRef{Kind: resourcePorts, Index: i}, true
 			}
 		}
+	case config.ResourceKindDatabase:
+		for i := range state.DatabaseDetails {
+			if state.DatabaseDetails[i].Name == item.Name {
+				return resourceRef{Kind: resourceDatabases, Index: i}, true
+			}
+		}
 	}
 	return resourceRef{}, false
 }
@@ -1851,6 +2492,15 @@ func (m Model) resourceMissingMetaForItem(item config.ManagedResource) string {
 	if item.Kind == config.ResourceKindPort {
 		return "  " + item.Name
 	}
+	if item.Kind == config.ResourceKindDatabase {
+		meta := strings.TrimSpace(databaseManagedEndpoint(item))
+		if meta == "" {
+			meta = strings.TrimSpace(item.DBEngine)
+		}
+		if meta != "" {
+			return "  " + meta
+		}
+	}
 	return ""
 }
 
@@ -1861,19 +2511,34 @@ func (m Model) resourceMetaForRef(ref resourceRef) string {
 	switch ref.Kind {
 	case resourceContainers:
 		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
-		return "  " + m.containerStatusLabel(item)
+		return "  " + emptyDash(item.Status)
 	case resourceServices:
 		item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
-		return "  " + serviceRawState(item)
+		return "  " + serviceFullRawState(item)
 	case resourceProcesses:
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
 		return "  " + strings.TrimSpace(item.Protocol+"/"+item.Port)
 	case resourcePorts:
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
 		return "  " + emptyDash(portListenText(item))
+	case resourceDatabases:
+		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		return "  " + emptyDash(firstNonEmpty(item.Engine, item.Endpoint))
 	default:
 		return ""
 	}
+}
+
+func serviceFullRawState(item serviceDetail) string {
+	load := strings.TrimSpace(item.Load)
+	runtime := strings.TrimSpace(serviceRawState(item))
+	if load == "" {
+		return runtime
+	}
+	if runtime == "" {
+		return load
+	}
+	return load + " " + runtime
 }
 
 func (m Model) resourceManageStatusForRef(ref resourceRef) string {
@@ -1893,6 +2558,9 @@ func (m Model) resourceManageStatusForRef(ref resourceRef) string {
 	case resourcePorts:
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
 		return m.portStatusStyledLabel(item, m.portStatusLabel(item))
+	case resourceDatabases:
+		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		return m.databaseStatusStyled(item)
 	default:
 		return ""
 	}
@@ -1916,6 +2584,9 @@ func (m Model) resourceCommandFieldLine(field int, width int) string {
 		inputWidth = 18
 	}
 	display := commandInputText(value, m.resourceCommandCursor, m.resourceCommandField == field, inputWidth)
+	if m.resourceCommandForm.Kind == resourceDatabases && field == 0 {
+		display = m.resourceCommandDatabaseEngineDisplay(inputWidth)
+	}
 	prefix := "  "
 	style := detailValueStyle
 	if m.resourceCommandField == field {
@@ -1925,9 +2596,41 @@ func (m Model) resourceCommandFieldLine(field int, width int) string {
 	return fitANSI(prefix+style.Render(padVisible(label, 12))+"  "+display, width)
 }
 
+func (m Model) resourceCommandDatabaseEngineDisplay(width int) string {
+	value := normalizeDatabaseEngine(m.resourceCommandForm.DBEngine)
+	if value == "" {
+		value = "MySQL"
+	}
+	text := value
+	if m.resourceCommandField == 0 {
+		text = "← " + text + " →"
+	}
+	return fitANSI(text, width)
+}
+
 func (m Model) resourceCommandFieldName(field int) string {
 	if m.resourceCommandForm.Kind == resourcePorts {
 		return m.t("Health", "健康检查")
+	}
+	if m.resourceCommandForm.Kind == resourceDatabases {
+		switch field {
+		case 0:
+			return m.t("Engine", "数据库")
+		case 1:
+			return m.t("Host", "地址")
+		case 2:
+			return m.t("Port", "端口")
+		case 3:
+			return m.t("User", "用户")
+		case 4:
+			return m.t("Password", "密码")
+		case 5:
+			return m.t("Database", "库名")
+		case 6:
+			return m.t("Note", "备注")
+		default:
+			return "-"
+		}
 	}
 	switch field {
 	case 0:
@@ -1966,6 +2669,18 @@ func (m Model) renderResourceOutput() string {
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
+	lines := m.resourceOutputLines()
+	start, end := visibleRange(len(lines), m.resourceScroll, bodyHeight)
+	body := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(softGray).
+		Padding(0, 1).
+		Width(width).
+		Render(strings.Join(lines[start:end], "\n"))
+	return strings.Join([]string{titleStyle.Render(fitANSI(m.t("Resource Output", "资源操作输出"), width)), body, renderHelp(width, m.t("Scroll ↑↓/jk  Retry r  Back Esc", "滚动 ↑↓/jk  重试 r  返回 Esc"))}, "\n")
+}
+
+func (m Model) resourceOutputLines() []string {
 	lines := []string{
 		"$ " + m.resourceCommandPreview(m.resourceActionResource, m.resourceAction, m.resourceActionName),
 		"",
@@ -1978,14 +2693,12 @@ func (m Model) renderResourceOutput() string {
 		}
 		lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.resourceActionExitCode))
 	}
-	start, end := visibleRange(len(lines), m.resourceScroll, bodyHeight)
-	body := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(softGray).
-		Padding(0, 1).
-		Width(width).
-		Render(strings.Join(lines[start:end], "\n"))
-	return strings.Join([]string{titleStyle.Render(fitANSI(m.t("Resource Output", "资源操作输出"), width)), body, renderHelp(width, m.t("Scroll ↑↓/jk  Retry r  Back Esc", "滚动 ↑↓/jk  重试 r  返回 Esc"))}, "\n")
+	return lines
+}
+
+func (m Model) resourceOutputMaxScroll() int {
+	bodyHeight := maxInt(1, m.height-3)
+	return maxInt(0, len(m.resourceOutputLines())-bodyHeight)
 }
 
 func (m Model) filteredResourceIndexes() []resourceRef {
@@ -2013,9 +2726,6 @@ func (m Model) sortResourceRefs(refs []resourceRef) {
 	sort.SliceStable(refs, func(i, j int) bool {
 		a := refs[i]
 		b := refs[j]
-		if m.resourceKind == resourceAll && a.Kind != b.Kind {
-			return a.Kind < b.Kind
-		}
 		aPinned, aOrder := m.resourceRefPinned(a)
 		bPinned, bOrder := m.resourceRefPinned(b)
 		if aPinned != bPinned {
@@ -2023,6 +2733,9 @@ func (m Model) sortResourceRefs(refs []resourceRef) {
 		}
 		if aPinned && bPinned && aOrder != bOrder {
 			return aOrder > bOrder
+		}
+		if m.resourceKind == resourceAll && a.Kind != b.Kind {
+			return a.Kind < b.Kind
 		}
 		if m.resourceSort == resourceSortDefault {
 			return false
@@ -2110,12 +2823,14 @@ func (m Model) resourceStatusRank(ref resourceRef) int {
 		switch serviceDetailKind(item) {
 		case "failed", "missing":
 			return 0
-		case "running", "active":
+		case "running":
 			return 1
-		case "stopped":
+		case "active":
 			return 2
-		default:
+		case "stopped":
 			return 3
+		default:
+			return 4
 		}
 	case resourceProcesses:
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
@@ -2132,6 +2847,9 @@ func (m Model) resourceStatusRank(ref resourceRef) int {
 			return 1
 		}
 		return 3
+	case resourceDatabases:
+		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		return databaseStatusRank(item)
 	default:
 		return 9
 	}
@@ -2167,6 +2885,11 @@ func (m Model) resourcePortValue(ref resourceRef) (int, bool) {
 	}
 	if ref.Kind == resourcePorts || ref.Kind == resourceProcesses {
 		port := strings.TrimSpace(m.states[m.resourceHostIndex].PortDetails[ref.Index].Port)
+		n, err := strconv.Atoi(port)
+		return n, err == nil
+	}
+	if ref.Kind == resourceDatabases {
+		port := strings.TrimSpace(m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Port)
 		n, err := strconv.Atoi(port)
 		return n, err == nil
 	}
@@ -2212,6 +2935,14 @@ func (m Model) currentResourceRefs() []resourceRef {
 			}
 		}
 	}
+	if m.resourceKind == resourceAll || m.resourceKind == resourceDatabases {
+		for i := range m.states[m.resourceHostIndex].DatabaseDetails {
+			ref := resourceRef{Kind: resourceDatabases, Index: i}
+			if m.resourceRefInScope(ref) {
+				refs = append(refs, ref)
+			}
+		}
+	}
 	return refs
 }
 
@@ -2221,7 +2952,10 @@ func (m Model) resourceManageDiscoveredRefs() []resourceRef {
 	}
 	refs := []resourceRef{}
 	add := func(ref resourceRef) {
-		if m.resourceRefManaged(ref) || m.resourceRefMissing(ref) {
+		if ref.Kind == resourceDatabases && m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Configured {
+			return
+		}
+		if m.resourceRefAdded(ref) || m.resourceRefMissing(ref) {
 			return
 		}
 		if !m.resourceManageQueryMatchesRef(ref) {
@@ -2235,7 +2969,11 @@ func (m Model) resourceManageDiscoveredRefs() []resourceRef {
 			add(resourceRef{Kind: resourceContainers, Index: i})
 		}
 	case resourceServices:
+		searching := strings.TrimSpace(m.resourceManageQuery) != ""
 		for i := range m.states[m.resourceHostIndex].ServiceDetails {
+			if serviceNotFoundInactiveDead(m.states[m.resourceHostIndex].ServiceDetails[i]) && !searching {
+				continue
+			}
 			add(resourceRef{Kind: resourceServices, Index: i})
 		}
 	case resourceProcesses:
@@ -2253,8 +2991,24 @@ func (m Model) resourceManageDiscoveredRefs() []resourceRef {
 			seen[key] = true
 			add(resourceRef{Kind: resourcePorts, Index: i})
 		}
+	case resourceDatabases:
+		for i := range m.states[m.resourceHostIndex].DatabaseDetails {
+			add(resourceRef{Kind: resourceDatabases, Index: i})
+		}
 	}
+	m.sortResourceManagerRefs(refs)
 	return refs
+}
+
+func (m Model) sortResourceManagerRefs(refs []resourceRef) {
+	sort.SliceStable(refs, func(i, j int) bool {
+		aRank := m.resourceStatusRank(refs[i])
+		bRank := m.resourceStatusRank(refs[j])
+		if aRank != bRank {
+			return aRank < bRank
+		}
+		return m.resourceSortNameValue(refs[i]) < m.resourceSortNameValue(refs[j])
+	})
 }
 
 func (m Model) resourceManageFavorites() []config.ManagedResource {
@@ -2263,14 +3017,41 @@ func (m Model) resourceManageFavorites() []config.ManagedResource {
 	query := strings.ToLower(strings.TrimSpace(m.resourceManageQuery))
 	items := []config.ManagedResource{}
 	for _, item := range m.resourceFile.Items {
-		if item.Server == server && item.Kind == kind {
-			if query != "" && !strings.Contains(strings.ToLower(strings.Join([]string{item.Name, item.StartCommand, item.StopCommand, item.RestartCommand, item.LogCommand, item.HealthCommand}, " ")), query) {
+		if item.Server == server && item.Kind == kind && item.Added {
+			if item.Kind == config.ResourceKindDatabase && !managedDatabaseResourceConfigured(item) {
+				continue
+			}
+			text := strings.Join([]string{
+				item.Name, item.StartCommand, item.StopCommand, item.RestartCommand,
+				item.LogCommand, item.HealthCommand, item.DBEngine, item.DBHost, item.DBPort,
+				item.DBUser, item.DBName, item.DBInstance, item.DBNote,
+			}, " ")
+			if query != "" && !strings.Contains(strings.ToLower(text), query) {
 				continue
 			}
 			items = append(items, item)
 		}
 	}
+	m.sortResourceManagerItems(items)
 	return items
+}
+
+func (m Model) sortResourceManagerItems(items []config.ManagedResource) {
+	sort.SliceStable(items, func(i, j int) bool {
+		aRank := m.resourceManagerItemStatusRank(items[i])
+		bRank := m.resourceManagerItemStatusRank(items[j])
+		if aRank != bRank {
+			return aRank < bRank
+		}
+		return strings.ToLower(strings.TrimSpace(items[i].Name)) < strings.ToLower(strings.TrimSpace(items[j].Name))
+	})
+}
+
+func (m Model) resourceManagerItemStatusRank(item config.ManagedResource) int {
+	if ref, ok := m.resourceRefForManagedItem(item); ok {
+		return m.resourceStatusRank(ref)
+	}
+	return 0
 }
 
 func (m Model) resourceManageQueryMatchesRef(ref resourceRef) bool {
@@ -2354,35 +3135,58 @@ func (m Model) resourceNameForRef(ref resourceRef) (string, bool) {
 			return "", false
 		}
 		return fmt.Sprintf("%s/%s", items[ref.Index].Protocol, items[ref.Index].Port), true
+	case resourceDatabases:
+		items := m.states[m.resourceHostIndex].DatabaseDetails
+		if ref.Index < 0 || ref.Index >= len(items) {
+			return "", false
+		}
+		return items[ref.Index].Name, true
 	default:
 		return "", false
 	}
 }
 
 func (m Model) resourceRefInScope(ref resourceRef) bool {
-	if ref.Kind == resourceContainers && m.resourceScope != resourceScopeManaged {
-		return !m.resourceRefMissing(ref) || m.resourceRefManaged(ref)
-	}
 	if m.resourceScope == resourceScopeManaged {
-		return m.resourceRefManaged(ref) && m.resourceRefFavorite(ref)
+		return m.resourceRefAdded(ref) && m.resourceRefFavorite(ref)
 	}
-	return m.resourceRefManaged(ref)
+	return m.resourceRefAdded(ref)
 }
 
 func (m Model) resourceRefManaged(ref resourceRef) bool {
+	return m.resourceRefAdded(ref)
+}
+
+func (m Model) resourceRefAdded(ref resourceRef) bool {
 	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
 		return false
 	}
+	name, ok := m.resourceNameForRef(ref)
+	if !ok || strings.TrimSpace(name) == "" {
+		return false
+	}
+	kind := configResourceKind(ref.Kind)
+	if kind == "" {
+		return false
+	}
+	idx := findManagedResource(m.resourceFile.Items, m.resourceServerKey(m.resourceHostIndex), kind, name)
+	if idx >= 0 {
+		if kind == config.ResourceKindDatabase && !managedDatabaseResourceConfigured(m.resourceFile.Items[idx]) {
+			return false
+		}
+		return m.resourceFile.Items[idx].Added
+	}
 	switch ref.Kind {
 	case resourceContainers:
-		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
-		return item.Managed || !item.Missing
+		return m.states[m.resourceHostIndex].ContainerDetails[ref.Index].Managed
 	case resourceServices:
 		return m.states[m.resourceHostIndex].ServiceDetails[ref.Index].Managed
 	case resourceProcesses:
 		return m.states[m.resourceHostIndex].PortDetails[ref.Index].ProcessManaged
 	case resourcePorts:
 		return m.states[m.resourceHostIndex].PortDetails[ref.Index].Managed
+	case resourceDatabases:
+		return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Managed
 	default:
 		return false
 	}
@@ -2401,6 +3205,8 @@ func (m Model) resourceRefFavorite(ref resourceRef) bool {
 		return m.states[m.resourceHostIndex].PortDetails[ref.Index].ProcessFavorite
 	case resourcePorts:
 		return m.states[m.resourceHostIndex].PortDetails[ref.Index].Favorite
+	case resourceDatabases:
+		return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Favorite
 	default:
 		return false
 	}
@@ -2427,6 +3233,8 @@ func (m Model) resourceRefMissing(ref resourceRef) bool {
 		return false
 	case resourcePorts:
 		return m.states[m.resourceHostIndex].PortDetails[ref.Index].Missing
+	case resourceDatabases:
+		return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Missing
 	default:
 		return false
 	}
@@ -2439,10 +3247,16 @@ func resourceServiceVisible(item serviceDetail) bool {
 	if serviceIsKnownInfrastructure(item.Unit) {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(item.Load), "not-found") && strings.EqualFold(strings.TrimSpace(item.Active), "inactive") && strings.EqualFold(strings.TrimSpace(item.Sub), "dead") {
+	if serviceNotFoundInactiveDead(item) {
 		return false
 	}
 	return true
+}
+
+func serviceNotFoundInactiveDead(item serviceDetail) bool {
+	return strings.EqualFold(strings.TrimSpace(item.Load), "not-found") &&
+		strings.EqualFold(strings.TrimSpace(item.Active), "inactive") &&
+		strings.EqualFold(strings.TrimSpace(item.Sub), "dead")
 }
 
 func (m Model) resourceServiceDiscoveredVisible(item serviceDetail, searching bool) bool {
@@ -2769,6 +3583,10 @@ func (m Model) resourceSearchText(ref resourceRef) string {
 		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
 		return strings.Join([]string{item.Process, item.PID, item.ServiceUnit, item.Protocol, item.Port, item.LocalAddress, item.State}, " ")
 	}
+	if ref.Kind == resourceDatabases {
+		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		return strings.Join([]string{item.Name, item.Engine, item.Source, item.Status, item.RawStatus, item.Endpoint, item.ServiceUnit, item.Container, item.Image, item.Process, item.PID, item.Port}, " ")
+	}
 	item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
 	return strings.Join([]string{item.Unit, item.Load, item.Active, item.Sub, item.Description, item.FragmentPath, item.WorkingDirectory, item.ExecStart}, " ")
 }
@@ -2791,6 +3609,9 @@ func (m Model) resourceFilterMatches(ref resourceRef) bool {
 		if ref.Kind == resourceProcesses {
 			return true
 		}
+		if ref.Kind == resourceDatabases {
+			return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Status == "running"
+		}
 		return serviceDetailKind(m.states[m.resourceHostIndex].ServiceDetails[ref.Index]) == "running"
 	case resourceFilterProblems:
 		if ref.Kind == resourceContainers {
@@ -2803,6 +3624,10 @@ func (m Model) resourceFilterMatches(ref resourceRef) bool {
 		if ref.Kind == resourceProcesses {
 			return false
 		}
+		if ref.Kind == resourceDatabases {
+			status := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Status
+			return status == "problem" || status == "missing"
+		}
 		kind := serviceDetailKind(m.states[m.resourceHostIndex].ServiceDetails[ref.Index])
 		return kind == "failed" || kind == "missing"
 	case resourceFilterStopped:
@@ -2814,6 +3639,9 @@ func (m Model) resourceFilterMatches(ref resourceRef) bool {
 		}
 		if ref.Kind == resourceProcesses {
 			return false
+		}
+		if ref.Kind == resourceDatabases {
+			return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Status == "stopped"
 		}
 		return serviceDetailKind(m.states[m.resourceHostIndex].ServiceDetails[ref.Index]) == "stopped"
 	default:
@@ -2865,6 +3693,10 @@ func (m Model) selectedResourceName() (string, bool) {
 		item, ok := m.selectedProcess()
 		return item.Process, ok
 	}
+	if ref.Kind == resourceDatabases {
+		item, ok := m.selectedDatabase()
+		return item.Name, ok
+	}
 	item, ok := m.selectedService()
 	return item.Unit, ok
 }
@@ -2893,7 +3725,23 @@ func (m Model) currentSelectedResourceKind() resourceKind {
 	if m.resourceKind == resourceServices {
 		return resourceServices
 	}
+	if m.resourceKind == resourceDatabases {
+		return resourceDatabases
+	}
 	return resourceContainers
+}
+
+func (m Model) selectedDatabase() (databaseDetail, bool) {
+	ref, ok := m.selectedResourceRef()
+	if !ok || ref.Kind != resourceDatabases || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+		return databaseDetail{}, false
+	}
+	items := m.states[m.resourceHostIndex].DatabaseDetails
+	real := ref.Index
+	if real < 0 || real >= len(items) {
+		return databaseDetail{}, false
+	}
+	return items[real], true
 }
 
 func (m Model) selectedPort() (portDetail, bool) {
@@ -2965,6 +3813,9 @@ func (m Model) resourceKindName(kind resourceKind) string {
 	if kind == resourcePorts {
 		return m.t("Ports", "端口")
 	}
+	if kind == resourceDatabases {
+		return m.t("Databases", "数据库")
+	}
 	if kind == resourceAll {
 		return m.t("All", "全部")
 	}
@@ -2980,7 +3831,7 @@ func (m Model) resourceViewName(view resourceViewMode) string {
 
 func (m Model) resourceScopeName(scope resourceScopeMode) string {
 	if scope == resourceScopeDiscovered {
-		return m.t("All", "全部")
+		return m.t("Added", "已添加")
 	}
 	return m.t("Favorites", "收藏")
 }
@@ -3049,7 +3900,7 @@ func resourceActionCommandPreview(kind resourceKind, action resourceActionKind, 
 			return "systemctl restart " + target
 		}
 	}
-	if kind == resourceProcesses || kind == resourcePorts {
+	if kind == resourceProcesses || kind == resourcePorts || kind == resourceDatabases {
 		return "-"
 	}
 	switch action {
@@ -3078,7 +3929,7 @@ func (m Model) resourceLogCommandPreview(kind resourceKind, name string, lines i
 	if kind == resourceServices {
 		return fmt.Sprintf("journalctl -u %s -n %d --no-pager", shellQuoteLocal(name), lines)
 	}
-	if kind == resourceProcesses || kind == resourcePorts {
+	if kind == resourceProcesses || kind == resourcePorts || kind == resourceDatabases {
 		return "-"
 	}
 	return fmt.Sprintf("docker logs --tail %d %s", lines, shellQuoteLocal(name))
@@ -3092,9 +3943,14 @@ func (m Model) resourceListHelp() string {
 	partsZH = append(partsZH, "添加 a")
 	partsEN = append(partsEN, "Remove x")
 	partsZH = append(partsZH, "移出 x")
-	if m.selectedResourceManaged() {
-		partsEN = append(partsEN, "Edit e")
-		partsZH = append(partsZH, "编辑 e")
+	if m.selectedResourceManaged() || kind == resourceDatabases {
+		if kind == resourceDatabases {
+			partsEN = append(partsEN, "Config e")
+			partsZH = append(partsZH, "配置 e")
+		} else {
+			partsEN = append(partsEN, "Edit e")
+			partsZH = append(partsZH, "编辑 e")
+		}
 	}
 	partsEN = append(partsEN, "Pin t", "Favorite f", "Favorites v")
 	partsZH = append(partsZH, "置顶 t", "收藏 f", "收藏 v")

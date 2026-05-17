@@ -49,6 +49,24 @@ func TestSettingsSaveAppConfig(t *testing.T) {
 	}
 }
 
+func TestSettingsTextFieldsAcceptShortcutLetters(t *testing.T) {
+	m := Model{appConfig: config.DefaultAppConfig()}
+	m = m.startSettings()
+	m.settingsField = settingsLocalDirs
+	m.settingsForm.LocalDirs = "/tm"
+	m.settingsCursor = len([]rune(m.settingsForm.LocalDirs))
+	next, _ := m.updateSettings(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	got := next.(Model)
+	if got.settingsForm.LocalDirs != "/tmp" {
+		t.Fatalf("LocalDirs = %q, want /tmp", got.settingsForm.LocalDirs)
+	}
+	next, _ = got.updateSettings(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	got = next.(Model)
+	if got.settingsForm.LocalDirs != "/tmpq" || got.mode != modeSettings {
+		t.Fatalf("LocalDirs/mode = %q/%v, want /tmpq/settings", got.settingsForm.LocalDirs, got.mode)
+	}
+}
+
 func TestLocalRootItemsUsesAppConfig(t *testing.T) {
 	home := t.TempDir()
 	first := filepath.Join(home, "first")

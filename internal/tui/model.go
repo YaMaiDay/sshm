@@ -208,6 +208,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleResourceServiceDetail(msg)
 	case resourceProcessDetailMsg:
 		return m.handleResourceProcessDetail(msg)
+	case resourceDatabaseDetailMsg:
+		return m.handleResourceDatabaseDetail(msg)
 	case resourceLogMsg:
 		return m.handleResourceLog(msg)
 	case resourceActionMsg:
@@ -286,6 +288,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateResourceDetail(msg)
 		case modeResourceAdd:
 			return m.updateResourceAdd(msg)
+		case modeResourceAddEdit:
+			return m.updateResourceAddEdit(msg)
 		case modeResourceLog:
 			return m.updateResourceLog(msg)
 		case modeResourceCommandEdit:
@@ -471,7 +475,7 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	key := shortcutKey(msg)
 	switch key {
-	case "esc", "q", "ctrl+c":
+	case "esc", "ctrl+c":
 		m.mode = modeDashboard
 		m.copying = false
 		m.status = m.t("Canceled.", "已取消。")
@@ -585,7 +589,7 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.addingCategory || m.renamingCategory {
 		key := shortcutKey(msg)
 		switch key {
-		case "esc", "q", "ctrl+c":
+		case "esc", "ctrl+c":
 			m.addingCategory = false
 			m.renamingCategory = false
 			m.categoryDraft = ""
@@ -1404,9 +1408,9 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeDashboard
 		m.detailScroll = 0
 	case "j", "down":
-		m.detailScroll = clampInt(m.detailScroll+1, 0, m.detailMaxScroll())
+		m.detailScroll = moveClampedInt(m.detailScroll, 1, 0, m.detailMaxScroll())
 	case "k", "up":
-		m.detailScroll = clampInt(m.detailScroll-1, 0, m.detailMaxScroll())
+		m.detailScroll = moveClampedInt(m.detailScroll, -1, 0, m.detailMaxScroll())
 	case "tab", "right":
 		m.moveDetailSection(1)
 	case "shift+tab", "left":
@@ -1787,6 +1791,11 @@ func clampInt(value int, min int, max int) int {
 		return max
 	}
 	return value
+}
+
+func moveClampedInt(current int, delta int, min int, max int) int {
+	current = clampInt(current, min, max)
+	return clampInt(current+delta, min, max)
 }
 
 func minInt(a int, b int) int {
@@ -2201,6 +2210,9 @@ func (m Model) View() string {
 	}
 	if m.mode == modeResourceAdd {
 		return m.renderResourceAdd()
+	}
+	if m.mode == modeResourceAddEdit {
+		return m.renderResourceAddEdit()
 	}
 	if m.mode == modeResourceLog {
 		return m.renderResourceLog()

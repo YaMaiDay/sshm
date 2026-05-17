@@ -27,9 +27,9 @@ func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.mode = modeDeploymentList
 	case "j", "down":
-		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll+1, 0, m.deploymentConfirmMaxScroll())
+		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, 1, 0, m.deploymentConfirmMaxScroll())
 	case "k", "up":
-		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentConfirmMaxScroll())
+		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, -1, 0, m.deploymentConfirmMaxScroll())
 	case "enter":
 		if m.activeDeployment.Running {
 			m.status = m.t("Deployment is running.", "部署执行中")
@@ -140,9 +140,9 @@ func (m Model) updateDeploymentOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.mode = modeDeploymentList
 	case "j", "down":
-		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll+1, 0, m.deploymentOutputMaxScroll())
+		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, 1, 0, m.deploymentOutputMaxScroll())
 	case "k", "up":
-		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentOutputMaxScroll())
+		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, -1, 0, m.deploymentOutputMaxScroll())
 	case "r":
 		if m.activeDeployment.Running {
 			m.status = m.t("Deployment is running; rollback after it finishes.", "部署执行中，完成后再回滚")
@@ -166,9 +166,9 @@ func (m Model) updateDeploymentRollbackConfirm(msg tea.KeyMsg) (tea.Model, tea.C
 	case "esc", "q", "ctrl+c":
 		m.mode = modeDeploymentOutput
 	case "j", "down":
-		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll+1, 0, m.deploymentRollbackConfirmMaxScroll())
+		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, 1, 0, m.deploymentRollbackConfirmMaxScroll())
 	case "k", "up":
-		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentRollbackConfirmMaxScroll())
+		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, -1, 0, m.deploymentRollbackConfirmMaxScroll())
 	case "enter":
 		m.activeDeployment.Running = true
 		m.activeDeployment.Action = config.DeployActionRollback

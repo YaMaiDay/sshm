@@ -82,20 +82,20 @@ func (m Model) startSettings() Model {
 func (m Model) updateSettings(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
-	case "esc", "q", "ctrl+c":
+	case "esc", "ctrl+c":
 		m.mode = modeDashboard
 		m.status = m.settingsText("Canceled.", "已取消。")
-	case "tab", "down", "j":
+	case "tab", "down":
 		m.moveSettingsField(1)
-	case "shift+tab", "up", "k":
+	case "shift+tab", "up":
 		m.moveSettingsField(-1)
-	case "left", "h":
+	case "left":
 		if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode || m.settingsField == settingsCustomDirs {
 			m.toggleSettingChoice()
 		} else {
 			m.moveSettingsCursor(-1)
 		}
-	case "right", "l":
+	case "right":
 		if m.settingsField == settingsLanguage || m.settingsField == settingsASCIIMode || m.settingsField == settingsCustomDirs {
 			m.toggleSettingChoice()
 		} else {

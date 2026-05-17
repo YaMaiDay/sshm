@@ -142,9 +142,9 @@ func (m Model) updateTransferDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeTransferJobs
 		m.detailScroll = 0
 	case "j", "down":
-		m.detailScroll = clampInt(m.detailScroll+1, 0, m.transferDetailMaxScroll())
+		m.detailScroll = moveClampedInt(m.detailScroll, 1, 0, m.transferDetailMaxScroll())
 	case "k", "up":
-		m.detailScroll = clampInt(m.detailScroll-1, 0, m.transferDetailMaxScroll())
+		m.detailScroll = moveClampedInt(m.detailScroll, -1, 0, m.transferDetailMaxScroll())
 	case "enter":
 		m.transferRunAll = false
 		return m.startSelectedTransfer()

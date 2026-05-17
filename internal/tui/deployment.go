@@ -274,9 +274,9 @@ func (m Model) updateDeploymentDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q", "ctrl+c":
 		m.mode = modeDeploymentList
 	case "j", "down":
-		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll+1, 0, m.deploymentDetailMaxScroll())
+		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, 1, 0, m.deploymentDetailMaxScroll())
 	case "k", "up":
-		m.deploymentOutputScroll = clampInt(m.deploymentOutputScroll-1, 0, m.deploymentDetailMaxScroll())
+		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, -1, 0, m.deploymentDetailMaxScroll())
 	case "e":
 		return m.startDeploymentEdit(m.deploymentDetail, true), nil
 	case "enter":

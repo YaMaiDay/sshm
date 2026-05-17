@@ -199,7 +199,7 @@ func (m Model) startCommandEdit(item commandItem, editing bool) Model {
 func (m Model) updateCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
-	case "esc", "q", "ctrl+c":
+	case "esc", "ctrl+c":
 		return m.backToCommandList("已取消。"), nil
 	case "tab":
 		m.commandField = (m.commandField + 1) % 3
@@ -469,9 +469,9 @@ func (m Model) updateCommandConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeCommandList
 		m.status = "已取消。"
 	case "j", "down":
-		m.commandOutputScroll = clampInt(m.commandOutputScroll+1, 0, m.commandConfirmMaxScroll())
+		m.commandOutputScroll = moveClampedInt(m.commandOutputScroll, 1, 0, m.commandConfirmMaxScroll())
 	case "k", "up":
-		m.commandOutputScroll = clampInt(m.commandOutputScroll-1, 0, m.commandConfirmMaxScroll())
+		m.commandOutputScroll = moveClampedInt(m.commandOutputScroll, -1, 0, m.commandConfirmMaxScroll())
 	case "enter":
 		if m.activeCommand.HostIndex < 0 || m.activeCommand.HostIndex >= len(m.states) {
 			m.status = "没有选中的服务器。"
@@ -498,9 +498,9 @@ func (m Model) updateCommandOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = m.commandOutputBack
 		m.status = ""
 	case "j", "down":
-		m.commandOutputScroll = clampInt(m.commandOutputScroll+1, 0, m.commandOutputMaxScroll())
+		m.commandOutputScroll = moveClampedInt(m.commandOutputScroll, 1, 0, m.commandOutputMaxScroll())
 	case "k", "up":
-		m.commandOutputScroll = clampInt(m.commandOutputScroll-1, 0, m.commandOutputMaxScroll())
+		m.commandOutputScroll = moveClampedInt(m.commandOutputScroll, -1, 0, m.commandOutputMaxScroll())
 	}
 	return m, nil
 }
@@ -626,7 +626,7 @@ func (m Model) selectedBatchCommandItem() (commandItem, bool) {
 func (m Model) updateBatchCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
-	case "esc", "q", "ctrl+c":
+	case "esc", "ctrl+c":
 		m.mode = modeBatchCommandList
 		m.status = "已取消。"
 	case "ctrl+j":
@@ -670,9 +670,9 @@ func (m Model) updateBatchConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeBatchCommandList
 		}
 	case "j", "down":
-		m.batchOutputScroll = clampInt(m.batchOutputScroll+1, 0, m.batchConfirmMaxScroll())
+		m.batchOutputScroll = moveClampedInt(m.batchOutputScroll, 1, 0, m.batchConfirmMaxScroll())
 	case "k", "up":
-		m.batchOutputScroll = clampInt(m.batchOutputScroll-1, 0, m.batchConfirmMaxScroll())
+		m.batchOutputScroll = moveClampedInt(m.batchOutputScroll, -1, 0, m.batchConfirmMaxScroll())
 	case "enter":
 		m.prepareBatchJobs()
 		if len(m.batchJobs) == 0 {
@@ -712,9 +712,9 @@ func (m Model) updateBatchOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.moveBatchOutputIndex(-1)
 		m.batchOutputScroll = 0
 	case "right", "l":
-		m.batchOutputScroll = clampInt(m.batchOutputScroll+1, 0, m.batchOutputMaxScroll())
+		m.batchOutputScroll = moveClampedInt(m.batchOutputScroll, 1, 0, m.batchOutputMaxScroll())
 	case "left", "h":
-		m.batchOutputScroll = clampInt(m.batchOutputScroll-1, 0, m.batchOutputMaxScroll())
+		m.batchOutputScroll = moveClampedInt(m.batchOutputScroll, -1, 0, m.batchOutputMaxScroll())
 	case "r":
 		if m.batchRunning() {
 			m.status = "批量命令执行中，完成后再重试"
@@ -851,9 +851,9 @@ func (m Model) updateCommandHistoryDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q", "ctrl+c":
 		m.mode = modeCommandHistory
 	case "j", "down":
-		m.historyScroll = clampInt(m.historyScroll+1, 0, m.commandHistoryDetailMaxScroll())
+		m.historyScroll = moveClampedInt(m.historyScroll, 1, 0, m.commandHistoryDetailMaxScroll())
 	case "k", "up":
-		m.historyScroll = clampInt(m.historyScroll-1, 0, m.commandHistoryDetailMaxScroll())
+		m.historyScroll = moveClampedInt(m.historyScroll, -1, 0, m.commandHistoryDetailMaxScroll())
 	case "r":
 		if entry, ok := m.selectedHistoryEntry(); ok {
 			return m.rerunHistoryEntry(entry)

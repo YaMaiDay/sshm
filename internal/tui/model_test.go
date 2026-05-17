@@ -1349,8 +1349,35 @@ func TestResourceCardMetaExtractsContainerAndServiceAge(t *testing.T) {
 	if got := m.containerCardMeta(containerDetail{Status: "Up 4 weeks (healthy)"}); got != "28天" {
 		t.Fatalf("container zh meta = %q, want 28天", got)
 	}
+	if got := m.databaseCardMeta(databaseDetail{RawStatus: "Up 4 weeks (healthy)"}); got != "28天" {
+		t.Fatalf("database zh meta = %q, want 28天", got)
+	}
 	if got := shortSystemdTimestampAge("bad timestamp", true); got != "" {
 		t.Fatalf("bad systemd timestamp age = %q, want empty", got)
+	}
+}
+
+func TestDatabaseCardTitleShowsEngineAndMetaShowsUptime(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceDatabases,
+		states: []hostState{{
+			DatabaseDetails: []databaseDetail{{
+				Name:      "freedex",
+				Engine:    "PostgreSQL",
+				Status:    "running",
+				RawStatus: "Up 2 hours",
+				Managed:   true,
+			}},
+		}},
+	}
+	card := ansi.Strip(m.resourceCard(resourceRef{Kind: resourceDatabases, Index: 0}, false, 44))
+	if !strings.Contains(card, "▤ [PostgreSQL] freedex") || strings.Contains(card, "[库]") {
+		t.Fatalf("database card title should show engine and database name:\n%s", card)
+	}
+	if !strings.Contains(card, "2h") {
+		t.Fatalf("database card should show uptime meta:\n%s", card)
 	}
 }
 
@@ -1401,6 +1428,41 @@ func TestResourceAllIncludesContainersAndServices(t *testing.T) {
 	}
 }
 
+func TestResourceListShowsOnlyAddedResources(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceAll,
+		resourceFilter:    resourceFilterAll,
+		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{{
+			Server: "prod/api-01",
+			Kind:   config.ResourceKindContainer,
+			Name:   "api",
+			Added:  true,
+		}}},
+		states: []hostState{{
+			Host: host.Host{Category: "prod", Name: "api-01"},
+			ContainerDetails: []containerDetail{
+				{Name: "api", Status: "Up 2 minutes"},
+				{Name: "redis", Status: "Up 2 minutes"},
+			},
+			ServiceDetails: []serviceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running"}},
+		}},
+	}
+	indexes := m.filteredResourceIndexes()
+	want := []resourceRef{{Kind: resourceContainers, Index: 0}}
+	if !reflect.DeepEqual(indexes, want) {
+		t.Fatalf("resource indexes = %#v, want only added resources %#v", indexes, want)
+	}
+
+	m.resourceAddKind = resourceContainers
+	discovered := m.resourceManageDiscoveredRefs()
+	want = []resourceRef{{Kind: resourceContainers, Index: 1}}
+	if !reflect.DeepEqual(discovered, want) {
+		t.Fatalf("discovered indexes = %#v, want only not-added resources %#v", discovered, want)
+	}
+}
+
 func TestResourceServicesHideNotFoundInactiveDeadUnits(t *testing.T) {
 	m := Model{
 		width:             120,
@@ -1439,13 +1501,103 @@ func TestResourceServicesDiscoveryShowsUserManagedSignals(t *testing.T) {
 	}
 	indexes := m.resourceManageDiscoveredRefs()
 	want := []resourceRef{
-		{Kind: resourceServices, Index: 0},
-		{Kind: resourceServices, Index: 1},
-		{Kind: resourceServices, Index: 2},
 		{Kind: resourceServices, Index: 3},
+		{Kind: resourceServices, Index: 1},
+		{Kind: resourceServices, Index: 0},
+		{Kind: resourceServices, Index: 2},
 	}
 	if !reflect.DeepEqual(indexes, want) {
 		t.Fatalf("discovered service indexes = %#v, want %#v", indexes, want)
+	}
+}
+
+func TestResourceManagerServicesHideNotFoundUnlessSearching(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceAddKind:   resourceServices,
+		resourceFilter:    resourceFilterAll,
+		states: []hostState{{
+			ServiceDetails: []serviceDetail{
+				{Unit: "iptables.service", Load: "not-found", Active: "inactive", Sub: "dead"},
+				{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/nginx.service"},
+			},
+		}},
+	}
+	indexes := m.resourceManageDiscoveredRefs()
+	want := []resourceRef{{Kind: resourceServices, Index: 1}}
+	if !reflect.DeepEqual(indexes, want) {
+		t.Fatalf("discovered services = %#v, want %#v", indexes, want)
+	}
+	m.resourceManageQuery = "iptables"
+	indexes = m.resourceManageDiscoveredRefs()
+	want = []resourceRef{{Kind: resourceServices, Index: 0}}
+	if !reflect.DeepEqual(indexes, want) {
+		t.Fatalf("searched services = %#v, want %#v", indexes, want)
+	}
+}
+
+func TestResourceManagerSortsDiscoveredByStatusAndName(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceAddKind:   resourceServices,
+		resourceFilter:    resourceFilterAll,
+		states: []hostState{{
+			ServiceDetails: []serviceDetail{
+				{Unit: "z-running.service", Load: "loaded", Active: "active", Sub: "running"},
+				{Unit: "b-failed.service", Load: "loaded", Active: "failed", Sub: "failed"},
+				{Unit: "a-failed.service", Load: "loaded", Active: "failed", Sub: "failed"},
+				{Unit: "a-running.service", Load: "loaded", Active: "active", Sub: "running"},
+				{Unit: "c-stopped.service", Load: "loaded", Active: "inactive", Sub: "dead"},
+				{Unit: "b-active.service", Load: "loaded", Active: "active", Sub: "exited"},
+			},
+		}},
+	}
+	indexes := m.resourceManageDiscoveredRefs()
+	want := []resourceRef{
+		{Kind: resourceServices, Index: 2},
+		{Kind: resourceServices, Index: 1},
+		{Kind: resourceServices, Index: 3},
+		{Kind: resourceServices, Index: 0},
+		{Kind: resourceServices, Index: 5},
+		{Kind: resourceServices, Index: 4},
+	}
+	if !reflect.DeepEqual(indexes, want) {
+		t.Fatalf("sorted discovered refs = %#v, want %#v", indexes, want)
+	}
+}
+
+func TestResourceManagerSortsAddedByStatusAndName(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceAddKind:   resourceServices,
+		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{
+			{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "z-running.service", Added: true},
+			{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "b-failed.service", Added: true},
+			{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "missing.service", Added: true},
+			{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "a-running.service", Added: true},
+			{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "b-active.service", Added: true},
+		}},
+		states: []hostState{{
+			Host: host.Host{Category: "prod", Name: "api-01"},
+			ServiceDetails: []serviceDetail{
+				{Unit: "z-running.service", Load: "loaded", Active: "active", Sub: "running"},
+				{Unit: "b-failed.service", Load: "loaded", Active: "failed", Sub: "failed"},
+				{Unit: "a-running.service", Load: "loaded", Active: "active", Sub: "running"},
+				{Unit: "b-active.service", Load: "loaded", Active: "active", Sub: "exited"},
+			},
+		}},
+	}
+	items := m.resourceManageFavorites()
+	got := []string{}
+	for _, item := range items {
+		got = append(got, item.Name)
+	}
+	want := []string{"b-failed.service", "missing.service", "a-running.service", "z-running.service", "b-active.service"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sorted added names = %#v, want %#v", got, want)
 	}
 }
 
@@ -1458,8 +1610,22 @@ func TestResourceManagerServiceLineShowsLocalizedStatusAndRawState(t *testing.T)
 		}},
 	}
 	line := ansi.Strip(m.resourceManageRefLine(resourceRef{Kind: resourceServices, Index: 0}, true, 80))
-	if !strings.Contains(line, "运行") || !strings.Contains(line, "api.service") || !strings.Contains(line, "active/running") {
+	if !strings.Contains(line, "运行") || !strings.Contains(line, "api.service") || !strings.Contains(line, "loaded active/running") {
 		t.Fatalf("service manager line should include localized status, name and raw state:\n%s", line)
+	}
+}
+
+func TestResourceManagerContainerLineShowsRawStatus(t *testing.T) {
+	m := Model{
+		appConfig:         config.AppConfig{Language: "zh"},
+		resourceHostIndex: 0,
+		states: []hostState{{
+			ContainerDetails: []containerDetail{{Name: "postgres", Status: "Up 2 hours (healthy)"}},
+		}},
+	}
+	line := ansi.Strip(m.resourceManageRefLine(resourceRef{Kind: resourceContainers, Index: 0}, true, 80))
+	if !strings.Contains(line, "健康") || !strings.Contains(line, "postgres") || !strings.Contains(line, "Up 2 hours") {
+		t.Fatalf("container manager line should include localized status, name and raw status:\n%s", line)
 	}
 }
 
@@ -1479,7 +1645,7 @@ func TestResourceManagerStatusColumnAlignsNames(t *testing.T) {
 	if strings.Index(line1, "api.service") != strings.Index(line2, "broken-long-name.service") {
 		t.Fatalf("resource manager names should align:\n%s\n%s", line1, line2)
 	}
-	if strings.Index(line1, "active/running") != strings.Index(line2, "failed/failed") {
+	if strings.Index(line1, "loaded active/running") != strings.Index(line2, "loaded failed/failed") {
 		t.Fatalf("resource manager raw state column should align:\n%s\n%s", line1, line2)
 	}
 }
@@ -1531,15 +1697,15 @@ func TestResourceServicesUseGenericDiscoveryRules(t *testing.T) {
 	}
 	indexes := m.resourceManageDiscoveredRefs()
 	want := []resourceRef{
-		{Kind: resourceServices, Index: 0},
-		{Kind: resourceServices, Index: 1},
-		{Kind: resourceServices, Index: 2},
-		{Kind: resourceServices, Index: 3},
-		{Kind: resourceServices, Index: 4},
-		{Kind: resourceServices, Index: 5},
 		{Kind: resourceServices, Index: 6},
-		{Kind: resourceServices, Index: 7},
 		{Kind: resourceServices, Index: 8},
+		{Kind: resourceServices, Index: 0},
+		{Kind: resourceServices, Index: 7},
+		{Kind: resourceServices, Index: 4},
+		{Kind: resourceServices, Index: 3},
+		{Kind: resourceServices, Index: 1},
+		{Kind: resourceServices, Index: 5},
+		{Kind: resourceServices, Index: 2},
 	}
 	if !reflect.DeepEqual(indexes, want) {
 		t.Fatalf("discovered service indexes = %#v, want %#v", indexes, want)
@@ -1610,10 +1776,10 @@ func TestResourceServicesShowPackageServiceOwningPort(t *testing.T) {
 	}
 	indexes := m.resourceManageDiscoveredRefs()
 	want := []resourceRef{
+		{Kind: resourceServices, Index: 3},
 		{Kind: resourceServices, Index: 0},
 		{Kind: resourceServices, Index: 1},
 		{Kind: resourceServices, Index: 2},
-		{Kind: resourceServices, Index: 3},
 	}
 	if !reflect.DeepEqual(indexes, want) {
 		t.Fatalf("service indexes = %#v, want all discovered services", indexes)
@@ -1640,9 +1806,9 @@ func TestResourceProcessesShowStandaloneListenersOnly(t *testing.T) {
 	}
 	indexes := m.resourceManageDiscoveredRefs()
 	want := []resourceRef{
-		{Kind: resourceProcesses, Index: 0},
-		{Kind: resourceProcesses, Index: 1},
 		{Kind: resourceProcesses, Index: 2},
+		{Kind: resourceProcesses, Index: 1},
+		{Kind: resourceProcesses, Index: 0},
 		{Kind: resourceProcesses, Index: 3},
 	}
 	if !reflect.DeepEqual(indexes, want) {
@@ -1680,7 +1846,7 @@ func TestManagedProcessResourceShowsInManagedScope(t *testing.T) {
 		resourceScope:     resourceScopeDiscovered,
 		resourceFilter:    resourceFilterAll,
 		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{
-			{Server: "prod/api-01", Kind: config.ResourceKindProcess, Name: "go-api"},
+			{Server: "prod/api-01", Kind: config.ResourceKindProcess, Name: "go-api", Added: true},
 		}},
 		states: []hostState{{
 			Host:        host.Host{Category: "prod", Name: "api-01"},
@@ -1706,7 +1872,7 @@ func TestManagedMissingProcessStillShowsInResourceList(t *testing.T) {
 		resourceScope:     resourceScopeDiscovered,
 		resourceFilter:    resourceFilterAll,
 		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{
-			{Server: "prod/api-01", Kind: config.ResourceKindProcess, Name: "go-api"},
+			{Server: "prod/api-01", Kind: config.ResourceKindProcess, Name: "go-api", Added: true},
 		}},
 		states: []hostState{{
 			Host: host.Host{Category: "prod", Name: "api-01"},
@@ -1732,7 +1898,7 @@ func TestManagedResourceMissingStillShows(t *testing.T) {
 		resourceScope:     resourceScopeDiscovered,
 		resourceFilter:    resourceFilterAll,
 		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{
-			{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "api.service"},
+			{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "api.service", Added: true},
 		}},
 		states: []hostState{{Host: host.Host{Category: "prod", Name: "api-01"}}},
 	}
@@ -1764,6 +1930,7 @@ func TestToggleManagedResourceSavesConfig(t *testing.T) {
 			Server: "prod/api-01",
 			Kind:   config.ResourceKindContainer,
 			Name:   "api",
+			Added:  true,
 		}}},
 	}
 	next, _ := m.toggleManagedResource()
@@ -1783,7 +1950,7 @@ func TestToggleManagedResourceSavesConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(file.Items) != 0 {
+	if len(file.Items) != 1 || file.Items[0].Favorite {
 		t.Fatalf("resources file after unfavorite = %#v", file)
 	}
 }
@@ -1822,18 +1989,6 @@ func TestResourceManagerAddsAndRemovesFavorite(t *testing.T) {
 	got.resourceManagePane = 1
 	next, _ = got.updateResourceAdd(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	got = next.(Model)
-	if got.mode != modeConfirmAction || got.confirm.Kind != confirmRemoveResource {
-		t.Fatalf("mode/confirm after x = %v/%v, want remove confirmation", got.mode, got.confirm.Kind)
-	}
-	file, _, err = config.LoadResources(home)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(file.Items) != 1 {
-		t.Fatalf("resources removed before confirmation: %#v", file.Items)
-	}
-	next, _ = got.updateConfirmAction(tea.KeyMsg{Type: tea.KeyEnter})
-	got = next.(Model)
 	file, _, err = config.LoadResources(home)
 	if err != nil {
 		t.Fatal(err)
@@ -1852,6 +2007,7 @@ func TestResourceListXRemovesManagedResourceAfterConfirmation(t *testing.T) {
 		Server: "prod/api-01",
 		Kind:   config.ResourceKindService,
 		Name:   "api.service",
+		Added:  true,
 	}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1890,12 +2046,13 @@ func TestResourceListXRemovesManagedResourceAfterConfirmation(t *testing.T) {
 	}
 }
 
-func TestResourceListXDoesNotRemoveDockerFavorite(t *testing.T) {
+func TestResourceListXCanRemoveDockerResourceAfterConfirmation(t *testing.T) {
 	home := t.TempDir()
 	if err := config.SaveResources(home, config.ResourcesFile{Items: []config.ManagedResource{{
 		Server:   "prod/api-01",
 		Kind:     config.ResourceKindContainer,
 		Name:     "api",
+		Added:    true,
 		Favorite: true,
 	}}}); err != nil {
 		t.Fatal(err)
@@ -1918,18 +2075,16 @@ func TestResourceListXDoesNotRemoveDockerFavorite(t *testing.T) {
 	}
 	next, _ := m.updateResourceList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	got := next.(Model)
-	if got.mode == modeConfirmAction {
-		t.Fatal("docker x should not open remove confirmation")
+	if got.mode != modeConfirmAction || got.confirm.Kind != confirmRemoveResource {
+		t.Fatalf("mode/confirm = %v/%v, want remove confirmation", got.mode, got.confirm.Kind)
 	}
-	if !strings.Contains(got.status, "cannot be deleted") {
-		t.Fatalf("status = %q, want cannot delete prompt", got.status)
-	}
+	next, _ = got.updateConfirmAction(tea.KeyMsg{Type: tea.KeyEnter})
 	file, _, err = config.LoadResources(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(file.Items) != 1 || !file.Items[0].Favorite {
-		t.Fatalf("docker favorite should remain after x: %#v", file.Items)
+	if len(file.Items) != 0 {
+		t.Fatalf("docker resource should be removed from sshm config: %#v", file.Items)
 	}
 }
 
@@ -1988,6 +2143,69 @@ func TestResourceDetailRRefreshesInsteadOfRestarting(t *testing.T) {
 	}
 }
 
+func TestResourceDetailScrollClampsBeforeMoving(t *testing.T) {
+	name := "postgres"
+	m := Model{
+		width:             120,
+		height:            10,
+		mode:              modeResourceDetail,
+		resourceHostIndex: 0,
+		resourceKind:      resourceDatabases,
+		resourceFilter:    resourceFilterAll,
+		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{{
+			Server:   "prod/api-01",
+			Kind:     config.ResourceKindDatabase,
+			Name:     name,
+			Added:    true,
+			DBEngine: "PostgreSQL",
+			DBHost:   "127.0.0.1",
+			DBPort:   "5432",
+			DBName:   name,
+		}}},
+		resourceDatabaseExtraName: name,
+		resourceDatabaseExtra: databaseExtraDetail{
+			Version:         "PostgreSQL 16",
+			SizeBytes:       72 * 1024 * 1024 * 1024,
+			TotalBytes:      999 * 1024 * 1024 * 1024,
+			DBTotalBytes:    73 * 1024 * 1024 * 1024,
+			IndexTotalBytes: 23 * 1024 * 1024 * 1024,
+			TableTop: []databaseTableSize{
+				{Name: "public.a", Size: 26 * 1024 * 1024 * 1024},
+				{Name: "public.b", Size: 23 * 1024 * 1024 * 1024},
+				{Name: "public.c", Size: 19 * 1024 * 1024 * 1024},
+				{Name: "public.d", Size: 1 * 1024 * 1024 * 1024},
+				{Name: "public.e", Size: 1 * 1024 * 1024 * 1024},
+			},
+			Connections:    "26",
+			MaxConnections: "100",
+			ActiveConns:    "3",
+			IdleConns:      "16",
+			CacheHit:       "95.34%",
+			LockWaits:      "0",
+			LongTx:         "0",
+			Deadlocks:      "31",
+		},
+		states: []hostState{{
+			Host: host.Host{Category: "prod", Name: "api-01"},
+			DatabaseDetails: []databaseDetail{{
+				Name:    name,
+				Engine:  "PostgreSQL",
+				Status:  "running",
+				Managed: true,
+			}},
+		}},
+	}
+	maxScroll := m.resourceDetailMaxScroll()
+	if maxScroll <= 0 {
+		t.Fatalf("maxScroll = %d, want scrollable detail", maxScroll)
+	}
+	m.resourceScroll = maxScroll + 100
+	got := m.moveResourceDetailScroll(-3)
+	if got.resourceScroll != maxInt(0, maxScroll-3) {
+		t.Fatalf("scroll after up from overflow = %d, want %d", got.resourceScroll, maxInt(0, maxScroll-3))
+	}
+}
+
 func TestResourceListTPinsDiscoveredContainer(t *testing.T) {
 	home := t.TempDir()
 	m := Model{
@@ -1996,6 +2214,12 @@ func TestResourceListTPinsDiscoveredContainer(t *testing.T) {
 		resourceHostIndex: 0,
 		resourceKind:      resourceContainers,
 		resourceFilter:    resourceFilterAll,
+		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{{
+			Server: "prod/api-01",
+			Kind:   config.ResourceKindContainer,
+			Name:   "api",
+			Added:  true,
+		}}},
 		states: []hostState{{
 			Host:             host.Host{Category: "prod", Name: "api-01"},
 			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second"}},
@@ -2023,7 +2247,9 @@ func TestResourceSortKeepsPinnedFirstThenSortsByCPU(t *testing.T) {
 		resourceFilter:    resourceFilterAll,
 		resourceSort:      resourceSortCPU,
 		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{
-			{Server: "prod/api-01", Kind: config.ResourceKindContainer, Name: "api", Pinned: true, PinnedOrder: 1},
+			{Server: "prod/api-01", Kind: config.ResourceKindContainer, Name: "api", Added: true, Pinned: true, PinnedOrder: 1},
+			{Server: "prod/api-01", Kind: config.ResourceKindContainer, Name: "db", Added: true},
+			{Server: "prod/api-01", Kind: config.ResourceKindContainer, Name: "web", Added: true},
 		}},
 		states: []hostState{{
 			Host: host.Host{Category: "prod", Name: "api-01"},
@@ -2046,6 +2272,55 @@ func TestResourceSortKeepsPinnedFirstThenSortsByCPU(t *testing.T) {
 	}
 }
 
+func TestResourceAllSortsPinnedBeforeKindGroups(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceAll,
+		resourceFilter:    resourceFilterAll,
+		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{
+			{Server: "prod/api-01", Kind: config.ResourceKindContainer, Name: "api", Added: true},
+			{Server: "prod/api-01", Kind: config.ResourceKindDatabase, Name: "freedex", Added: true, Pinned: true, PinnedOrder: 1, DBEngine: "PostgreSQL", DBHost: "127.0.0.1", DBPort: "5432", DBName: "freedex"},
+		}},
+		states: []hostState{{
+			Host:             host.Host{Category: "prod", Name: "api-01"},
+			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second"}},
+			DatabaseDetails: []databaseDetail{{
+				Name:       "freedex",
+				Engine:     "PostgreSQL",
+				Configured: true,
+				Managed:    true,
+			}},
+		}},
+	}
+	refs := m.filteredResourceIndexes()
+	if len(refs) < 2 {
+		t.Fatalf("refs = %#v, want at least 2 refs", refs)
+	}
+	if refs[0].Kind != resourceDatabases {
+		t.Fatalf("first ref kind = %v, want database pinned before kind groups", refs[0].Kind)
+	}
+}
+
+func TestResourceErrorTextHidesRawSSHExit255(t *testing.T) {
+	m := Model{
+		resourceHostIndex: 0,
+		resourceKind:      resourceAll,
+		states: []hostState{{
+			ServiceError:     "exit status 255",
+			ContainerError:   "exit status 255",
+			PortDetailsError: "exit status 255",
+		}},
+	}
+	got := m.resourceErrorText()
+	if strings.Contains(got, "exit status 255") || got == "" {
+		t.Fatalf("resource error text = %q, want friendly ssh error", got)
+	}
+	if strings.Count(got, "SSH") != 1 {
+		t.Fatalf("resource error text = %q, want deduplicated SSH error", got)
+	}
+}
+
 func TestResourceSortShortcutCyclesSortMode(t *testing.T) {
 	m := Model{
 		width:             120,
@@ -2064,12 +2339,13 @@ func TestResourceSortShortcutCyclesSortMode(t *testing.T) {
 	}
 }
 
-func TestResourceManagerXDoesNotRemoveDockerFavorite(t *testing.T) {
+func TestResourceManagerXCanRemoveDockerResourceAfterConfirmation(t *testing.T) {
 	home := t.TempDir()
 	file := config.ResourcesFile{Items: []config.ManagedResource{{
 		Server:   "prod/api-01",
 		Kind:     config.ResourceKindContainer,
 		Name:     "api",
+		Added:    true,
 		Favorite: true,
 	}}}
 	if err := config.SaveResources(home, file); err != nil {
@@ -2091,17 +2367,53 @@ func TestResourceManagerXDoesNotRemoveDockerFavorite(t *testing.T) {
 	next, _ := m.updateResourceAdd(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	got := next.(Model)
 	if got.mode == modeConfirmAction {
-		t.Fatal("docker manager x should not open remove confirmation")
-	}
-	if !strings.Contains(got.status, "cannot be deleted") {
-		t.Fatalf("status = %q, want cannot delete prompt", got.status)
+		t.Fatalf("resource manager docker remove should not ask confirmation")
 	}
 	saved, _, err := config.LoadResources(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.Items) != 1 || !saved.Items[0].Favorite {
-		t.Fatalf("docker favorite should remain after manager x: %#v", saved.Items)
+	if len(saved.Items) != 0 {
+		t.Fatalf("docker resource should be removed from sshm config: %#v", saved.Items)
+	}
+}
+
+func TestResourceManagerSelectionDoesNotWrap(t *testing.T) {
+	m := Model{
+		resourceHostIndex:  0,
+		resourceAddKind:    resourceServices,
+		resourceManagePane: 0,
+		states: []hostState{{
+			ServiceDetails: []serviceDetail{
+				{Unit: "a.service", Load: "loaded", Active: "active", Sub: "running"},
+				{Unit: "b.service", Load: "loaded", Active: "active", Sub: "running"},
+			},
+		}},
+	}
+	m.moveResourceManageSelection(-1)
+	if m.resourceManageDiscoveredIndex != 0 {
+		t.Fatalf("discovered index after up at top = %d, want 0", m.resourceManageDiscoveredIndex)
+	}
+	m.moveResourceManageSelection(1)
+	m.moveResourceManageSelection(1)
+	if m.resourceManageDiscoveredIndex != 1 {
+		t.Fatalf("discovered index after down past bottom = %d, want 1", m.resourceManageDiscoveredIndex)
+	}
+	m.resourceManagePane = 1
+	m.resourceManageFavoriteIndex = 0
+	m.resourceFile = config.ResourcesFile{Items: []config.ManagedResource{
+		{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "a.service", Added: true},
+		{Server: "prod/api-01", Kind: config.ResourceKindService, Name: "b.service", Added: true},
+	}}
+	m.states[0].Host = host.Host{Category: "prod", Name: "api-01"}
+	m.moveResourceManageSelection(-1)
+	if m.resourceManageFavoriteIndex != 0 {
+		t.Fatalf("favorite index after up at top = %d, want 0", m.resourceManageFavoriteIndex)
+	}
+	m.moveResourceManageSelection(1)
+	m.moveResourceManageSelection(1)
+	if m.resourceManageFavoriteIndex != 1 {
+		t.Fatalf("favorite index after down past bottom = %d, want 1", m.resourceManageFavoriteIndex)
 	}
 }
 
@@ -2201,15 +2513,97 @@ func TestResourceManagerTabSwitchesPaneAndGSwitchesType(t *testing.T) {
 	if got.resourceAddKind != resourceServices || got.resourceManagePane != 1 {
 		t.Fatalf("after left kind/pane = %v/%d, want services/1", got.resourceAddKind, got.resourceManagePane)
 	}
+	next, _ = got.updateResourceAdd(tea.KeyMsg{Type: tea.KeyLeft})
+	got = next.(Model)
+	if got.resourceAddKind != resourceContainers || got.resourceManagePane != 1 {
+		t.Fatalf("after second left kind/pane = %v/%d, want containers/1", got.resourceAddKind, got.resourceManagePane)
+	}
+	next, _ = got.updateResourceAdd(tea.KeyMsg{Type: tea.KeyRight})
+	got = next.(Model)
+	if got.resourceAddKind != resourceServices || got.resourceManagePane != 1 {
+		t.Fatalf("after right kind/pane = %v/%d, want services/1", got.resourceAddKind, got.resourceManagePane)
+	}
 	next, _ = got.updateResourceAdd(tea.KeyMsg{Type: tea.KeyRight})
 	got = next.(Model)
 	if got.resourceAddKind != resourceProcesses || got.resourceManagePane != 1 {
-		t.Fatalf("after right kind/pane = %v/%d, want processes/1", got.resourceAddKind, got.resourceManagePane)
+		t.Fatalf("after second right kind/pane = %v/%d, want processes/1", got.resourceAddKind, got.resourceManagePane)
 	}
 	next, _ = got.updateResourceAdd(tea.KeyMsg{Type: tea.KeyCtrlI})
 	got = next.(Model)
 	if got.resourceAddKind != resourceProcesses || got.resourceManagePane != 0 {
 		t.Fatalf("after ctrl+i kind/pane = %v/%d, want processes/0", got.resourceAddKind, got.resourceManagePane)
+	}
+}
+
+func TestResourceManagerHelpMatchesActivePane(t *testing.T) {
+	m := Model{appConfig: config.AppConfig{Language: "zh"}, resourceAddKind: resourceServices, resourceManagePane: 0}
+	left := m.resourceManageHelp()
+	if !strings.Contains(left, "添加 Enter/f") || strings.Contains(left, "移出") || strings.Contains(left, "编辑 e") {
+		t.Fatalf("left pane help = %q, want add-only actions", left)
+	}
+	m.resourceManagePane = 1
+	right := m.resourceManageHelp()
+	if !strings.Contains(right, "移出 Enter/x") || !strings.Contains(right, "编辑 e") || strings.Contains(right, "添加") {
+		t.Fatalf("right pane help = %q, want remove/edit actions", right)
+	}
+	m.resourceManagePane = 0
+	m.resourceAddKind = resourceDatabases
+	db := m.resourceManageHelp()
+	if !strings.Contains(db, "新建 n") {
+		t.Fatalf("database left pane help = %q, want new database shortcut", db)
+	}
+}
+
+func TestDatabaseEngineFieldCyclesChoicesAndDefaults(t *testing.T) {
+	m := Model{
+		resourceCommandForm: resourceCommandForm{
+			Kind:     resourceDatabases,
+			DBEngine: "MySQL",
+			DBPort:   "3306",
+			DBUser:   "root",
+		},
+		resourceCommandField: 0,
+	}
+	m.cycleResourceCommandDatabaseEngine(1)
+	if m.resourceCommandForm.DBEngine != "MariaDB" || m.resourceCommandForm.DBPort != "3306" || m.resourceCommandForm.DBUser != "root" {
+		t.Fatalf("after mysql->mariadb = %+v", m.resourceCommandForm)
+	}
+	m.cycleResourceCommandDatabaseEngine(1)
+	if m.resourceCommandForm.DBEngine != "PostgreSQL" || m.resourceCommandForm.DBPort != "5432" || m.resourceCommandForm.DBUser != "postgres" || m.resourceCommandForm.DBName != "postgres" {
+		t.Fatalf("after mariadb->postgres = %+v", m.resourceCommandForm)
+	}
+	m.resourceCommandForm.DBPort = "35432"
+	m.cycleResourceCommandDatabaseEngine(1)
+	if m.resourceCommandForm.DBEngine != "Redis" || m.resourceCommandForm.DBPort != "35432" {
+		t.Fatalf("custom port should be preserved, got %+v", m.resourceCommandForm)
+	}
+}
+
+func TestDatabaseDiscoveredAddPrefillsConnectionDefaults(t *testing.T) {
+	m := Model{
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceDatabases,
+		states: []hostState{{
+			Host: host.Host{Category: "prod", Name: "db-01"},
+			DatabaseDetails: []databaseDetail{{
+				Name:     "postgresql_8fjg-postgresql_8FJG-1",
+				Engine:   "PostgreSQL",
+				Endpoint: "0.0.0.0:35432->5432/tcp",
+				Managed:  true,
+			}},
+		}},
+	}
+	next, _ := m.startResourceDatabaseDiscoveredAdd(resourceRef{Kind: resourceDatabases, Index: 0})
+	got := next.(Model)
+	if got.mode != modeResourceAddEdit ||
+		got.resourceCommandForm.DBEngine != "PostgreSQL" ||
+		got.resourceCommandForm.DBHost != "127.0.0.1" ||
+		got.resourceCommandForm.DBPort != "35432" ||
+		got.resourceCommandForm.DBUser != "postgres" ||
+		got.resourceCommandForm.DBName != "postgres" ||
+		got.resourceCommandForm.DBInstance != "postgresql_8fjg-postgresql_8FJG-1" {
+		t.Fatalf("database form = %+v, want discovered postgres defaults", got.resourceCommandForm)
 	}
 }
 
@@ -2219,6 +2613,7 @@ func TestResourceCommandEditSavesCustomCommand(t *testing.T) {
 		Server:         "prod/api-01",
 		Kind:           config.ResourceKindService,
 		Name:           "api.service",
+		Added:          true,
 		RestartCommand: "systemctl restart api.service",
 	}}}); err != nil {
 		t.Fatal(err)
@@ -2288,6 +2683,193 @@ func TestResourceAddSavesEditedDefaultCommands(t *testing.T) {
 	}
 	if len(file.Items) != 1 || file.Items[0].RestartCommand != "cd /data/api && ./restart.sh" {
 		t.Fatalf("resources file = %#v", file)
+	}
+}
+
+func TestResourceManagerAddsExternalDatabase(t *testing.T) {
+	home := t.TempDir()
+	m := Model{
+		home:              home,
+		width:             120,
+		resourceHostIndex: 0,
+		resourceKind:      resourceDatabases,
+		states:            []hostState{{Host: host.Host{Category: "prod", Name: "app-01", JumpHostRef: "bastion"}}},
+	}
+	next, _ := m.startResourceAdd()
+	got := next.(Model)
+	got.resourceAddKind = resourceDatabases
+	next, _ = got.updateResourceAdd(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	got = next.(Model)
+	if got.mode != modeResourceAddEdit || got.resourceCommandForm.DBEngine != "MySQL" || got.resourceCommandForm.DBHost != "127.0.0.1" {
+		t.Fatalf("database add mode/defaults = %v/%#v", got.mode, got.resourceCommandForm)
+	}
+	got.resourceCommandForm.DBEngine = "PostgreSQL"
+	got.resourceCommandForm.DBHost = "prod-rds.example.com"
+	got.resourceCommandForm.DBPort = "5432"
+	got.resourceCommandForm.DBUser = "monitor"
+	got.resourceCommandForm.DBPassword = "secret"
+	got.resourceCommandForm.DBName = "app"
+	got.resourceCommandForm.DBNote = "核心交易库"
+	next, _ = got.saveResourceAdd()
+	got = next.(Model)
+	if got.mode != modeResourceAdd || got.resourceManagePane != 1 {
+		t.Fatalf("mode/pane = %v/%d, want resource manager added pane", got.mode, got.resourceManagePane)
+	}
+	file, _, err := config.LoadResources(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Items) != 1 {
+		t.Fatalf("resources count = %d, want 1: %#v", len(file.Items), file.Items)
+	}
+	item := file.Items[0]
+	if !item.Added || item.Kind != config.ResourceKindDatabase || item.Name != "app" ||
+		item.DBEngine != "PostgreSQL" || item.DBHost != "prod-rds.example.com" ||
+		item.DBPort != "5432" || item.DBUser != "monitor" || item.DBPassword != "secret" || item.DBName != "app" || item.DBNote != "核心交易库" {
+		t.Fatalf("saved database resource = %#v", item)
+	}
+}
+
+func TestExternalDatabaseResourceIsNotMarkedMissing(t *testing.T) {
+	m := Model{
+		appConfig:         config.AppConfig{Language: "zh"},
+		resourceHostIndex: 0,
+		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{{
+			Server:     "prod/app-01",
+			Kind:       config.ResourceKindDatabase,
+			Name:       "app",
+			Added:      true,
+			DBEngine:   "PostgreSQL",
+			DBHost:     "prod-rds.example.com",
+			DBPort:     "5432",
+			DBUser:     "monitor",
+			DBName:     "app",
+			DBInstance: "",
+		}}},
+		states: []hostState{{Host: host.Host{Category: "prod", Name: "app-01"}}},
+	}
+	m.applyManagedResources(0)
+	if len(m.states[0].DatabaseDetails) != 1 {
+		t.Fatalf("database details count = %d, want 1", len(m.states[0].DatabaseDetails))
+	}
+	db := m.states[0].DatabaseDetails[0]
+	if db.Missing || !db.Managed || !db.Configured {
+		t.Fatalf("database detail = %+v, want configured external database not missing", db)
+	}
+}
+
+func TestExternalDatabaseDetailShowsExternalFoundStateAndConnectedStatus(t *testing.T) {
+	m := Model{
+		appConfig:         config.AppConfig{Language: "zh"},
+		resourceHostIndex: 0,
+		resourceKind:      resourceDatabases,
+		resourceFilter:    resourceFilterAll,
+		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{{
+			Server:   "prod/app-01",
+			Kind:     config.ResourceKindDatabase,
+			Name:     "app",
+			Added:    true,
+			DBEngine: "PostgreSQL",
+			DBHost:   "prod-rds.example.com",
+			DBPort:   "5432",
+			DBName:   "app",
+		}}},
+		states: []hostState{{Host: host.Host{Category: "prod", Name: "app-01"}}},
+		resourceDatabaseExtraCache: map[string]databaseExtraCache{
+			"app": {Detail: databaseExtraDetail{Version: "PostgreSQL 16", Raw: map[string]string{"Uptime": "7200"}}},
+		},
+	}
+	m.applyManagedResources(0)
+	lines := ansi.Strip(strings.Join(m.resourceDetailLines(), "\n"))
+	if !strings.Contains(lines, "发现") || !strings.Contains(lines, "外部") {
+		t.Fatalf("database detail lines =\n%s\nwant external found state", lines)
+	}
+	if !strings.Contains(lines, "运行") || !strings.Contains(lines, "已连接") {
+		t.Fatalf("database detail lines =\n%s\nwant connected status", lines)
+	}
+}
+
+func TestResourceDatabaseConfigTextFieldsAcceptShortcutLetters(t *testing.T) {
+	m := Model{
+		mode:             modeResourceAddEdit,
+		resourceAddKind:  resourceDatabases,
+		resourceAddField: 5,
+		resourceCommandForm: resourceCommandForm{
+			Kind:     resourceDatabases,
+			DBEngine: "PostgreSQL",
+			DBName:   "mar",
+		},
+		resourceAddCursor: 3,
+	}
+	next, _ := m.updateResourceAddEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	got := next.(Model)
+	if got.resourceCommandForm.DBName != "mark" || got.resourceAddField != 5 {
+		t.Fatalf("DBName/field = %q/%d, want mark/5", got.resourceCommandForm.DBName, got.resourceAddField)
+	}
+	next, _ = got.updateResourceAddEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	got = next.(Model)
+	if got.resourceCommandForm.DBName != "markq" || got.mode != modeResourceAddEdit {
+		t.Fatalf("DBName/mode = %q/%v, want markq/add-edit", got.resourceCommandForm.DBName, got.mode)
+	}
+}
+
+func TestResourceDatabaseConfigNoteField(t *testing.T) {
+	m := Model{
+		mode:             modeResourceAddEdit,
+		resourceAddKind:  resourceDatabases,
+		resourceAddField: 6,
+		resourceCommandForm: resourceCommandForm{
+			Kind:     resourceDatabases,
+			DBEngine: "PostgreSQL",
+			DBNote:   "tra",
+		},
+		resourceAddCursor: 3,
+	}
+	next, _ := m.updateResourceAddEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	got := next.(Model)
+	if got.resourceCommandForm.DBNote != "trad" {
+		t.Fatalf("DBNote = %q, want trad", got.resourceCommandForm.DBNote)
+	}
+	if resourceCommandFieldCount(resourceDatabases) != 7 {
+		t.Fatalf("database field count = %d, want 7", resourceCommandFieldCount(resourceDatabases))
+	}
+}
+
+func TestCommandEditTextFieldsAcceptShortcutLetters(t *testing.T) {
+	m := Model{
+		mode:          modeCommandEdit,
+		commandField:  1,
+		commandForm:   commandEditForm{Name: "bac"},
+		commandCursor: 3,
+	}
+	next, _ := m.updateCommandEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	got := next.(Model)
+	if got.commandForm.Name != "back" {
+		t.Fatalf("Name = %q, want back", got.commandForm.Name)
+	}
+	next, _ = got.updateCommandEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	got = next.(Model)
+	if got.commandForm.Name != "backq" || got.mode != modeCommandEdit {
+		t.Fatalf("Name/mode = %q/%v, want backq/command-edit", got.commandForm.Name, got.mode)
+	}
+}
+
+func TestDeploymentEditTextFieldsAcceptShortcutLetters(t *testing.T) {
+	m := Model{
+		mode:             modeDeploymentEdit,
+		deploymentField:  3,
+		deploymentForm:   deploymentForm{Name: "mar"},
+		deploymentCursor: 3,
+	}
+	next, _ := m.updateDeploymentEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+	got := next.(Model)
+	if got.deploymentForm.Name != "mark" {
+		t.Fatalf("Name = %q, want mark", got.deploymentForm.Name)
+	}
+	next, _ = got.updateDeploymentEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	got = next.(Model)
+	if got.deploymentForm.Name != "markq" || got.mode != modeDeploymentEdit {
+		t.Fatalf("Name/mode = %q/%v, want markq/deployment-edit", got.deploymentForm.Name, got.mode)
 	}
 }
 
@@ -2524,6 +3106,7 @@ func TestManagedProcessCommandsEnableActions(t *testing.T) {
 			Server:         "prod/api-01",
 			Kind:           config.ResourceKindProcess,
 			Name:           "go-api",
+			Added:          true,
 			StartCommand:   "systemctl start go-api",
 			StopCommand:    "systemctl stop go-api",
 			RestartCommand: "systemctl restart go-api",
@@ -2563,6 +3146,7 @@ func TestDiscoveredProcessActionsRequireConfiguredCommands(t *testing.T) {
 			Server: "prod/api-01",
 			Kind:   config.ResourceKindProcess,
 			Name:   "go-api",
+			Added:  true,
 		}}},
 		resourceFilter: resourceFilterAll,
 		states: []hostState{{

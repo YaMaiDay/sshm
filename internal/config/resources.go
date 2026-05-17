@@ -13,6 +13,7 @@ const (
 	ResourceKindContainer = "container"
 	ResourceKindProcess   = "process"
 	ResourceKindPort      = "port"
+	ResourceKindDatabase  = "database"
 )
 
 type ResourcesFile struct {
@@ -23,6 +24,7 @@ type ManagedResource struct {
 	Server         string `toml:"server"`
 	Kind           string `toml:"kind"`
 	Name           string `toml:"name"`
+	Added          bool   `toml:"added,omitempty"`
 	Favorite       bool   `toml:"favorite,omitempty"`
 	Pinned         bool   `toml:"pinned,omitempty"`
 	PinnedOrder    int64  `toml:"pinned_order,omitempty"`
@@ -32,6 +34,14 @@ type ManagedResource struct {
 	DeleteCommand  string `toml:"delete_command,omitempty"`
 	LogCommand     string `toml:"log_command,omitempty"`
 	HealthCommand  string `toml:"health_command,omitempty"`
+	DBEngine       string `toml:"db_engine,omitempty"`
+	DBHost         string `toml:"db_host,omitempty"`
+	DBPort         string `toml:"db_port,omitempty"`
+	DBUser         string `toml:"db_user,omitempty"`
+	DBPassword     string `toml:"db_password,omitempty"`
+	DBName         string `toml:"db_name,omitempty"`
+	DBInstance     string `toml:"db_instance,omitempty"`
+	DBNote         string `toml:"db_note,omitempty"`
 }
 
 func ResourcesPath(home string) string {
@@ -81,6 +91,14 @@ func NormalizeManagedResources(items []ManagedResource) []ManagedResource {
 		item.DeleteCommand = strings.TrimSpace(item.DeleteCommand)
 		item.LogCommand = strings.TrimSpace(item.LogCommand)
 		item.HealthCommand = strings.TrimSpace(item.HealthCommand)
+		item.DBEngine = strings.TrimSpace(item.DBEngine)
+		item.DBHost = strings.TrimSpace(item.DBHost)
+		item.DBPort = strings.TrimSpace(item.DBPort)
+		item.DBUser = strings.TrimSpace(item.DBUser)
+		item.DBPassword = strings.TrimSpace(item.DBPassword)
+		item.DBName = strings.TrimSpace(item.DBName)
+		item.DBInstance = strings.TrimSpace(item.DBInstance)
+		item.DBNote = strings.TrimSpace(item.DBNote)
 		if !item.Pinned {
 			item.PinnedOrder = 0
 		}
@@ -107,6 +125,8 @@ func normalizeResourceKind(kind string) string {
 		return ResourceKindProcess
 	case ResourceKindPort, "ports":
 		return ResourceKindPort
+	case ResourceKindDatabase, "databases", "db":
+		return ResourceKindDatabase
 	default:
 		return ""
 	}
