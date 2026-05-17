@@ -15,7 +15,7 @@ The install script downloads the latest GitHub Release. If the repository code h
 You can pin a version:
 
 ```sh
-SSHM_VERSION=v0.1.40 curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | sh
+SSHM_VERSION=vX.Y.Z curl -fsSL https://raw.githubusercontent.com/YaMaiDay/sshm/main/install.sh | sh
 ```
 
 You can also download the matching package from Releases manually and verify it with the same-version `checksums.txt`.

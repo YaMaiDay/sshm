@@ -51,6 +51,8 @@ Before opening a PR, confirm:
 6. The PR avoids unrelated formatting churn.
 7. The user-visible impact is clearly described.
 
+Prefer small, reviewable commits. Keep documentation, tests, refactors, and behavior changes separate when practical so maintainers can review or revert them independently.
+
 ## Bug Reports
 
 Please include:

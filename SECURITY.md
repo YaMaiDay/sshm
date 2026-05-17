@@ -4,7 +4,13 @@ sshm is a local-first terminal SSH manager. It does not run a cloud service, doe
 
 ## Supported Versions
 
-Security fixes are applied to the latest Release.
+Security fixes are applied to the latest stable release.
+
+| Version | Supported |
+| --- | --- |
+| Latest release | Yes |
+| Older releases | No, unless explicitly stated in a release note |
+| `main` branch | Development only, not a supported release |
 
 ## Security Design
 
@@ -42,6 +48,8 @@ Common local files:
 | `~/.config/sshm/transfers.toml` | Transfer jobs and history |
 | `~/.config/sshm/deployments.toml` | Deployment apps and records |
 | `~/.config/sshm/resources.toml` | Resource favorites, pins, custom resource commands, and configured database connection fields |
+| `~/.config/sshm/resource_cache.toml` | Cached resource discovery results |
+| `~/.config/sshm/state.toml` | Local UI and runtime state |
 | `~/.config/sshm/config.toml` | App settings |
 
 Files that may contain sensitive data are written with stricter permissions where practical.
@@ -55,6 +63,8 @@ Resource configuration may include database connection fields. If a database pas
 Please use GitHub private vulnerability reporting or the repository's Security Advisories when available.
 
 If private reporting is unavailable, open a GitHub Issue with the minimum necessary description. Do not publicly include passwords, private keys, server IPs, production hostnames, or directly exploitable details. Maintainers will follow up and coordinate a fix.
+
+Maintainers try to acknowledge security reports promptly, validate impact, prepare a fix, and publish a new release when the issue affects supported versions. Public details may be delayed until a fixed release is available.
 
 ## Scope
 

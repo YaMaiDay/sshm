@@ -171,6 +171,11 @@ Debian / Ubuntu:
 sudo apt install openssh-client rsync sshpass
 ```
 
+Windows:
+
+- OpenSSH Client should be available in Windows Settings or on `PATH`.
+- File transfer requires an `rsync` executable available on `PATH`, for example through Git for Windows, MSYS2, Cygwin, WSL, or another compatible package.
+
 Remote servers also need `rsync` for file transfer and local-fetch deployment. If a remote server is missing `rsync`, sshm asks before attempting installation.
 
 ## Security, Privacy, And Network Behavior
@@ -185,6 +190,5 @@ Network access happens only when the user installs sshm, connects to configured 
 
 Apache 2.0. See [LICENSE](LICENSE).
 
-[Report a bug](https://github.com/YaMaiDay/sshm/issues/new) ·
-[Request a feature](https://github.com/YaMaiDay/sshm/issues/new) ·
+[Report a bug or request a feature](https://github.com/YaMaiDay/sshm/issues/new/choose) ·
 [Join discussions](https://github.com/YaMaiDay/sshm/discussions)

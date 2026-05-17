@@ -28,7 +28,9 @@ Examples of unacceptable behavior:
 
 Maintainers may remove, edit, or close comments, commits, issues, PRs, wiki edits, and other contributions that do not follow this Code of Conduct.
 
-If you experience inappropriate behavior, contact maintainers through GitHub Issues. If the report contains sensitive security information, use private vulnerability reporting.
+If you experience inappropriate behavior, avoid posting personal or sensitive details in public issues. Use GitHub Discussions or contact a maintainer privately when possible.
+
+If a report contains sensitive security information, use GitHub private vulnerability reporting or Security Advisories instead of a public issue.
 
 ## Scope
 
