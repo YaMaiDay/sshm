@@ -126,10 +126,8 @@ func AddCategory(home, name string) error {
 	if name == "" {
 		return os.ErrInvalid
 	}
-	for _, category := range categories {
-		if category == name {
-			return nil
-		}
+	if containsCategory(categories, name) {
+		return nil
 	}
 	return SaveCategories(home, append(categories, name))
 }
@@ -264,14 +262,7 @@ func normalizeCategories(categories []string, servers []serverEntry) []string {
 		if category == "" {
 			category = "default"
 		}
-		exists := false
-		for _, current := range out {
-			if current == category {
-				exists = true
-				break
-			}
-		}
-		if !exists {
+		if !containsCategory(out, category) {
 			out = append(out, category)
 		}
 	}

@@ -11,10 +11,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
 	"github.com/YaMaiDay/sshm/internal/host"
 	"github.com/YaMaiDay/sshm/internal/monitor"
+	resourceservice "github.com/YaMaiDay/sshm/internal/resource"
 )
 
 func TestDashboardCardUsesEnglishLabelsByDefault(t *testing.T) {
@@ -229,43 +229,6 @@ func TestDashboardHostDisplayNameMarksPinnedAndFavorite(t *testing.T) {
 	}
 }
 
-func TestBuildDeploymentScriptGitIncludesPipeline(t *testing.T) {
-	script := buildDeploymentScript(config.DeploymentApp{
-		Name:           "api",
-		Source:         config.DeploySourceGit,
-		Repo:           "git@github.com:owner/api.git",
-		Branch:         "main",
-		Path:           "/data/api",
-		Credential:     config.DeployCredentialSSH,
-		CredentialName: "/home/deploy/.ssh/api_deploy_key",
-		BeforeCommands: []string{"systemctl stop api"},
-		UpdateCommands: []string{"go build ./cmd/api"},
-		AfterCommands:  []string{"systemctl restart api"},
-		HealthCommands: []string{"curl -fsS http://127.0.0.1:8080/health"},
-	}, false)
-
-	for _, want := range []string{
-		"== 更新前 ==",
-		"== 获取资源 ==",
-		"== 更新 ==",
-		"== 更新后 ==",
-		"== 健康检查 ==",
-		"export GIT_SSH_COMMAND=",
-		"/home/deploy/.ssh/api_deploy_key",
-		"IdentitiesOnly=yes",
-		"git clone --branch 'main' 'git@github.com:owner/api.git' '/data/api'",
-		"git pull --ff-only",
-		"systemctl stop api",
-		"go build ./cmd/api",
-		"systemctl restart api",
-		"curl -fsS http://127.0.0.1:8080/health",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("script missing %q:\n%s", want, script)
-		}
-	}
-}
-
 func TestDeploymentOutputLinesRendersStageTitles(t *testing.T) {
 	m := Model{appConfig: config.AppConfig{Language: "zh"}}
 	lines := m.deploymentOutputLines(strings.Join([]string{
@@ -316,75 +279,6 @@ func TestDeploymentOutputShowsInteractiveStages(t *testing.T) {
 	for _, want := range []string{"✓ Before", "▶ Fetch", "· Update", "Cloning into '.'..."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("deployment output missing %q:\n%s", want, view)
-		}
-	}
-}
-
-func TestBuildDeploymentScriptReleaseIncludesDownloadAndUnpack(t *testing.T) {
-	script := buildDeploymentScript(config.DeploymentApp{
-		Name:           "web",
-		Source:         config.DeploySourceRelease,
-		Repo:           "owner/web",
-		Version:        "v1.2.3",
-		Asset:          "web.tar.gz",
-		Path:           "/data/web",
-		Credential:     config.DeployCredentialToken,
-		CredentialName: "GH_RELEASE_TOKEN",
-	}, false)
-
-	for _, want := range []string{
-		"if [ -n \"${GH_RELEASE_TOKEN:-}\" ]; then",
-		"SSHM_GITHUB_AUTH_HEADER=\"Authorization: Bearer ${GH_RELEASE_TOKEN}\"",
-		"curl -fL -H \"$SSHM_GITHUB_AUTH_HEADER\" 'https://github.com/owner/web/releases/download/v1.2.3/web.tar.gz'",
-		"tar -xzf 'packages/web.tar.gz' -C 'releases/v1.2.3'",
-		"ln -sfn 'releases/v1.2.3' current",
-		"SSHM_CURRENT_VERSION='v1.2.3'",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("script missing %q:\n%s", want, script)
-		}
-	}
-}
-
-func TestBuildDeploymentScriptReleaseLatestFixedAsset(t *testing.T) {
-	script := buildDeploymentScript(config.DeploymentApp{
-		Name:   "web",
-		Source: config.DeploySourceRelease,
-		Repo:   "owner/web",
-		Asset:  "web.tar.gz",
-		Path:   "/data/web",
-	}, false)
-
-	for _, want := range []string{
-		"curl -fL 'https://github.com/owner/web/releases/latest/download/web.tar.gz'",
-		"tar -xzf 'packages/web.tar.gz' -C 'releases/latest'",
-		"ln -sfn 'releases/latest' current",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("script missing %q:\n%s", want, script)
-		}
-	}
-}
-
-func TestBuildDeploymentScriptReleasePatternUsesGitHubAPI(t *testing.T) {
-	script := buildDeploymentScript(config.DeploymentApp{
-		Name:    "kernel",
-		Source:  config.DeploySourceRelease,
-		Repo:    "owner/kernel",
-		Version: "latest",
-		Asset:   "freedex-trade-kernel-amd64-*",
-		Path:    "/data/kernel",
-	}, false)
-
-	for _, want := range []string{
-		"SSHM_RELEASE_API='https://api.github.com/repos/owner/kernel/releases/latest'",
-		"\"browser_download_url\"",
-		"case \"$name\" in 'freedex-trade-kernel-amd64-'*)",
-		"未找到匹配的 Release 资源：freedex-trade-kernel-amd64-*",
-		"SSHM_RELEASE_ASSET=${SSHM_RELEASE_URL##*/}",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("script missing %q:\n%s", want, script)
 		}
 	}
 }
@@ -870,7 +764,7 @@ func TestHandleDeploymentDoneStopsQueueOnFailure(t *testing.T) {
 
 	next, cmd := m.handleDeploymentDone(deploymentDoneMsg{
 		ID:     "run-1",
-		Result: actions.CommandResult{Err: errors.New("git failed"), ExitCode: 128, Output: "fatal"},
+		Result: commandResult{Err: errors.New("git failed"), ExitCode: 128, Output: "fatal"},
 	})
 	got := next.(Model)
 	if cmd != nil {
@@ -886,7 +780,7 @@ func TestHandleDeploymentDoneStopsQueueOnFailure(t *testing.T) {
 
 func TestContainerDetailRowsShowRawStatus(t *testing.T) {
 	m := Model{width: 120}
-	rows := containerDetailItemRows(m, containerDetail{
+	rows := containerDetailItemRows(m, resourceservice.ContainerDetail{
 		Name:   "kafka",
 		Image:  "apache/kafka:3.9.0",
 		Status: "Up 2 weeks (unhealthy)",
@@ -898,101 +792,9 @@ func TestContainerDetailRowsShowRawStatus(t *testing.T) {
 	}
 }
 
-func TestParseServiceDetailsSortsFailedFirst(t *testing.T) {
-	out := strings.Join([]string{
-		"nginx.service loaded active running A high performance web server",
-		"redis.service loaded failed failed Redis server",
-		"cron.service loaded active exited Regular background program processing daemon",
-		"old.service loaded inactive dead Old service",
-	}, "\n")
-	services, errText := parseServiceDetails(out)
-	if errText != "" {
-		t.Fatalf("errText = %q", errText)
-	}
-	if len(services) != 4 {
-		t.Fatalf("services = %#v", services)
-	}
-	if services[0].Unit != "redis.service" || serviceDetailKind(services[0]) != "failed" {
-		t.Fatalf("first service = %+v, want failed redis first", services[0])
-	}
-}
-
-func TestParseServiceDetailsWithDiscoveryMetadata(t *testing.T) {
-	out := "__SSHM_SERVICE__\tapi.service\tloaded\tactive\trunning\tAPI Service\t/etc/systemd/system/api.service\t/data/api\t/data/api/server\t123\t0\t86016\tFri 2026-05-15 10:00:00 UTC\tFri 2026-05-14 10:00:00 UTC\tFri 2026-05-15 10:00:00 UTC\tFri 2026-05-15 10:00:01 UTC\tFri 2026-05-14 10:00:00 UTC\tenabled\tsuccess\t0\t2\t6\t/system.slice/api.service\tsystem.slice\tapp\tapp\talways\t5000000\t/bin/stop\t/bin/reload\t/etc/systemd/system/api.service.d/override.conf"
-	services, errText := parseServiceDetails(out)
-	if errText != "" {
-		t.Fatalf("errText = %q", errText)
-	}
-	if len(services) != 1 {
-		t.Fatalf("services = %#v, want 1", services)
-	}
-	item := services[0]
-	if item.Unit != "api.service" || item.FragmentPath != "/etc/systemd/system/api.service" || item.WorkingDirectory != "/data/api" || item.ExecStart != "/data/api/server" {
-		t.Fatalf("service metadata = %+v", item)
-	}
-	if item.MainPID != "123" || item.ExecMainPID != "" || item.MemoryCurrent != 86016 || item.ActiveSince != "Fri 2026-05-15 10:00:00 UTC" {
-		t.Fatalf("service resource fields = %+v", item)
-	}
-	if item.UnitFileState != "enabled" || item.Result != "success" || item.NRestarts != "2" || item.TasksCurrent != "6" || item.User != "app" || item.Restart != "always" || item.RestartSec != "5000000" || item.ExecStop != "/bin/stop" || item.ExecReload != "/bin/reload" {
-		t.Fatalf("service extended fields = %+v", item)
-	}
-}
-
-func TestParseServiceDetailsIgnoresInvalidMemoryCurrent(t *testing.T) {
-	out := "__SSHM_SERVICE__\tapi.service\tloaded\tactive\trunning\tAPI Service\t/etc/systemd/system/api.service\t/data/api\t/data/api/server\t0\t456\t18446744073709551615"
-	services, errText := parseServiceDetails(out)
-	if errText != "" {
-		t.Fatalf("errText = %q", errText)
-	}
-	if len(services) != 1 {
-		t.Fatalf("services = %#v, want 1", services)
-	}
-	if services[0].MainPID != "" || services[0].ExecMainPID != "456" || services[0].MemoryCurrent != 0 {
-		t.Fatalf("invalid memory should be hidden: %+v", services[0])
-	}
-}
-
-func TestParseServiceExtraDetailRawSystemctlShow(t *testing.T) {
-	out := strings.Join([]string{
-		"Id=postfix.service",
-		"LoadState=loaded",
-		"ActiveState=active",
-		"SubState=running",
-		"Description=Postfix Mail Transport Agent",
-		"FragmentPath=/usr/lib/systemd/system/postfix.service",
-		"ExecStart={ path=/usr/sbin/postfix ; argv[]=/usr/sbin/postfix start ; status=0 }",
-		"MainPID=3137",
-		"ExecMainPID=0",
-		"MemoryCurrent=7969177",
-		"ActiveEnterTimestamp=Tue 2026-03-17 11:01:19 CST",
-		"UnitFileState=enabled",
-		"Result=success",
-		"ExecMainStatus=0",
-		"NRestarts=0",
-		"TasksCurrent=4",
-		"ControlGroup=/system.slice/postfix.service",
-		"Slice=system.slice",
-		"Restart=no",
-		"RestartUSec=100ms",
-	}, "\n")
-	item, errText := parseServiceExtraDetail(out)
-	if errText != "" {
-		t.Fatalf("errText = %q", errText)
-	}
-	if item.Unit != "postfix.service" || item.UnitFileState != "enabled" || item.Result != "success" || item.ExecMainStatus != "0" || item.NRestarts != "0" {
-		t.Fatalf("basic extra fields = %+v", item)
-	}
-	if item.TasksCurrent != "4" || item.ControlGroup != "/system.slice/postfix.service" || item.Slice != "system.slice" || item.Restart != "no" || item.RestartSec != "100ms" {
-		t.Fatalf("extended fields = %+v", item)
-	}
-	if got := serviceProgramPath(item); got != "/usr/sbin/postfix" {
-		t.Fatalf("program path = %q, want /usr/sbin/postfix", got)
-	}
-}
-
 func TestServiceDetailRowsShowStatusAndDescription(t *testing.T) {
 	m := Model{width: 120}
-	rows := serviceDetailItemRows(m, serviceDetail{
+	rows := serviceDetailItemRows(m, resourceservice.ServiceDetail{
 		Unit:        "redis.service",
 		Load:        "loaded",
 		Active:      "failed",
@@ -1064,11 +866,11 @@ func TestServerDetailServicesAndContainersAreSummariesOnly(t *testing.T) {
 				DockerRunning:    1,
 				DockerStopped:    1,
 			},
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "api.service", Load: "loaded", Active: "failed", Sub: "failed", Description: "API service"},
 				{Unit: "worker.service", Load: "loaded", Active: "active", Sub: "running", Description: "Worker service"},
 			},
-			ContainerDetails: []containerDetail{
+			ContainerDetails: []resourceservice.ContainerDetail{
 				{Name: "api", Status: "Exited (1)", Image: "app:latest"},
 				{Name: "redis", Status: "Up 1 hour", Image: "redis:7"},
 			},
@@ -1254,61 +1056,12 @@ func TestServerDetailProblemsDoNotDuplicateCollectionErrors(t *testing.T) {
 	}
 }
 
-func TestParseContainerDetailsWithDockerStats(t *testing.T) {
-	out := strings.Join([]string{
-		"__SSHM_CONTAINER__\tapi\tapp:latest\tUp 2 minutes\t80->80/tcp",
-		"__SSHM_CONTAINER_STATS__\tapi\t0.12%\t32.4MiB / 1.9GiB\t1.65%",
-		"__SSHM_CONTAINER_LIMIT__\t/api\t1500000000\t0\t0\t",
-	}, "\n")
-	items, errText := parseContainerDetails(out)
-	if errText != "" {
-		t.Fatalf("errText = %q", errText)
-	}
-	if len(items) != 1 {
-		t.Fatalf("items = %#v, want 1", items)
-	}
-	if items[0].CPU != "0.12%" || items[0].Memory != "32.4M/1.9G" || items[0].MemPerc != "1.65%" {
-		t.Fatalf("container stats = %+v", items[0])
-	}
-	if !items[0].CPULimitKnown || items[0].NanoCpus != 1500000000 {
-		t.Fatalf("container cpu limit = %+v", items[0])
-	}
-}
-
-func TestParseContainerExtraDetail(t *testing.T) {
-	inspect := `{"Id":"abcdef1234567890","Created":"2026-05-15T10:00:00Z","Path":"/app","Args":["serve"],"Driver":"overlay2","Platform":"linux","SizeRw":1234,"SizeRootFs":5678,"State":{"Status":"running","StartedAt":"2026-05-15T10:01:00Z","FinishedAt":"0001-01-01T00:00:00Z","ExitCode":0,"Health":{"Status":"healthy"}},"HostConfig":{"RestartPolicy":{"Name":"unless-stopped"},"NanoCpus":2000000000,"CpuQuota":0,"CpuPeriod":0,"CpusetCpus":""},"Mounts":[{"Type":"bind","Source":"/data/app","Destination":"/app/data","RW":true}],"NetworkSettings":{"Networks":{"customer_default":{"IPAddress":"172.18.0.3","Gateway":"172.18.0.1","MacAddress":"02:42:ac:12:00:03","NetworkID":"networkabcdef123456","EndpointID":"endpointabcdef123456","Aliases":["api","customer-app-1"]}}}}`
-	out := strings.Join([]string{
-		"__SSHM_CONTAINER_INSPECT__\t" + inspect,
-		"__SSHM_CONTAINER_SIZE__\t12.3MB (virtual 1.2GB)",
-		"__SSHM_CONTAINER_BLOCKIO__\t1.2MB / 3.4MB",
-	}, "\n")
-	detail, errText := parseContainerExtraDetail(out)
-	if errText != "" {
-		t.Fatalf("errText = %q", errText)
-	}
-	if detail.ID != "abcdef1234567890" || detail.Size != "12.3MB" || detail.VirtualSize != "1.2GB" || detail.BlockIO != "1.2MB/3.4MB" {
-		t.Fatalf("detail = %+v", detail)
-	}
-	if detail.SizeRW != 1234 || detail.SizeRootFS != 5678 || detail.HealthStatus != "healthy" || detail.RestartPolicy != "unless-stopped" {
-		t.Fatalf("inspect fields = %+v", detail)
-	}
-	if detail.NanoCpus != 2000000000 {
-		t.Fatalf("cpu limit fields = %+v", detail)
-	}
-	if len(detail.Mounts) != 1 || detail.Mounts[0].Source != "/data/app" || !detail.Mounts[0].RW {
-		t.Fatalf("mounts = %+v", detail.Mounts)
-	}
-	if len(detail.Networks) != 1 || detail.Networks[0].Name != "customer_default" || detail.Networks[0].IPAddress != "172.18.0.3" || len(detail.Networks[0].Aliases) != 2 {
-		t.Fatalf("networks = %+v", detail.Networks)
-	}
-}
-
 func TestContainerCPULimitText(t *testing.T) {
-	m := Model{resourceContainerExtra: containerExtraDetail{NanoCpus: 1500000000}}
+	m := Model{resourceContainerExtra: resourceservice.ContainerExtraDetail{NanoCpus: 1500000000}}
 	if got := m.containerCPULimitText(); got != "1.5 cores limit" {
 		t.Fatalf("nano cpu limit = %q", got)
 	}
-	m = Model{resourceContainerExtra: containerExtraDetail{CpusetCpus: "0,1"}}
+	m = Model{resourceContainerExtra: resourceservice.ContainerExtraDetail{CpusetCpus: "0,1"}}
 	if got := m.containerCPULimitText(); got != "CPU 0,1" {
 		t.Fatalf("cpuset cpu limit = %q", got)
 	}
@@ -1323,7 +1076,7 @@ func TestContainerCardShowsCPULimitFromListData(t *testing.T) {
 		appConfig:         config.AppConfig{Language: "zh"},
 		resourceHostIndex: 0,
 		states: []hostState{{
-			ContainerDetails: []containerDetail{{
+			ContainerDetails: []resourceservice.ContainerDetail{{
 				Name:          "api",
 				Image:         "app:latest",
 				Status:        "Up 2 minutes",
@@ -1342,14 +1095,14 @@ func TestContainerCardShowsCPULimitFromListData(t *testing.T) {
 
 func TestResourceCardMetaExtractsContainerAndServiceAge(t *testing.T) {
 	m := Model{}
-	if got := m.containerCardMeta(containerDetail{Status: "Up 4 weeks (healthy)"}); got != "28d" {
+	if got := m.containerCardMeta(resourceservice.ContainerDetail{Status: "Up 4 weeks (healthy)"}); got != "28d" {
 		t.Fatalf("container meta = %q, want 28d", got)
 	}
 	m.appConfig.Language = "zh"
-	if got := m.containerCardMeta(containerDetail{Status: "Up 4 weeks (healthy)"}); got != "28天" {
+	if got := m.containerCardMeta(resourceservice.ContainerDetail{Status: "Up 4 weeks (healthy)"}); got != "28天" {
 		t.Fatalf("container zh meta = %q, want 28天", got)
 	}
-	if got := m.databaseCardMeta(databaseDetail{RawStatus: "Up 4 weeks (healthy)"}); got != "28天" {
+	if got := m.databaseCardMeta(resourceservice.DatabaseDetail{RawStatus: "Up 4 weeks (healthy)"}); got != "28天" {
 		t.Fatalf("database zh meta = %q, want 28天", got)
 	}
 	if got := shortSystemdTimestampAge("bad timestamp", true); got != "" {
@@ -1363,7 +1116,7 @@ func TestDatabaseCardTitleShowsEngineAndMetaShowsUptime(t *testing.T) {
 		resourceHostIndex: 0,
 		resourceKind:      resourceDatabases,
 		states: []hostState{{
-			DatabaseDetails: []databaseDetail{{
+			DatabaseDetails: []resourceservice.DatabaseDetail{{
 				Name:      "freedex",
 				Engine:    "PostgreSQL",
 				Status:    "running",
@@ -1388,11 +1141,11 @@ func TestResourceFiltersSeparateContainersAndServices(t *testing.T) {
 		resourceKind:      resourceContainers,
 		resourceFilter:    resourceFilterProblems,
 		states: []hostState{{
-			ContainerDetails: []containerDetail{
+			ContainerDetails: []resourceservice.ContainerDetail{
 				{Name: "api", Status: "Up 2 minutes", Managed: true},
 				{Name: "worker", Status: "Restarting (1) 10 seconds ago", Managed: true},
 			},
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", Managed: true},
 				{Unit: "redis.service", Load: "loaded", Active: "failed", Sub: "failed", Managed: true},
 			},
@@ -1416,9 +1169,9 @@ func TestResourceAllIncludesContainersAndServices(t *testing.T) {
 		resourceKind:      resourceAll,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 2 minutes", Managed: true}},
-			ServiceDetails:   []serviceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/etc/systemd/system/nginx.service", ExecStart: "/usr/sbin/nginx", Managed: true}},
-			PortDetails:      []portDetail{{Protocol: "tcp", Port: "22", Process: "sshd", PID: "123", Managed: true}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "api", Status: "Up 2 minutes", Managed: true}},
+			ServiceDetails:   []resourceservice.ServiceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/etc/systemd/system/nginx.service", ExecStart: "/usr/sbin/nginx", Managed: true}},
+			PortDetails:      []resourceservice.PortDetail{{Protocol: "tcp", Port: "22", Process: "sshd", PID: "123", Managed: true}},
 		}},
 	}
 	indexes := m.filteredResourceIndexes()
@@ -1442,11 +1195,11 @@ func TestResourceListShowsOnlyAddedResources(t *testing.T) {
 		}}},
 		states: []hostState{{
 			Host: host.Host{Category: "prod", Name: "api-01"},
-			ContainerDetails: []containerDetail{
+			ContainerDetails: []resourceservice.ContainerDetail{
 				{Name: "api", Status: "Up 2 minutes"},
 				{Name: "redis", Status: "Up 2 minutes"},
 			},
-			ServiceDetails: []serviceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running"}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running"}},
 		}},
 	}
 	indexes := m.filteredResourceIndexes()
@@ -1470,7 +1223,7 @@ func TestResourceServicesHideNotFoundInactiveDeadUnits(t *testing.T) {
 		resourceKind:      resourceServices,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "display-manager.service", Load: "not-found", Active: "inactive", Sub: "dead"},
 				{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/etc/systemd/system/api.service", ExecStart: "/data/api/server", Managed: true},
 				{Unit: "worker.service", Load: "loaded", Active: "failed", Sub: "failed", Managed: true},
@@ -1491,7 +1244,7 @@ func TestResourceServicesDiscoveryShowsUserManagedSignals(t *testing.T) {
 		resourceAddKind:   resourceServices,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "sshd.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/sshd.service", ExecStart: "/usr/sbin/sshd -D"},
 				{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/etc/systemd/system/api.service", ExecStart: "/data/api/server"},
 				{Unit: "worker.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/worker.service", WorkingDirectory: "/opt/worker"},
@@ -1518,7 +1271,7 @@ func TestResourceManagerServicesHideNotFoundUnlessSearching(t *testing.T) {
 		resourceAddKind:   resourceServices,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "iptables.service", Load: "not-found", Active: "inactive", Sub: "dead"},
 				{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/nginx.service"},
 			},
@@ -1544,7 +1297,7 @@ func TestResourceManagerSortsDiscoveredByStatusAndName(t *testing.T) {
 		resourceAddKind:   resourceServices,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "z-running.service", Load: "loaded", Active: "active", Sub: "running"},
 				{Unit: "b-failed.service", Load: "loaded", Active: "failed", Sub: "failed"},
 				{Unit: "a-failed.service", Load: "loaded", Active: "failed", Sub: "failed"},
@@ -1582,7 +1335,7 @@ func TestResourceManagerSortsAddedByStatusAndName(t *testing.T) {
 		}},
 		states: []hostState{{
 			Host: host.Host{Category: "prod", Name: "api-01"},
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "z-running.service", Load: "loaded", Active: "active", Sub: "running"},
 				{Unit: "b-failed.service", Load: "loaded", Active: "failed", Sub: "failed"},
 				{Unit: "a-running.service", Load: "loaded", Active: "active", Sub: "running"},
@@ -1606,7 +1359,7 @@ func TestResourceManagerServiceLineShowsLocalizedStatusAndRawState(t *testing.T)
 		appConfig:         config.AppConfig{Language: "zh"},
 		resourceHostIndex: 0,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running"}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running"}},
 		}},
 	}
 	line := ansi.Strip(m.resourceManageRefLine(resourceRef{Kind: resourceServices, Index: 0}, true, 80))
@@ -1620,7 +1373,7 @@ func TestResourceManagerContainerLineShowsRawStatus(t *testing.T) {
 		appConfig:         config.AppConfig{Language: "zh"},
 		resourceHostIndex: 0,
 		states: []hostState{{
-			ContainerDetails: []containerDetail{{Name: "postgres", Status: "Up 2 hours (healthy)"}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "postgres", Status: "Up 2 hours (healthy)"}},
 		}},
 	}
 	line := ansi.Strip(m.resourceManageRefLine(resourceRef{Kind: resourceContainers, Index: 0}, true, 80))
@@ -1634,7 +1387,7 @@ func TestResourceManagerStatusColumnAlignsNames(t *testing.T) {
 		appConfig:         config.AppConfig{Language: "zh"},
 		resourceHostIndex: 0,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running"},
 				{Unit: "broken-long-name.service", Load: "loaded", Active: "failed", Sub: "failed"},
 			},
@@ -1655,7 +1408,7 @@ func TestResourceManagerAddedLineMatchesDiscoveredLine(t *testing.T) {
 		appConfig:         config.AppConfig{Language: "zh"},
 		resourceHostIndex: 0,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "failed", Sub: "failed"}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "api.service", Load: "loaded", Active: "failed", Sub: "failed"}},
 		}},
 	}
 	item := config.ManagedResource{
@@ -1682,7 +1435,7 @@ func TestResourceServicesUseGenericDiscoveryRules(t *testing.T) {
 		resourceAddKind:   resourceServices,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "cron.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/cron.service", ExecStart: "/usr/sbin/cron -f"},
 				{Unit: "boot-helper.service", Load: "loaded", Active: "active", Sub: "exited", FragmentPath: "/usr/lib/systemd/system/boot-helper.service", ExecStart: "/usr/lib/systemd/helper"},
 				{Unit: "inactive-custom.service", Load: "loaded", Active: "inactive", Sub: "dead", FragmentPath: "/usr/lib/systemd/system/inactive-custom.service"},
@@ -1719,7 +1472,7 @@ func TestResourceServicesHideSystemHelpersFromRealServerSet(t *testing.T) {
 		resourceAddKind:   resourceServices,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "chronyd.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/chronyd.service", ExecStart: "/usr/sbin/chronyd"},
 				{Unit: "containerd.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/containerd.service", ExecStart: "/usr/bin/containerd"},
 				{Unit: "docker.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/docker.service", ExecStart: "/usr/bin/dockerd"},
@@ -1760,13 +1513,13 @@ func TestResourceServicesShowPackageServiceOwningPort(t *testing.T) {
 		resourceAddKind:   resourceServices,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/nginx.service", ExecStart: "/usr/sbin/nginx -g 'daemon off;'", MainPID: "100"},
 				{Unit: "sshd.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/sshd.service", ExecStart: "/usr/sbin/sshd -D", MainPID: "200"},
 				{Unit: "x-ui.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/x-ui.service", ExecStart: "/usr/local/x-ui/x-ui", MainPID: "300"},
 				{Unit: "chronyd.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/usr/lib/systemd/system/chronyd.service", ExecStart: "/usr/sbin/chronyd", MainPID: "400"},
 			},
-			PortDetails: []portDetail{
+			PortDetails: []resourceservice.PortDetail{
 				{Protocol: "tcp", Port: "80", LocalAddress: "0.0.0.0:80", Process: "nginx", PID: "100", Count: 1},
 				{Protocol: "tcp", Port: "22", LocalAddress: "0.0.0.0:22", Process: "sshd", PID: "200", Count: 1},
 				{Protocol: "tcp", Port: "2053", LocalAddress: "*:2053", Process: "x-ui", PID: "301", Count: 1},
@@ -1793,10 +1546,10 @@ func TestResourceProcessesShowStandaloneListenersOnly(t *testing.T) {
 		resourceAddKind:   resourceProcesses,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", ExecStart: "/usr/sbin/nginx", MainPID: "100"},
 			},
-			PortDetails: []portDetail{
+			PortDetails: []resourceservice.PortDetail{
 				{Protocol: "tcp", Port: "80", LocalAddress: "0.0.0.0:80", Process: "nginx", PID: "100", Count: 1},
 				{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200", Count: 1},
 				{Protocol: "tcp", Port: "1080", LocalAddress: "0.0.0.0:1080", Process: "docker-proxy", PID: "300", Container: "socks5", Count: 1},
@@ -1823,10 +1576,10 @@ func TestResourceProcessesHideCgroupOwnedListeners(t *testing.T) {
 		resourceAddKind:   resourceProcesses,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "x-ui.service", Load: "loaded", Active: "active", Sub: "running"},
 			},
-			PortDetails: []portDetail{
+			PortDetails: []resourceservice.PortDetail{
 				{Protocol: "tcp", Port: "11111", LocalAddress: "127.0.0.1:11111", Process: "xray-linux-amd64", PID: "200", ServiceUnit: "x-ui.service", Count: 1},
 			},
 		}},
@@ -1850,7 +1603,7 @@ func TestManagedProcessResourceShowsInManagedScope(t *testing.T) {
 		}},
 		states: []hostState{{
 			Host:        host.Host{Category: "prod", Name: "api-01"},
-			PortDetails: []portDetail{{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200", Count: 1}},
+			PortDetails: []resourceservice.PortDetail{{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200", Count: 1}},
 		}},
 	}
 	m.applyManagedResources(0)
@@ -1924,7 +1677,7 @@ func TestToggleManagedResourceSavesConfig(t *testing.T) {
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
 			Host:             host.Host{Category: "prod", Name: "api-01"},
-			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second", Managed: true}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "api", Status: "Up 1 second", Managed: true}},
 		}},
 		resourceFile: config.ResourcesFile{Items: []config.ManagedResource{{
 			Server: "prod/api-01",
@@ -1966,7 +1719,7 @@ func TestResourceManagerAddsAndRemovesFavorite(t *testing.T) {
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
 			Host:           host.Host{Category: "prod", Name: "api-01"},
-			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/etc/systemd/system/api.service"}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", FragmentPath: "/etc/systemd/system/api.service"}},
 		}},
 	}
 	next, _ := m.startResourceAdd()
@@ -2024,7 +1777,7 @@ func TestResourceListXRemovesManagedResourceAfterConfirmation(t *testing.T) {
 		resourceFile:      file,
 		states: []hostState{{
 			Host:           host.Host{Category: "prod", Name: "api-01"},
-			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
 		}},
 	}
 	next, _ := m.updateResourceList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
@@ -2070,7 +1823,7 @@ func TestResourceListXCanRemoveDockerResourceAfterConfirmation(t *testing.T) {
 		resourceFile:      file,
 		states: []hostState{{
 			Host:             host.Host{Category: "prod", Name: "api-01"},
-			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second", Managed: true, Favorite: true}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "api", Status: "Up 1 second", Managed: true, Favorite: true}},
 		}},
 	}
 	next, _ := m.updateResourceList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
@@ -2096,7 +1849,7 @@ func TestResourceActionShortcutsAreConsistentOnListAndDetail(t *testing.T) {
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
 			Host:           host.Host{Category: "prod", Name: "api-01"},
-			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
 		}},
 	}
 
@@ -2130,7 +1883,7 @@ func TestResourceDetailRRefreshesInsteadOfRestarting(t *testing.T) {
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
 			Host:           host.Host{Category: "prod", Name: "api-01"},
-			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
 		}},
 	}
 	next, _ := m.updateResourceDetail(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
@@ -2163,13 +1916,13 @@ func TestResourceDetailScrollClampsBeforeMoving(t *testing.T) {
 			DBName:   name,
 		}}},
 		resourceDatabaseExtraName: name,
-		resourceDatabaseExtra: databaseExtraDetail{
+		resourceDatabaseExtra: resourceservice.DatabaseExtraDetail{
 			Version:         "PostgreSQL 16",
 			SizeBytes:       72 * 1024 * 1024 * 1024,
 			TotalBytes:      999 * 1024 * 1024 * 1024,
 			DBTotalBytes:    73 * 1024 * 1024 * 1024,
 			IndexTotalBytes: 23 * 1024 * 1024 * 1024,
-			TableTop: []databaseTableSize{
+			TableTop: []resourceservice.DatabaseTableSize{
 				{Name: "public.a", Size: 26 * 1024 * 1024 * 1024},
 				{Name: "public.b", Size: 23 * 1024 * 1024 * 1024},
 				{Name: "public.c", Size: 19 * 1024 * 1024 * 1024},
@@ -2187,7 +1940,7 @@ func TestResourceDetailScrollClampsBeforeMoving(t *testing.T) {
 		},
 		states: []hostState{{
 			Host: host.Host{Category: "prod", Name: "api-01"},
-			DatabaseDetails: []databaseDetail{{
+			DatabaseDetails: []resourceservice.DatabaseDetail{{
 				Name:    name,
 				Engine:  "PostgreSQL",
 				Status:  "running",
@@ -2222,7 +1975,7 @@ func TestResourceListTPinsDiscoveredContainer(t *testing.T) {
 		}}},
 		states: []hostState{{
 			Host:             host.Host{Category: "prod", Name: "api-01"},
-			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second"}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "api", Status: "Up 1 second"}},
 		}},
 	}
 	next, _ := m.updateResourceList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
@@ -2253,7 +2006,7 @@ func TestResourceSortKeepsPinnedFirstThenSortsByCPU(t *testing.T) {
 		}},
 		states: []hostState{{
 			Host: host.Host{Category: "prod", Name: "api-01"},
-			ContainerDetails: []containerDetail{
+			ContainerDetails: []resourceservice.ContainerDetail{
 				{Name: "api", Status: "Up 1 second", CPU: "10%"},
 				{Name: "db", Status: "Up 1 second", CPU: "90%"},
 				{Name: "web", Status: "Up 1 second", CPU: "50%"},
@@ -2284,8 +2037,8 @@ func TestResourceAllSortsPinnedBeforeKindGroups(t *testing.T) {
 		}},
 		states: []hostState{{
 			Host:             host.Host{Category: "prod", Name: "api-01"},
-			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second"}},
-			DatabaseDetails: []databaseDetail{{
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "api", Status: "Up 1 second"}},
+			DatabaseDetails: []resourceservice.DatabaseDetail{{
 				Name:       "freedex",
 				Engine:     "PostgreSQL",
 				Configured: true,
@@ -2329,7 +2082,7 @@ func TestResourceSortShortcutCyclesSortMode(t *testing.T) {
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
 			Host:             host.Host{Category: "prod", Name: "api-01"},
-			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second"}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "api", Status: "Up 1 second"}},
 		}},
 	}
 	next, _ := m.updateResourceList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
@@ -2361,7 +2114,7 @@ func TestResourceManagerXCanRemoveDockerResourceAfterConfirmation(t *testing.T) 
 		resourceFile:                file,
 		states: []hostState{{
 			Host:             host.Host{Category: "prod", Name: "api-01"},
-			ContainerDetails: []containerDetail{{Name: "api", Status: "Up 1 second", Managed: true, Favorite: true}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "api", Status: "Up 1 second", Managed: true, Favorite: true}},
 		}},
 	}
 	next, _ := m.updateResourceAdd(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
@@ -2384,7 +2137,7 @@ func TestResourceManagerSelectionDoesNotWrap(t *testing.T) {
 		resourceAddKind:    resourceServices,
 		resourceManagePane: 0,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{
+			ServiceDetails: []resourceservice.ServiceDetail{
 				{Unit: "a.service", Load: "loaded", Active: "active", Sub: "running"},
 				{Unit: "b.service", Load: "loaded", Active: "active", Sub: "running"},
 			},
@@ -2586,7 +2339,7 @@ func TestDatabaseDiscoveredAddPrefillsConnectionDefaults(t *testing.T) {
 		resourceKind:      resourceDatabases,
 		states: []hostState{{
 			Host: host.Host{Category: "prod", Name: "db-01"},
-			DatabaseDetails: []databaseDetail{{
+			DatabaseDetails: []resourceservice.DatabaseDetail{{
 				Name:     "postgresql_8fjg-postgresql_8FJG-1",
 				Engine:   "PostgreSQL",
 				Endpoint: "0.0.0.0:35432->5432/tcp",
@@ -2632,7 +2385,7 @@ func TestResourceCommandEditSavesCustomCommand(t *testing.T) {
 		resourceFile:      file,
 		states: []hostState{{
 			Host:           host.Host{Category: "prod", Name: "api-01"},
-			ServiceDetails: []serviceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "api.service", Load: "loaded", Active: "active", Sub: "running", Managed: true}},
 		}},
 	}
 	next, _ := m.startResourceCommandEdit()
@@ -2776,7 +2529,7 @@ func TestExternalDatabaseDetailShowsExternalFoundStateAndConnectedStatus(t *test
 		}}},
 		states: []hostState{{Host: host.Host{Category: "prod", Name: "app-01"}}},
 		resourceDatabaseExtraCache: map[string]databaseExtraCache{
-			"app": {Detail: databaseExtraDetail{Version: "PostgreSQL 16", Raw: map[string]string{"Uptime": "7200"}}},
+			"app": {Detail: resourceservice.DatabaseExtraDetail{Version: "PostgreSQL 16", Raw: map[string]string{"Uptime": "7200"}}},
 		},
 	}
 	m.applyManagedResources(0)
@@ -2880,14 +2633,14 @@ func TestResourceScopedLoadOnlyUpdatesRequestedKind(t *testing.T) {
 		resourceServiceAt:   oldServiceAt,
 		resourceContainerAt: time.Time{},
 		states: []hostState{{
-			ServiceDetails:   []serviceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running"}},
-			ContainerDetails: []containerDetail{{Name: "old", Status: "Exited (0)"}},
+			ServiceDetails:   []resourceservice.ServiceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running"}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "old", Status: "Exited (0)"}},
 		}},
 	}
 	next, _ := m.handleResourceLoad(resourceLoadMsg{
 		Index:      0,
 		Kind:       resourceContainers,
-		Containers: []containerDetail{{Name: "api", Status: "Up 1 second"}},
+		Containers: []resourceservice.ContainerDetail{{Name: "api", Status: "Up 1 second"}},
 	})
 	got := next.(Model)
 	if got.states[0].ContainerDetails[0].Name != "api" {
@@ -2945,7 +2698,7 @@ func TestResourceContainerLoadWritesCache(t *testing.T) {
 	next, _ := m.handleResourceLoad(resourceLoadMsg{
 		Index:      0,
 		Kind:       resourceContainers,
-		Containers: []containerDetail{{Name: "api", Image: "app:latest", Status: "Up 1 second", CPU: "0.1%"}},
+		Containers: []resourceservice.ContainerDetail{{Name: "api", Image: "app:latest", Status: "Up 1 second", CPU: "0.1%"}},
 	})
 	got := next.(Model)
 	if len(got.states[0].ContainerDetails) != 1 {
@@ -2965,15 +2718,15 @@ func TestResourceServiceLoadAlsoUpdatesPortsForServiceDiscovery(t *testing.T) {
 	m := Model{
 		resourceKind: resourceServices,
 		states: []hostState{{
-			ServiceDetails: []serviceDetail{{Unit: "old.service"}},
-			PortDetails:    []portDetail{{Protocol: "tcp", Port: "22", PID: "1"}},
+			ServiceDetails: []resourceservice.ServiceDetail{{Unit: "old.service"}},
+			PortDetails:    []resourceservice.PortDetail{{Protocol: "tcp", Port: "22", PID: "1"}},
 		}},
 	}
 	next, _ := m.handleResourceLoad(resourceLoadMsg{
 		Index:    0,
 		Kind:     resourceServices,
-		Services: []serviceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", MainPID: "100"}},
-		Ports:    []portDetail{{Protocol: "tcp", Port: "80", PID: "100"}},
+		Services: []resourceservice.ServiceDetail{{Unit: "nginx.service", Load: "loaded", Active: "active", Sub: "running", MainPID: "100"}},
+		Ports:    []resourceservice.PortDetail{{Protocol: "tcp", Port: "80", PID: "100"}},
 	})
 	got := next.(Model)
 	if got.states[0].ServiceDetails[0].Unit != "nginx.service" {
@@ -3009,7 +2762,7 @@ func TestResourcePortGSwitchesScopeFilter(t *testing.T) {
 		resourceFilter:     resourceFilterStopped,
 		resourcePortFilter: resourcePortFilterAll,
 		states: []hostState{{
-			PortDetails: []portDetail{
+			PortDetails: []resourceservice.PortDetail{
 				{Protocol: "tcp", Port: "22", LocalAddress: "0.0.0.0:22", Process: "sshd", PID: "1", Managed: true},
 				{Protocol: "tcp", Port: "25", LocalAddress: "127.0.0.1:25", Process: "master", PID: "2", Managed: true},
 				{Protocol: "tcp", Port: "3306", LocalAddress: "172.31.1.10:3306", Process: "mysqld", PID: "3", Managed: true},
@@ -3054,7 +2807,7 @@ func TestResourceManagerPortsDeduplicatesProtocolPort(t *testing.T) {
 		resourceAddKind:   resourcePorts,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			PortDetails: []portDetail{
+			PortDetails: []resourceservice.PortDetail{
 				{Protocol: "tcp", Port: "22", LocalAddress: "0.0.0.0:22", Process: "sshd", PID: "1"},
 				{Protocol: "tcp", Port: "22", LocalAddress: ":::22", Process: "sshd", PID: "1"},
 				{Protocol: "udp", Port: "323", LocalAddress: "127.0.0.1:323", Process: "chronyd", PID: "2"},
@@ -3079,7 +2832,7 @@ func TestResourceDeleteIsDisabled(t *testing.T) {
 		resourceKind:      resourceContainers,
 		resourceIndex:     0,
 		states: []hostState{{
-			ContainerDetails: []containerDetail{{Name: "api", Status: "running", Managed: true}},
+			ContainerDetails: []resourceservice.ContainerDetail{{Name: "api", Status: "running", Managed: true}},
 		}},
 	}
 	next, cmd := m.startResourceAction(resourceActionDelete)
@@ -3114,7 +2867,7 @@ func TestManagedProcessCommandsEnableActions(t *testing.T) {
 		}}},
 		states: []hostState{{
 			Host:        host.Host{Category: "prod", Name: "api-01"},
-			PortDetails: []portDetail{{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200", ProcessManaged: true}},
+			PortDetails: []resourceservice.PortDetail{{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200", ProcessManaged: true}},
 		}},
 	}
 	if resourceCommandFieldCount(resourceProcesses) != 4 {
@@ -3151,7 +2904,7 @@ func TestDiscoveredProcessActionsRequireConfiguredCommands(t *testing.T) {
 		resourceFilter: resourceFilterAll,
 		states: []hostState{{
 			Host:        host.Host{Category: "prod", Name: "api-01"},
-			PortDetails: []portDetail{{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200", ProcessManaged: true}},
+			PortDetails: []resourceservice.PortDetail{{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200", ProcessManaged: true}},
 		}},
 	}
 	next, _ := m.startResourceAction(resourceActionRestart)
@@ -3177,7 +2930,7 @@ func TestResourceEditHelpOnlyShowsForManagedResource(t *testing.T) {
 		resourceScope:     resourceScopeDiscovered,
 		resourceFilter:    resourceFilterAll,
 		states: []hostState{{
-			PortDetails: []portDetail{{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200"}},
+			PortDetails: []resourceservice.PortDetail{{Protocol: "tcp", Port: "8080", LocalAddress: "0.0.0.0:8080", Process: "go-api", PID: "200"}},
 		}},
 	}
 	if strings.Contains(m.resourceListHelp(), "Edit e") || strings.Contains(m.resourceDetailHelp(), "Edit e") {
@@ -3189,17 +2942,6 @@ func TestResourceEditHelpOnlyShowsForManagedResource(t *testing.T) {
 	}
 }
 
-func TestResourceActionScriptsUseSudoFallback(t *testing.T) {
-	dockerScript := resourceActionScript(resourceContainers, resourceActionRestart, "api")
-	if !strings.Contains(dockerScript, "docker restart api") || !strings.Contains(dockerScript, "sudo -n docker restart api") {
-		t.Fatalf("docker restart script missing sudo fallback:\n%s", dockerScript)
-	}
-	serviceScript := resourceActionScript(resourceServices, resourceActionRestart, "nginx.service")
-	if !strings.Contains(serviceScript, "systemctl restart nginx.service") || !strings.Contains(serviceScript, "sudo -n systemctl restart nginx.service") {
-		t.Fatalf("service restart script missing sudo fallback:\n%s", serviceScript)
-	}
-}
-
 func TestResourceCardMovementUpdatesSelection(t *testing.T) {
 	m := Model{
 		width:             120,
@@ -3208,7 +2950,7 @@ func TestResourceCardMovementUpdatesSelection(t *testing.T) {
 		resourceView:      resourceViewCards,
 		resourceIndex:     0,
 		states: []hostState{{
-			ContainerDetails: []containerDetail{
+			ContainerDetails: []resourceservice.ContainerDetail{
 				{Name: "one", Status: "Up 1 second", Managed: true},
 				{Name: "two", Status: "Up 1 second", Managed: true},
 				{Name: "three", Status: "Up 1 second", Managed: true},
@@ -3234,65 +2976,108 @@ func TestResourceCardMovementUpdatesSelection(t *testing.T) {
 	}
 }
 
-func TestParsePortDetailsSSOutput(t *testing.T) {
-	output := strings.Join([]string{
-		`tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=123,fd=3))`,
-		`tcp LISTEN 0 4096 [::]:22 [::]:* users:(("sshd",pid=123,fd=4))`,
-		`udp UNCONN 0 0 127.0.0.1:323 0.0.0.0:* users:(("chronyd",pid=456,fd=5))`,
-		`udp UNCONN 0 0 [::1]:323 [::]:* users:(("chronyd",pid=456,fd=6))`,
-		`tcp LISTEN 0 511 *:80 *:* users:(("nginx",pid=789,fd=6))`,
-		`tcp LISTEN 0 4096 [::]:443 [::]:* users:(("caddy",pid=987,fd=4))`,
-		`tcp 0 4096 0.0.0.0:8080 0.0.0.0:*`,
-		`__SSHM_PORT_CGROUP__	789	nginx.service`,
-	}, "\n")
-	ports, errText := parsePortDetails(output)
-	if errText != "" {
-		t.Fatalf("errText = %q", errText)
+func TestDeploymentRollbackConfirmRunsOnlyRollbackFlow(t *testing.T) {
+	app := config.DeploymentApp{
+		Name:             "api",
+		Server:           "prod/api",
+		Source:           config.DeploySourceGit,
+		Path:             "/srv/api",
+		ResourceCommands: []string{"git pull"},
+		UpdateCommands:   []string{"make deploy"},
+		HealthCommands:   []string{"curl -f localhost"},
+		RollbackCommands: []string{"ln -sfn releases/old current", "systemctl restart api"},
 	}
-	if len(ports) != 5 {
-		t.Fatalf("ports = %#v, want 5", ports)
+	m := Model{
+		width:  100,
+		height: 24,
+		activeDeployment: activeDeployment{
+			App:             app,
+			Action:          config.DeployActionDeploy,
+			PreviousVersion: "old",
+			CurrentVersion:  "new",
+		},
 	}
-	if ports[0].Port != "22" || ports[0].LocalAddress != "0.0.0.0:22, [::]:22" || ports[0].State != "LISTEN" || ports[0].Process != "sshd" || ports[0].PID != "123" || ports[0].FD != "3, 4" {
-		t.Fatalf("first port = %+v, want sshd on 22", ports[0])
-	}
-	if ports[3].Port != "443" || ports[3].Process != "caddy" || ports[3].PID != "987" {
-		t.Fatalf("fourth port = %+v, want caddy on 443", ports[3])
-	}
-	var nginxPort portDetail
-	for _, port := range ports {
-		if port.Port == "80" {
-			nginxPort = port
-			break
+	view := m.renderDeploymentRollbackConfirm()
+	for _, want := range []string{"Confirm Rollback", "Previous version", "old", "Current version", "new", "Rollback commands", "ln -sfn releases/old current"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("rollback confirm missing %q:\n%s", want, view)
 		}
 	}
-	if nginxPort.Port != "80" || nginxPort.ServiceUnit != "nginx.service" {
-		t.Fatalf("nginx port service unit = %+v, want nginx.service", nginxPort)
+	for _, notWant := range []string{"git pull", "make deploy", "curl -f localhost", "Fetch", "Health"} {
+		if strings.Contains(view, notWant) {
+			t.Fatalf("rollback confirm leaked deploy flow %q:\n%s", notWant, view)
+		}
 	}
-	if ports[4].Port != "8080" || ports[4].Process != "" || ports[4].PID != "" {
-		t.Fatalf("fifth port = %+v, want unnamed 8080", ports[4])
+	next, cmd := m.updateDeploymentRollbackConfirm(tea.KeyMsg{Type: tea.KeyEnter})
+	got := next.(Model)
+	if got.mode != modeDeploymentOutput || got.activeDeployment.Action != config.DeployActionRollback || !got.activeDeployment.Running || got.activeDeployment.ProgressID == "" || cmd == nil {
+		t.Fatalf("rollback enter state = mode %v active %+v cmd %v", got.mode, got.activeDeployment, cmd)
 	}
 }
 
-func TestParsePortDetailsNetstatOutput(t *testing.T) {
-	output := strings.Join([]string{
-		`Proto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name`,
-		`tcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN      123/sshd`,
-		`tcp6       0      0 :::22                   :::*                    LISTEN      123/sshd`,
-		`udp        0      0 127.0.0.1:323           0.0.0.0:*                           456/chronyd`,
-		`udp6       0      0 ::1:323                 :::*                                456/chronyd`,
-	}, "\n")
-	ports, errText := parsePortDetails(output)
-	if errText != "" {
-		t.Fatalf("errText = %q", errText)
+func TestTransferStatusFilterKeepsSelectionVisible(t *testing.T) {
+	m := Model{
+		mode:          modeTransferJobs,
+		width:         120,
+		height:        30,
+		transferIndex: 1,
+		transferHistory: config.TransferHistoryFile{Entries: []config.TransferEntry{
+			{ID: "queued-1", Status: config.TransferStatusQueued, Source: "/tmp/a", TargetDir: "/srv"},
+			{ID: "done-1", Status: config.TransferStatusDone, Source: "/tmp/b", TargetDir: "/srv"},
+			{ID: "failed-1", Status: config.TransferStatusFailed, Source: "/tmp/c", TargetDir: "/srv"},
+		}},
 	}
-	if len(ports) != 2 {
-		t.Fatalf("ports = %#v, want 2", ports)
+	m.cycleTransferStatusFilter()
+	if got := m.transferStatusFilterValue(); got != config.TransferStatusQueued {
+		t.Fatalf("filter = %q, want queued", got)
 	}
-	if ports[0].Protocol != "tcp" || ports[0].Port != "22" || ports[0].LocalAddress != "0.0.0.0:22, :::22" || ports[0].State != "LISTEN" || ports[0].Process != "sshd" || ports[0].PID != "123" {
-		t.Fatalf("first port = %+v, want sshd on 22", ports[0])
+	if m.transferIndex != 0 {
+		t.Fatalf("transferIndex = %d, want first queued entry", m.transferIndex)
 	}
-	if ports[1].Protocol != "udp" || ports[1].Port != "323" || ports[1].LocalAddress != "127.0.0.1:323, ::1:323" || ports[1].Process != "chronyd" || ports[1].PID != "456" {
-		t.Fatalf("second port = %+v, want chronyd on 323", ports[1])
+	m.cycleTransferStatusFilter()
+	if got := m.transferStatusFilterValue(); got != config.TransferStatusPending {
+		t.Fatalf("filter = %q, want pending", got)
+	}
+	if m.transferIndex != 0 {
+		t.Fatalf("empty filtered transferIndex = %d, want stable fallback 0", m.transferIndex)
+	}
+	view := ansi.Strip(m.renderTransferJobs())
+	if !strings.Contains(view, "No transfer jobs for this status") && !strings.Contains(view, "当前状态没有传输任务") {
+		t.Fatalf("empty status filter view missing empty message:\n%s", view)
+	}
+}
+
+func TestBatchCommandDoneAdvancesAndSummarizesResults(t *testing.T) {
+	m := Model{
+		home:             t.TempDir(),
+		mode:             modeBatchOutput,
+		batchCommand:     commandItem{Name: "uptime", Command: "uptime"},
+		batchCurrent:     0,
+		batchOutputIndex: 0,
+		batchJobs: []batchJob{
+			{HostIndex: 0, Running: true},
+			{HostIndex: 1},
+		},
+		states: []hostState{
+			{Host: host.Host{Name: "api", Category: "prod"}},
+			{Host: host.Host{Name: "web", Category: "prod"}},
+		},
+	}
+	next, cmd := m.handleBatchCommandDone(batchCommandDoneMsg{Job: 0, Result: commandResult{Output: "ok", ExitCode: 0}})
+	got := next.(Model)
+	if cmd == nil || got.batchCurrent != 1 || !got.batchJobs[0].Done || got.batchJobs[0].Running || !got.batchJobs[1].Running || got.batchOutputIndex != 1 {
+		t.Fatalf("after first batch result active=%+v cmd=%v", got, cmd)
+	}
+	next, cmd = got.handleBatchCommandDone(batchCommandDoneMsg{Job: 1, Result: commandResult{Err: errors.New("denied"), ExitCode: 255, Output: "permission denied"}})
+	got = next.(Model)
+	if cmd != nil {
+		t.Fatalf("final batch result scheduled unexpected command")
+	}
+	if got.batchCurrent != 2 || got.batchJobs[1].Running || !got.batchJobs[1].Done || got.batchSuccessCount() != 1 || got.batchFailCount() != 1 {
+		t.Fatalf("after final batch result active=%+v", got)
+	}
+	if !strings.Contains(got.status, "成功1") || !strings.Contains(got.status, "失败1") {
+		t.Fatalf("batch completion status = %q", got.status)
 	}
 }
 

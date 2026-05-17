@@ -1,26 +1,19 @@
 package tui
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
 	"github.com/YaMaiDay/sshm/internal/fsselect"
 	"github.com/YaMaiDay/sshm/internal/host"
+	transferservice "github.com/YaMaiDay/sshm/internal/transfer"
 )
 
 func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -183,140 +176,6 @@ func (m *Model) cycleTransferStatusFilter() {
 		m.transferStatusFilter = 0
 	}
 	m.ensureTransferIndexVisible()
-}
-
-func (m Model) startSelectedTransfer() (tea.Model, tea.Cmd) {
-	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
-		return m, nil
-	}
-	entry := m.transferHistory.Entries[m.transferIndex]
-	switch entry.Status {
-	case config.TransferStatusQueued:
-		return m.startTransferEntry(entry)
-	case config.TransferStatusFailed, config.TransferStatusInterrupted:
-		entry.Status = config.TransferStatusQueued
-		entry.Error = ""
-		entry.UpdatedAt = time.Now().Format(time.RFC3339)
-		_ = config.UpdateTransfer(m.home, entry)
-		m.reloadTransfers()
-		return m.startTransferEntry(entry)
-	default:
-		m.status = m.t("This job cannot be started now.", "该任务当前不可开始。")
-		return m, nil
-	}
-}
-
-func (m Model) startAllQueuedTransfers() (tea.Model, tea.Cmd) {
-	file := m.transferHistory
-	count := 0
-	now := time.Now().Format(time.RFC3339)
-	for i := range file.Entries {
-		if file.Entries[i].Status == config.TransferStatusQueued || file.Entries[i].Status == config.TransferStatusInterrupted {
-			file.Entries[i].Status = config.TransferStatusPending
-			file.Entries[i].Error = ""
-			file.Entries[i].UpdatedAt = now
-			count++
-		}
-	}
-	if count == 0 {
-		m.status = m.t("No pending or interrupted jobs.", "没有等待中或中断的任务。")
-		return m, nil
-	}
-	_ = config.SaveTransfers(m.home, file)
-	m.transferStatusFilter = 0
-	m.reloadTransfers()
-	m.transferRunAll = true
-	if m.activeTransfer.Active {
-		m.status = fmt.Sprintf(m.t("Added to start all: %d queued.", "已加入全部开始：排队中 %d 个。"), count)
-		return m, nil
-	}
-	return m.startNextQueuedTransfer()
-}
-
-func (m Model) transferEntryStatus(id string) (string, bool) {
-	for _, entry := range m.transferHistory.Entries {
-		if entry.ID == id {
-			return entry.Status, true
-		}
-	}
-	return "", false
-}
-
-func (m Model) pauseRunningTransfers() (tea.Model, tea.Cmd) {
-	file := m.transferHistory
-	changed := false
-	now := time.Now().Format(time.RFC3339)
-	for i := range file.Entries {
-		switch file.Entries[i].Status {
-		case config.TransferStatusRunning:
-			file.Entries[i].Status = config.TransferStatusInterrupted
-			file.Entries[i].UpdatedAt = now
-			changed = true
-		case config.TransferStatusPending:
-			file.Entries[i].Status = config.TransferStatusQueued
-			file.Entries[i].UpdatedAt = now
-			changed = true
-		}
-	}
-	if !changed {
-		m.status = m.t("No running or queued jobs.", "没有运行中或排队中的任务。")
-		return m, nil
-	}
-	m.transferRunAll = false
-	_ = config.SaveTransfers(m.home, file)
-	m.reloadTransfers()
-	if m.activeTransfer.Active && m.activeTransfer.Cancel != nil {
-		m.activeTransfer.Cancel()
-	}
-	m.status = m.t("Paused running jobs; queued jobs were moved back to pending.", "已暂停运行中任务，排队中任务已退回等待中。")
-	return m, nil
-}
-
-func (m Model) deleteSelectedTransfer() (tea.Model, tea.Cmd) {
-	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
-		return m, nil
-	}
-	entry := m.transferHistory.Entries[m.transferIndex]
-	if entry.Status == config.TransferStatusRunning {
-		m.status = m.t("Running jobs cannot be deleted.", "运行中的任务不能删除。")
-		return m, nil
-	}
-	_ = config.DeleteTransfer(m.home, entry.ID)
-	m.reloadTransfers()
-	return m, nil
-}
-
-func (m Model) cancelSelectedTransfer() (tea.Model, tea.Cmd) {
-	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
-		return m, nil
-	}
-	entry := m.transferHistory.Entries[m.transferIndex]
-	if entry.Status == config.TransferStatusQueued {
-		entry.Status = config.TransferStatusCanceled
-		entry.UpdatedAt = time.Now().Format(time.RFC3339)
-		_ = config.UpdateTransfer(m.home, entry)
-		m.reloadTransfers()
-		return m, nil
-	}
-	if entry.Status == config.TransferStatusRunning && m.activeTransfer.ID == entry.ID && m.activeTransfer.Cancel != nil {
-		entry.Status = config.TransferStatusInterrupted
-		entry.UpdatedAt = time.Now().Format(time.RFC3339)
-		_ = config.UpdateTransfer(m.home, entry)
-		m.reloadTransfers()
-		m.activeTransfer.Cancel()
-		m.status = m.t("Transfer interrupted. Press c again to cancel it.", "已中断当前传输。再次按 c 可取消该任务。")
-		return m, nil
-	}
-	if entry.Status == config.TransferStatusInterrupted {
-		entry.Status = config.TransferStatusCanceled
-		entry.UpdatedAt = time.Now().Format(time.RFC3339)
-		_ = config.UpdateTransfer(m.home, entry)
-		m.reloadTransfers()
-		m.status = m.t("Canceled interrupted transfer.", "已取消当前中断任务。")
-		return m, nil
-	}
-	m.status = m.t("This job cannot be canceled now.", "该任务当前不可取消。")
-	return m, nil
 }
 
 func (m *Model) cancelTransferConfirm() {
@@ -535,7 +394,7 @@ func (m Model) startUploadTransfer() (tea.Model, tea.Cmd) {
 	localPath := m.pending.LocalPath
 	remoteDir := m.pending.RemoteDir
 	remotePath := remoteJoin(remoteDir, filepath.Base(localPath))
-	total := localPathSize(localPath)
+	total := transferservice.LocalSizeBytes(localPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mode = modeDashboard
 	m.transfer = transferNone
@@ -562,7 +421,7 @@ func (m Model) startDownloadTransfer() (tea.Model, tea.Cmd) {
 	remotePath := m.pending.RemotePath
 	saveDir := m.pending.SaveDir
 	localPath := filepath.Join(saveDir, filepath.Base(remotePath))
-	total := remoteSizeBytes(h, remotePath)
+	total := transferservice.RemoteSizeBytes(h, remotePath)
 	if total < 0 {
 		total = 0
 	}
@@ -593,10 +452,7 @@ func (m Model) checkRemoteRsync(index int) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
-		cmd, cleanup := actions.RemoteRsyncCheckCommand(ctx, m.states[index].Host)
-		defer cleanup()
-		err := cmd.Run()
-		if err == nil {
+		if err := (transferservice.Service{}).CheckRsync(ctx, m.states[index].Host); err == nil {
 			return rsyncCheckMsg{HostIndex: index}
 		}
 		return rsyncCheckMsg{HostIndex: index, Missing: true}
@@ -610,11 +466,9 @@ func (m Model) installRemoteRsync(index int) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		cmd, cleanup := actions.RemoteRsyncInstallCommand(ctx, m.states[index].Host)
-		defer cleanup()
-		output, err := cmd.CombinedOutput()
+		output, err := (transferservice.Service{}).InstallRsync(ctx, m.states[index].Host)
 		if err != nil {
-			return rsyncInstallMsg{HostIndex: index, ErrText: transferErrorText(err, string(output))}
+			return rsyncInstallMsg{HostIndex: index, ErrText: transferErrorText(err, output)}
 		}
 		return rsyncInstallMsg{HostIndex: index}
 	}
@@ -632,27 +486,20 @@ func (m Model) createTransferJobsFromPanel() (tea.Model, tea.Cmd) {
 	for i, item := range selected {
 		totalBytes := int64(0)
 		if m.panel.Mode == transferDownload {
-			totalBytes = remoteSizeBytes(h, item.Value)
+			totalBytes = transferservice.RemoteSizeBytes(h, item.Value)
 		} else {
-			totalBytes = localSizeBytes(item.Value)
+			totalBytes = transferservice.LocalSizeBytes(item.Value)
 		}
-		entry := config.TransferEntry{
-			ID:           config.NewTransferID(now.Add(time.Duration(i))),
-			Time:         now.Format(time.RFC3339),
-			Kind:         transferKindString(m.panel.Mode),
-			Status:       config.TransferStatusQueued,
-			HostCategory: h.Category,
-			HostName:     h.Name,
-			Host:         h.HostName,
-			User:         h.User,
-			Port:         h.Port,
-			Source:       item.Value,
-			TargetDir:    target.Value,
-			IsDir:        item.IsDir,
-			TotalBytes:   totalBytes,
-			UpdatedAt:    now.Format(time.RFC3339),
-		}
-		_ = config.AppendTransfer(m.home, entry)
+		entry := transferservice.BuildEntry(h, transferservice.EntrySpec{
+			ID:         config.NewTransferID(now.Add(time.Duration(i))),
+			Time:       now,
+			Kind:       transferKindString(m.panel.Mode),
+			Source:     item.Value,
+			TargetDir:  target.Value,
+			IsDir:      item.IsDir,
+			TotalBytes: totalBytes,
+		})
+		m.appendTransferEntry(entry)
 	}
 	m.reloadTransfers()
 	m.transferJobsBack = modeTransferPanel
@@ -670,7 +517,7 @@ func transferKindString(mode transferMode) string {
 }
 
 func (m *Model) reloadTransfers() {
-	file, _, _ := config.LoadTransfers(m.home)
+	file, _, _ := transferservice.LoadHistory(m.home)
 	m.transferHistory = file
 	if m.transferIndex >= len(m.transferHistory.Entries) {
 		m.transferIndex = len(m.transferHistory.Entries) - 1
@@ -693,352 +540,6 @@ func (m *Model) ensureTransferIndexVisible() {
 		}
 	}
 	m.transferIndex = indexes[0]
-}
-
-func (m *Model) startLocalTree(title string, mode viewMode, dirsOnly bool) {
-	m.startTree(title, mode, m.localRootItems(dirsOnly), -1, dirsOnly, true)
-}
-
-func newTree(roots []fsselect.Item, hostIndex int, dirsOnly bool, local bool) remoteTree {
-	tree := remoteTree{
-		HostIndex: hostIndex,
-		Local:     local,
-		DirsOnly:  dirsOnly,
-		Nodes:     map[string]*remoteTreeNode{},
-	}
-	for _, item := range roots {
-		if item.Path == "" || (dirsOnly && !item.IsDir) {
-			continue
-		}
-		if _, ok := tree.Nodes[item.Path]; ok {
-			continue
-		}
-		tree.Roots = append(tree.Roots, item.Path)
-		tree.Nodes[item.Path] = &remoteTreeNode{Item: item}
-	}
-	sort.Strings(tree.Roots)
-	return tree
-}
-
-func (m *Model) startRemoteTree(title string, mode viewMode, h host.Host, dirsOnly bool) {
-	m.startTree(title, mode, m.remoteRootItems(h), m.pending.HostIndex, dirsOnly, false)
-}
-
-func (m *Model) startRemoteTreeAt(title string, mode viewMode, h host.Host, root string, dirsOnly bool) {
-	if root == "" {
-		m.startRemoteTree(title, mode, h, dirsOnly)
-		return
-	}
-	m.startTree(title, mode, []fsselect.Item{{Path: root, IsDir: true}}, m.pending.HostIndex, dirsOnly, false)
-	if len(m.choices) > 0 {
-		_, _ = m.expandTreePick()
-	}
-}
-
-func (m *Model) startTree(title string, mode viewMode, roots []fsselect.Item, hostIndex int, dirsOnly bool, local bool) {
-	tree := newTree(roots, hostIndex, dirsOnly, local)
-	m.remoteTree = tree
-	m.pickTitle = title
-	m.mode = mode
-	m.pickIndex = 0
-	m.refreshTreeChoices()
-	if len(m.choices) == 0 {
-		m.status = title + m.t(": no selectable items", "：没有可选择的项目")
-	} else {
-		m.status = title
-	}
-}
-
-func (m Model) treePickerActive() bool {
-	switch m.mode {
-	case modePickLocalItem, modePickRemoteDir, modePickRemoteItem, modePickSaveDir:
-		return m.remoteTree.Nodes != nil
-	default:
-		return false
-	}
-}
-
-func (m *Model) refreshTreeChoices() {
-	var choices []choice
-	for _, root := range m.remoteTree.Roots {
-		m.appendTreeChoice(&choices, root)
-	}
-	m.choices = choices
-	if m.pickIndex >= len(m.choices) {
-		m.pickIndex = len(m.choices) - 1
-	}
-	if m.pickIndex < 0 {
-		m.pickIndex = 0
-	}
-}
-
-func (m *Model) appendTreeChoice(choices *[]choice, path string) {
-	node := m.remoteTree.Nodes[path]
-	if node == nil {
-		return
-	}
-	label := treeLabel(node)
-	*choices = append(*choices, choice{Label: label, Value: node.Item.Path, IsDir: node.Item.IsDir, Depth: node.Depth})
-	if !node.Expanded {
-		return
-	}
-	for _, child := range node.Children {
-		m.appendTreeChoice(choices, child)
-	}
-}
-
-func flattenTree(tree remoteTree) []choice {
-	var choices []choice
-	for _, root := range tree.Roots {
-		appendTreeChoiceTo(&choices, tree, root)
-	}
-	return choices
-}
-
-func appendTreeChoiceTo(choices *[]choice, tree remoteTree, path string) {
-	node := tree.Nodes[path]
-	if node == nil {
-		return
-	}
-	*choices = append(*choices, choice{Label: treeLabel(node), Value: node.Item.Path, IsDir: node.Item.IsDir, Depth: node.Depth})
-	if !node.Expanded {
-		return
-	}
-	for _, child := range node.Children {
-		appendTreeChoiceTo(choices, tree, child)
-	}
-}
-
-func (m Model) expandTreePick() (tea.Model, tea.Cmd) {
-	if len(m.choices) == 0 || m.pickIndex < 0 || m.pickIndex >= len(m.choices) {
-		return m, nil
-	}
-	pick := m.choices[m.pickIndex]
-	node := m.remoteTree.Nodes[pick.Value]
-	if node == nil || !node.Item.IsDir {
-		return m, nil
-	}
-	if !node.Loaded {
-		m.loadTreeNode(node)
-	}
-	if len(node.Children) == 0 {
-		if m.remoteTree.DirsOnly {
-			m.status = m.t("No subdirectories: ", "没有子目录：") + node.Item.Path + m.t(". Press Space to select current directory.", "。按空格可选择当前目录。")
-		} else {
-			m.status = m.t("Directory is empty or permission denied: ", "目录为空或没有权限：") + node.Item.Path
-		}
-		return m, nil
-	}
-	node.Expanded = true
-	m.refreshTreeChoices()
-	return m, nil
-}
-
-func (m Model) toggleTreePick() (tea.Model, tea.Cmd) {
-	if len(m.choices) == 0 || m.pickIndex < 0 || m.pickIndex >= len(m.choices) {
-		return m, nil
-	}
-	pick := m.choices[m.pickIndex]
-	node := m.remoteTree.Nodes[pick.Value]
-	if node == nil || !node.Item.IsDir {
-		return m.confirmPick()
-	}
-	if node.Expanded {
-		node.Expanded = false
-		m.refreshTreeChoices()
-		return m, nil
-	}
-	return m.expandTreePick()
-}
-
-func (m Model) collapseTreePick() Model {
-	if len(m.choices) == 0 || m.pickIndex < 0 || m.pickIndex >= len(m.choices) {
-		return m
-	}
-	pick := m.choices[m.pickIndex]
-	node := m.remoteTree.Nodes[pick.Value]
-	if node == nil || !node.Item.IsDir {
-		return m
-	}
-	if node.Expanded {
-		node.Expanded = false
-		m.refreshTreeChoices()
-		return m
-	}
-	parent := filepath.Dir(node.Item.Path)
-	for parent != "." && parent != "/" {
-		if _, ok := m.remoteTree.Nodes[parent]; ok {
-			for i, choice := range m.choices {
-				if choice.Value == parent {
-					m.pickIndex = i
-					return m
-				}
-			}
-		}
-		parent = filepath.Dir(parent)
-	}
-	return m
-}
-
-func (m *Model) loadTreeNode(node *remoteTreeNode) {
-	loadTreeNodeFor(&m.remoteTree, node, m.states)
-}
-
-func loadTreeNodeFor(tree *remoteTree, node *remoteTreeNode, states []hostState) {
-	var items []fsselect.Item
-	if tree.Local {
-		items = localTreeItems(node.Item.Path, tree.DirsOnly)
-	} else if tree.HostIndex >= 0 && tree.HostIndex < len(states) {
-		h := states[tree.HostIndex].Host
-		if tree.DirsOnly {
-			items = fsselect.RemoteDirItems(h, node.Item.Path)
-		} else {
-			items = fsselect.RemoteItems(h, node.Item.Path)
-		}
-	}
-	node.Children = nil
-	seen := map[string]bool{}
-	for _, item := range items {
-		if item.Path == "" || item.Path == node.Item.Path {
-			continue
-		}
-		if seen[item.Path] {
-			continue
-		}
-		seen[item.Path] = true
-		if tree.DirsOnly && !item.IsDir {
-			continue
-		}
-		tree.Nodes[item.Path] = &remoteTreeNode{Item: item, Depth: node.Depth + 1}
-		node.Children = append(node.Children, item.Path)
-	}
-	sort.Slice(node.Children, func(i, j int) bool {
-		a := tree.Nodes[node.Children[i]].Item
-		b := tree.Nodes[node.Children[j]].Item
-		if a.IsDir != b.IsDir {
-			return a.IsDir
-		}
-		return strings.ToLower(filepath.Base(a.Path)) < strings.ToLower(filepath.Base(b.Path))
-	})
-	node.Loaded = true
-}
-
-func localTreeItems(dir string, dirsOnly bool) []fsselect.Item {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	items := make([]fsselect.Item, 0, len(entries))
-	seenRealPaths := map[string]bool{}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		isDir := entry.IsDir()
-		if !isDir {
-			if info, err := os.Stat(path); err == nil && info.IsDir() {
-				isDir = true
-			}
-		}
-		if dirsOnly && !isDir {
-			continue
-		}
-		if isDir {
-			realPath := localRealPath(path)
-			if realPath != "" {
-				if seenRealPaths[realPath] {
-					continue
-				}
-				seenRealPaths[realPath] = true
-			}
-		}
-		items = append(items, fsselect.Item{Path: path, IsDir: isDir})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].IsDir != items[j].IsDir {
-			return items[i].IsDir
-		}
-		return strings.ToLower(filepath.Base(items[i].Path)) < strings.ToLower(filepath.Base(items[j].Path))
-	})
-	return items
-}
-
-func localRealPath(path string) string {
-	realPath, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return filepath.Clean(path)
-	}
-	return filepath.Clean(realPath)
-}
-
-func (m Model) localRootItems(dirsOnly bool) []fsselect.Item {
-	if !m.appConfig.CustomDirs || len(m.appConfig.LocalDirs) == 0 {
-		return localTreeItems("/", dirsOnly)
-	}
-	roots := fsselect.ExpandLocalRoots(m.home, m.transferLocalDirs())
-	items := make([]fsselect.Item, 0, len(roots))
-	seen := map[string]bool{}
-	seenRealPaths := map[string]bool{}
-	for _, root := range roots {
-		root = strings.TrimSpace(root)
-		if root == "" || seen[root] {
-			continue
-		}
-		info, err := os.Stat(root)
-		if err != nil {
-			continue
-		}
-		if dirsOnly && !info.IsDir() {
-			continue
-		}
-		if info.IsDir() {
-			realPath := localRealPath(root)
-			if realPath != "" {
-				if seenRealPaths[realPath] {
-					continue
-				}
-				seenRealPaths[realPath] = true
-			}
-		}
-		seen[root] = true
-		items = append(items, fsselect.Item{Path: root, IsDir: info.IsDir()})
-	}
-	if len(items) == 0 {
-		return localTreeItems("/", dirsOnly)
-	}
-	sortItemsByPath(items)
-	return items
-}
-
-func (m Model) remoteRootItems(h host.Host) []fsselect.Item {
-	if !m.appConfig.CustomDirs || len(m.appConfig.RemoteDirs) == 0 {
-		return fsselect.RemoteRootItems(h)
-	}
-	return fsselect.RemoteConfiguredRootItems(h, m.transferRemoteDirs())
-}
-
-func (m Model) transferLocalDirs() []string {
-	return m.appConfig.LocalDirs
-}
-
-func (m Model) transferRemoteDirs() []string {
-	return m.appConfig.RemoteDirs
-}
-
-func sortItemsByPath(items []fsselect.Item) {
-	sort.Slice(items, func(i, j int) bool {
-		return strings.ToLower(items[i].Path) < strings.ToLower(items[j].Path)
-	})
-}
-
-func treeLabel(node *remoteTreeNode) string {
-	indent := strings.Repeat("  ", node.Depth)
-	name := node.Item.Path
-	if node.Depth > 0 {
-		name = filepath.Base(node.Item.Path)
-	}
-	return indent + name
 }
 
 func (m Model) startTransferPanel(idx int, mode transferMode) Model {
@@ -1103,11 +604,9 @@ func (m Model) runUpload(ctx context.Context) tea.Cmd {
 	localPath := m.pending.LocalPath
 	remoteDir := m.pending.RemoteDir
 	recursive := m.pending.LocalIsDir
-	cmd, cleanup := actions.SCPUploadCommandContext(ctx, h, localPath, remoteDir, recursive)
 	return func() tea.Msg {
-		output, err := cmd.CombinedOutput()
-		cleanup()
-		return transferDoneMsg{Kind: m.t("Upload", "上传"), Source: localPath, Target: h.Name + ":" + remoteDir + "/", Err: err, Output: string(output)}
+		result := (transferservice.Service{}).Upload(ctx, h, localPath, remoteDir, recursive)
+		return transferDoneMsg{Kind: m.t("Upload", "上传"), Source: localPath, Target: h.Name + ":" + remoteDir + "/", Err: result.Err, Output: result.Output}
 	}
 }
 
@@ -1116,11 +615,9 @@ func (m Model) runDownload(ctx context.Context) tea.Cmd {
 	remotePath := m.pending.RemotePath
 	saveDir := m.pending.SaveDir
 	recursive := m.pending.RemoteIsDir
-	cmd, cleanup := actions.SCPDownloadCommandContext(ctx, h, remotePath, saveDir, recursive)
 	return func() tea.Msg {
-		output, err := cmd.CombinedOutput()
-		cleanup()
-		return transferDoneMsg{Kind: m.t("Download", "下载"), Source: remotePath, Target: saveDir + "/", Err: err, Output: string(output)}
+		result := (transferservice.Service{}).Download(ctx, h, remotePath, saveDir, recursive)
+		return transferDoneMsg{Kind: m.t("Download", "下载"), Source: remotePath, Target: saveDir + "/", Err: result.Err, Output: result.Output}
 	}
 }
 
@@ -1140,18 +637,13 @@ func (m Model) startNextQueuedTransfer() (tea.Model, tea.Cmd) {
 func (m Model) startTransferEntry(entry config.TransferEntry) (tea.Model, tea.Cmd) {
 	h, index, ok := m.findTransferHost(entry)
 	if !ok {
-		entry.Status = config.TransferStatusFailed
-		entry.Error = m.t("Server not found: ", "找不到服务器：") + entry.HostName
-		entry.UpdatedAt = time.Now().Format(time.RFC3339)
-		_ = config.UpdateTransfer(m.home, entry)
-		m.reloadTransfers()
+		transferservice.SetEntryStatus(&entry, config.TransferStatusFailed, m.t("Server not found: ", "找不到服务器：")+entry.HostName)
+		m.updateTransferEntryAndReload(entry)
 		return m, clearStatusAfter(3 * time.Second)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	entry.Status = config.TransferStatusRunning
-	entry.Error = ""
-	entry.UpdatedAt = time.Now().Format(time.RFC3339)
-	_ = config.UpdateTransfer(m.home, entry)
+	transferservice.SetEntryStatus(&entry, config.TransferStatusRunning, "")
+	m.updateTransferEntry(entry)
 	m.activeTransfer = activeTransfer{
 		ID:        entry.ID,
 		Kind:      m.transferEntryKindText(entry),
@@ -1164,290 +656,13 @@ func (m Model) startTransferEntry(entry config.TransferEntry) (tea.Model, tea.Cm
 	m.reloadTransfers()
 	m.status = m.transferProgressText(m.activeTransfer)
 	cmd := func() tea.Msg {
-		cmd, cleanup := m.rsyncCommandForEntry(ctx, h, entry)
-		output, err := runRsyncWithProgress(cmd, m.home, entry.ID)
-		cleanup()
+		result := (transferservice.Service{}).RunJob(ctx, h, entry, func(progress string) {
+			updateTransferProgress(m.home, entry.ID, progress)
+		})
 		cancel()
-		return transferDoneMsg{ID: entry.ID, Kind: m.transferEntryKindText(entry), Source: entry.Source, Target: entry.TargetDir, Err: err, Output: string(output)}
+		return transferDoneMsg{ID: entry.ID, Kind: m.transferEntryKindText(entry), Source: entry.Source, Target: entry.TargetDir, Err: result.Err, Output: result.Output}
 	}
 	return m, tea.Batch(cmd, transferProgressAfter(500*time.Millisecond))
-}
-
-func runRsyncWithProgress(cmd *exec.Cmd, home string, id string) (string, error) {
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return "", err
-	}
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-	var mu sync.Mutex
-	var output strings.Builder
-	lastProgress := ""
-	collect := func(text string) {
-		progress := ""
-		mu.Lock()
-		output.WriteString(text)
-		if !strings.HasSuffix(text, "\n") {
-			output.WriteString("\n")
-		}
-		if progressText := rsyncProgressText(text); progressText != "" && progressText != lastProgress {
-			lastProgress = progressText
-			progress = progressText
-		}
-		mu.Unlock()
-		if progress != "" {
-			updateTransferProgress(home, id, progress)
-		}
-	}
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		readRsyncProgress(stdout, collect)
-	}()
-	go func() {
-		defer wg.Done()
-		readRsyncProgress(stderr, collect)
-	}()
-	err = cmd.Wait()
-	wg.Wait()
-	mu.Lock()
-	text := output.String()
-	mu.Unlock()
-	return text, err
-}
-
-func readRsyncProgress(r io.Reader, collect func(string)) {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	scanner.Split(splitRsyncProgress)
-	for scanner.Scan() {
-		text := strings.TrimSpace(scanner.Text())
-		if text != "" {
-			collect(text)
-		}
-	}
-}
-
-func splitRsyncProgress(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	for i, b := range data {
-		if b == '\n' || b == '\r' {
-			return i + 1, data[:i], nil
-		}
-	}
-	if atEOF && len(data) > 0 {
-		return len(data), data, nil
-	}
-	return 0, nil, nil
-}
-
-func (m Model) rsyncCommandForEntry(ctx context.Context, h host.Host, entry config.TransferEntry) (*exec.Cmd, actions.Cleanup) {
-	if entry.Kind == "download" {
-		return actions.RsyncDownloadCommandContext(ctx, h, entry.Source, entry.TargetDir)
-	}
-	return actions.RsyncUploadCommandContext(ctx, h, entry.Source, entry.TargetDir)
-}
-
-func (m Model) findTransferHost(entry config.TransferEntry) (host.Host, int, bool) {
-	for i, state := range m.states {
-		h := state.Host
-		if h.Name == entry.HostName && h.Category == entry.HostCategory {
-			return h, i, true
-		}
-	}
-	return host.Host{}, -1, false
-}
-
-func (m *Model) updateTransferEntryDone(msg transferDoneMsg) {
-	file, _, err := config.LoadTransfers(m.home)
-	if err != nil {
-		return
-	}
-	for i := range file.Entries {
-		if file.Entries[i].ID != msg.ID {
-			continue
-		}
-		if file.Entries[i].Status == config.TransferStatusCanceled || file.Entries[i].Status == config.TransferStatusInterrupted {
-			_ = config.SaveTransfers(m.home, file)
-			return
-		}
-		file.Entries[i].UpdatedAt = time.Now().Format(time.RFC3339)
-		file.Entries[i].Progress = lastRsyncProgressLine(msg.Output)
-		updateTransferProgressBytes(&file.Entries[i], file.Entries[i].Progress)
-		if msg.Err != nil {
-			file.Entries[i].Status = config.TransferStatusFailed
-			file.Entries[i].Error = transferErrorText(msg.Err, msg.Output)
-		} else {
-			file.Entries[i].Status = config.TransferStatusDone
-			file.Entries[i].Progress = "100%"
-			if file.Entries[i].TotalBytes > 0 {
-				file.Entries[i].DoneBytes = file.Entries[i].TotalBytes
-				file.Entries[i].CurrentBytes = 0
-			}
-			file.Entries[i].Error = ""
-		}
-		_ = config.SaveTransfers(m.home, file)
-		return
-	}
-}
-
-func updateTransferProgress(home string, id string, progress string) {
-	if id == "" || progress == "" {
-		return
-	}
-	_, _ = config.UpdateRunningTransferProgress(home, id, func(entry *config.TransferEntry) {
-		entry.Progress = progress
-		updateTransferProgressBytes(entry, progress)
-		entry.UpdatedAt = time.Now().Format(time.RFC3339)
-	})
-}
-
-func updateTransferProgressBytes(entry *config.TransferEntry, progress string) {
-	bytes, percent, seq, ok := parseRsyncProgressValues(progress)
-	if !ok {
-		return
-	}
-	if percent >= 100 && seq > 0 && seq > entry.ProgressSeq {
-		entry.DoneBytes += bytes
-		entry.CurrentBytes = 0
-		entry.ProgressSeq = seq
-	} else if percent >= 100 && entry.TotalBytes > 0 && bytes >= entry.TotalBytes {
-		entry.DoneBytes = entry.TotalBytes
-		entry.CurrentBytes = 0
-	} else {
-		entry.CurrentBytes = bytes
-	}
-	if entry.TotalBytes > 0 && entry.DoneBytes > entry.TotalBytes {
-		entry.DoneBytes = entry.TotalBytes
-	}
-}
-
-func (m Model) markActiveTransferInterrupted() {
-	if m.activeTransfer.ID == "" {
-		return
-	}
-	file, _, err := config.LoadTransfers(m.home)
-	if err != nil {
-		return
-	}
-	for i := range file.Entries {
-		if file.Entries[i].ID == m.activeTransfer.ID && file.Entries[i].Status == config.TransferStatusRunning {
-			file.Entries[i].Status = config.TransferStatusInterrupted
-			file.Entries[i].UpdatedAt = time.Now().Format(time.RFC3339)
-			_ = config.SaveTransfers(m.home, file)
-			return
-		}
-	}
-}
-
-func lastRsyncProgressLine(output string) string {
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	for i := len(lines) - 1; i >= 0; i-- {
-		line := strings.TrimSpace(lines[i])
-		if progress := rsyncProgressText(line); progress != "" {
-			return progress
-		}
-	}
-	return ""
-}
-
-var rsyncPercentPattern = regexp.MustCompile(`\b([0-9]{1,3})%`)
-var rsyncXferPattern = regexp.MustCompile(`xfer#([0-9]+)`)
-
-func rsyncProgressText(value string) string {
-	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-	if value == "" || rsyncPercentText(value) == "" {
-		return ""
-	}
-	return value
-}
-
-func rsyncPercentText(value string) string {
-	match := rsyncPercentPattern.FindStringSubmatch(value)
-	if len(match) < 2 {
-		return ""
-	}
-	percent, err := strconv.Atoi(match[1])
-	if err != nil {
-		return ""
-	}
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 100 {
-		percent = 100
-	}
-	return fmt.Sprintf("%d%%", percent)
-}
-
-func parseRsyncProgressValues(value string) (int64, int, int, bool) {
-	fields := strings.Fields(strings.TrimSpace(value))
-	if len(fields) < 2 {
-		return 0, 0, 0, false
-	}
-	bytesText := strings.ReplaceAll(fields[0], ",", "")
-	bytes, err := strconv.ParseInt(bytesText, 10, 64)
-	if err != nil || bytes < 0 {
-		return 0, 0, 0, false
-	}
-	percentText := strings.TrimSuffix(fields[1], "%")
-	percent, err := strconv.Atoi(percentText)
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	if percent < 0 {
-		percent = 0
-	}
-	if percent > 100 {
-		percent = 100
-	}
-	seq := 0
-	if match := rsyncXferPattern.FindStringSubmatch(value); len(match) == 2 {
-		seq, _ = strconv.Atoi(match[1])
-	}
-	return bytes, percent, seq, true
-}
-
-func remoteSizeBytes(h host.Host, remotePath string) int64 {
-	cmd, cleanup := actions.RemoteSizeCommand(h, remotePath)
-	defer cleanup()
-	out, err := cmd.Output()
-	if err != nil {
-		return 0
-	}
-	size, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
-	if err != nil || size < 0 {
-		return 0
-	}
-	return size
-}
-
-func localSizeBytes(path string) int64 {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return 0
-	}
-	if !info.IsDir() {
-		return info.Size()
-	}
-	var total int64
-	_ = filepath.WalkDir(path, func(itemPath string, entry os.DirEntry, err error) error {
-		if err != nil || entry == nil {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		total += info.Size()
-		return nil
-	})
-	return total
 }
 
 func transferProgressAfter(d time.Duration) tea.Cmd {

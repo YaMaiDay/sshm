@@ -7,12 +7,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
-	"github.com/YaMaiDay/sshm/internal/dbmonitor"
 	"github.com/YaMaiDay/sshm/internal/fsselect"
 	"github.com/YaMaiDay/sshm/internal/host"
 	"github.com/YaMaiDay/sshm/internal/monitor"
+	resourceservice "github.com/YaMaiDay/sshm/internal/resource"
 )
 
 type viewMode int
@@ -213,13 +212,13 @@ type hostState struct {
 	FailedLoginError   string
 	SSHDSecurity       map[string]string
 	SSHDSecurityError  string
-	ServiceDetails     []serviceDetail
+	ServiceDetails     []resourceservice.ServiceDetail
 	ServiceError       string
-	PortDetails        []portDetail
+	PortDetails        []resourceservice.PortDetail
 	PortDetailsError   string
-	ContainerDetails   []containerDetail
+	ContainerDetails   []resourceservice.ContainerDetail
 	ContainerError     string
-	DatabaseDetails    []databaseDetail
+	DatabaseDetails    []resourceservice.DatabaseDetail
 	DatabaseError      string
 }
 
@@ -271,18 +270,24 @@ type loginRecordsMsg struct {
 	SSHDErrText   string
 }
 
+type commandResult struct {
+	Output   string
+	Err      error
+	ExitCode int
+}
+
 type commandDoneMsg struct {
-	Result actions.CommandResult
+	Result commandResult
 }
 
 type batchCommandDoneMsg struct {
 	Job    int
-	Result actions.CommandResult
+	Result commandResult
 }
 
 type deploymentDoneMsg struct {
 	ID              string
-	Result          actions.CommandResult
+	Result          commandResult
 	PreviousVersion string
 	CurrentVersion  string
 }
@@ -299,39 +304,39 @@ type resourceLoadMsg struct {
 	Index        int
 	Kind         resourceKind
 	Requested    resourceKind
-	Services     []serviceDetail
+	Services     []resourceservice.ServiceDetail
 	ServiceErr   string
-	Containers   []containerDetail
+	Containers   []resourceservice.ContainerDetail
 	ContainerErr string
-	Ports        []portDetail
+	Ports        []resourceservice.PortDetail
 	PortsErrText string
 }
 
 type resourceContainerDetailMsg struct {
 	Index  int
 	Name   string
-	Detail containerExtraDetail
+	Detail resourceservice.ContainerExtraDetail
 	Err    string
 }
 
 type resourceServiceDetailMsg struct {
 	Index  int
 	Name   string
-	Detail serviceDetail
+	Detail resourceservice.ServiceDetail
 	Err    string
 }
 
 type resourceProcessDetailMsg struct {
 	Index  int
 	PID    string
-	Detail processExtraDetail
+	Detail resourceservice.ProcessExtraDetail
 	Err    string
 }
 
 type resourceDatabaseDetailMsg struct {
 	Index  int
 	Name   string
-	Detail databaseExtraDetail
+	Detail resourceservice.DatabaseExtraDetail
 	Err    string
 }
 
@@ -340,7 +345,7 @@ type resourceLogMsg struct {
 	Kind   resourceKind
 	Name   string
 	Output string
-	Result actions.CommandResult
+	Result commandResult
 }
 
 type resourceActionMsg struct {
@@ -348,7 +353,7 @@ type resourceActionMsg struct {
 	Kind   resourceKind
 	Action resourceActionKind
 	Name   string
-	Result actions.CommandResult
+	Result commandResult
 }
 
 type activeTransfer struct {
@@ -516,26 +521,26 @@ type Model struct {
 	resourceCommandField          int
 	resourceCommandCursor         int
 	resourceContainerExtraName    string
-	resourceContainerExtra        containerExtraDetail
+	resourceContainerExtra        resourceservice.ContainerExtraDetail
 	resourceContainerExtraLoading bool
 	resourceContainerExtraErr     string
 	resourceServiceExtraName      string
-	resourceServiceExtra          serviceDetail
+	resourceServiceExtra          resourceservice.ServiceDetail
 	resourceServiceExtraLoading   bool
 	resourceServiceExtraErr       string
 	resourceProcessExtraPID       string
-	resourceProcessExtra          processExtraDetail
+	resourceProcessExtra          resourceservice.ProcessExtraDetail
 	resourceProcessExtraLoading   bool
 	resourceProcessExtraErr       string
 	resourceDatabaseExtraName     string
-	resourceDatabaseExtra         databaseExtraDetail
+	resourceDatabaseExtra         resourceservice.DatabaseExtraDetail
 	resourceDatabaseExtraLoading  bool
 	resourceDatabaseExtraErr      string
 	resourceDatabaseExtraCache    map[string]databaseExtraCache
 }
 
 type databaseExtraCache struct {
-	Detail  databaseExtraDetail
+	Detail  resourceservice.DatabaseExtraDetail
 	Err     string
 	Loading bool
 }
@@ -795,165 +800,6 @@ type batchJob struct {
 	Err       error
 	Running   bool
 	Done      bool
-}
-
-type portDetail struct {
-	Protocol        string
-	Port            string
-	LocalAddress    string
-	ForeignAddress  string
-	State           string
-	Process         string
-	PID             string
-	FD              string
-	ServiceUnit     string
-	Container       string
-	ContainerPort   string
-	Count           int
-	Managed         bool
-	Favorite        bool
-	ProcessManaged  bool
-	ProcessFavorite bool
-	Missing         bool
-}
-
-type serviceDetail struct {
-	Unit             string
-	Load             string
-	Active           string
-	Sub              string
-	Description      string
-	FragmentPath     string
-	WorkingDirectory string
-	ExecStart        string
-	MainPID          string
-	ExecMainPID      string
-	MemoryCurrent    uint64
-	ActiveSince      string
-	InactiveSince    string
-	StateChangedAt   string
-	ExecStartedAt    string
-	ExecExitedAt     string
-	UnitFileState    string
-	Result           string
-	ExecMainStatus   string
-	NRestarts        string
-	TasksCurrent     string
-	ControlGroup     string
-	Slice            string
-	User             string
-	Group            string
-	Restart          string
-	RestartSec       string
-	ExecStop         string
-	ExecReload       string
-	DropInPaths      string
-	Managed          bool
-	Favorite         bool
-	Missing          bool
-}
-
-type processExtraDetail struct {
-	PID          string
-	PPID         string
-	User         string
-	State        string
-	CPU          string
-	Memory       string
-	RSS          string
-	Elapsed      string
-	Started      string
-	Command      string
-	CommandLine  string
-	WorkingDir   string
-	Executable   string
-	ControlGroup string
-	ServiceUnit  string
-}
-
-type containerDetail struct {
-	Name          string
-	Image         string
-	Status        string
-	Ports         string
-	CPU           string
-	Memory        string
-	MemPerc       string
-	CPULimitKnown bool
-	NanoCpus      int64
-	CPUQuota      int64
-	CPUPeriod     int64
-	CpusetCpus    string
-	Managed       bool
-	Favorite      bool
-	Missing       bool
-}
-
-type databaseDetail struct {
-	Name        string
-	Engine      string
-	Source      string
-	Status      string
-	RawStatus   string
-	Endpoint    string
-	ServiceUnit string
-	Container   string
-	Image       string
-	Process     string
-	PID         string
-	Protocol    string
-	Port        string
-	Managed     bool
-	Favorite    bool
-	Missing     bool
-	Configured  bool
-}
-
-type databaseExtraDetail = dbmonitor.Detail
-
-type databaseTableSize = dbmonitor.TableSize
-
-type containerMountDetail struct {
-	Type        string
-	Source      string
-	Destination string
-	RW          bool
-}
-
-type containerNetworkDetail struct {
-	Name       string
-	IPAddress  string
-	Gateway    string
-	MacAddress string
-	NetworkID  string
-	EndpointID string
-	Aliases    []string
-}
-
-type containerExtraDetail struct {
-	ID            string
-	Created       string
-	Path          string
-	Args          []string
-	Driver        string
-	Platform      string
-	RestartPolicy string
-	NanoCpus      int64
-	CPUQuota      int64
-	CPUPeriod     int64
-	CpusetCpus    string
-	StateStatus   string
-	StartedAt     string
-	FinishedAt    string
-	ExitCode      int
-	HealthStatus  string
-	Size          string
-	VirtualSize   string
-	SizeRW        uint64
-	SizeRootFS    uint64
-	BlockIO       string
-	Mounts        []containerMountDetail
-	Networks      []containerNetworkDetail
 }
 
 type confirmKind int

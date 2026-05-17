@@ -38,7 +38,7 @@ func AddHost(home string, input HostInput) error {
 	if err != nil {
 		return err
 	}
-	if !categoryExists(categories, strings.TrimSpace(input.Category)) {
+	if !containsCategory(categories, strings.TrimSpace(input.Category)) {
 		return fmt.Errorf("分类不存在：%s", input.Category)
 	}
 	if strings.TrimSpace(input.Category) != BastionCategory {
@@ -89,7 +89,7 @@ func EditHost(home string, original host.Host, input HostInput) error {
 	if err != nil {
 		return err
 	}
-	if !categoryExists(categories, strings.TrimSpace(input.Category)) {
+	if !containsCategory(categories, strings.TrimSpace(input.Category)) {
 		return fmt.Errorf("分类不存在：%s", input.Category)
 	}
 	if strings.TrimSpace(input.Category) != BastionCategory {
@@ -119,15 +119,6 @@ func EditHost(home string, original host.Host, input HostInput) error {
 		return fmt.Errorf("没有找到服务器：%s", original.Name)
 	}
 	return SaveServerHosts(home, hosts)
-}
-
-func categoryExists(categories []string, name string) bool {
-	for _, category := range categories {
-		if category == name {
-			return true
-		}
-	}
-	return false
 }
 
 func validateJumpHostRef(hosts []host.Host, ref string) error {

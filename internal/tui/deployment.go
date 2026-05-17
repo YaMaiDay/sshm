@@ -8,10 +8,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/YaMaiDay/sshm/internal/config"
+	deploymentservice "github.com/YaMaiDay/sshm/internal/deployment"
 )
 
 func (m Model) startDeploymentList(index int) Model {
-	file, _, err := config.LoadDeployments(m.home)
+	file, _, err := deploymentservice.LoadFile(m.home)
 	if err != nil {
 		m.status = m.t("Failed to read deployment config: ", "读取部署配置失败：") + err.Error()
 		return m
@@ -198,7 +199,7 @@ func (m Model) toggleDeploymentFavorite() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	file.Apps[item.Index].Favorite = !file.Apps[item.Index].Favorite
-	if err := config.SaveDeployments(m.home, file); err != nil {
+	if err := deploymentservice.SaveFile(m.home, file); err != nil {
 		m.status = m.t("Failed to update favorite: ", "收藏更新失败：") + err.Error()
 		return m, nil
 	}
@@ -234,7 +235,7 @@ func (m Model) toggleDeploymentPinned() (tea.Model, tea.Cmd) {
 		file.Apps[item.Index].Pinned = true
 		file.Apps[item.Index].PinnedOrder = nextDeploymentPinnedOrder(file.Apps)
 	}
-	if err := config.SaveDeployments(m.home, file); err != nil {
+	if err := deploymentservice.SaveFile(m.home, file); err != nil {
 		m.status = m.t("Failed to update pin: ", "置顶更新失败：") + err.Error()
 		return m, nil
 	}
@@ -323,11 +324,16 @@ func (m Model) deleteDeploymentApp(index int) (tea.Model, tea.Cmd) {
 		m.status = m.t("No deployment app to delete.", "没有可删除的部署应用。")
 		return m, nil
 	}
-	file.Apps = append(file.Apps[:index], file.Apps[index+1:]...)
-	if err := config.SaveDeployments(m.home, file); err != nil {
+	file, deleted, err := deploymentservice.DeleteApp(m.home, file, index)
+	if err != nil {
 		m.status = m.t("Failed to delete deployment app: ", "删除部署应用失败：") + err.Error()
 		return m, nil
 	}
+	if !deleted {
+		m.status = m.t("No deployment app to delete.", "没有可删除的部署应用。")
+		return m, nil
+	}
+	m.deploymentFile = file
 	m.confirm = confirmAction{}
 	m.deploymentSelected = removeDeploymentSelection(m.deploymentSelected, index)
 	m = m.startDeploymentList(m.activeDeployment.HostIndex)

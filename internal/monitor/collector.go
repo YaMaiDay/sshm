@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -37,22 +36,13 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 	args = append(args, target, remoteScript)
 
 	var cmd *exec.Cmd
-	var tempFile string
 	password := strings.TrimSpace(h.Password)
 	if password == "" {
 		password, _ = c.Passwords.Password(h.Name)
 	}
-	if password != "" {
-		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := sshconfig.TempPasswordFile(password)
-			if err == nil {
-				tempFile = file
-				defer os.Remove(tempFile)
-				passwordArgs := append(passwordSSHOptions(h), args...)
-				fullArgs := append([]string{"-f", tempFile, "ssh"}, passwordArgs...)
-				cmd = exec.CommandContext(ctx, "sshpass", fullArgs...)
-			}
-		}
+	if fullArgs, passCleanup, ok := sshconfig.SSHPassArgs(password, "ssh", sshconfig.PasswordAuthArgs(h), args); ok {
+		defer passCleanup()
+		cmd = exec.CommandContext(ctx, "sshpass", fullArgs...)
 	}
 	if cmd == nil {
 		cmd = exec.CommandContext(ctx, "ssh", args...)
@@ -70,10 +60,6 @@ func (c Collector) Collect(ctx context.Context, h host.Host) Metrics {
 	metrics.HealthPorts = healthPorts(h.HealthPorts, metrics.Ports)
 	metrics.UpdatedAt = time.Now()
 	return metrics
-}
-
-func passwordSSHOptions(h host.Host) []string {
-	return sshconfig.PasswordAuthArgs(h)
 }
 
 func sshSeconds(d time.Duration) string {

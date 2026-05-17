@@ -173,28 +173,17 @@ func runSSH(h host.Host, script string) (string, error) {
 	)
 	defer cleanup()
 	args = append(args, target, "sh", "-s")
-	if strings.TrimSpace(h.Password) != "" {
-		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := sshconfig.TempPasswordFile(h.Password)
-			if err == nil {
-				defer os.Remove(file)
-				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
-				fullArgs = append(fullArgs, args...)
-				cmd := exec.Command("sshpass", fullArgs...)
-				cmd.Stdin = strings.NewReader(script)
-				out, err := cmd.CombinedOutput()
-				return string(out), err
-			}
-		}
+	if fullArgs, passCleanup, ok := sshconfig.SSHPassArgs(h.Password, "ssh", sshconfig.PasswordAuthArgs(h), args); ok {
+		defer passCleanup()
+		cmd := exec.Command("sshpass", fullArgs...)
+		cmd.Stdin = strings.NewReader(script)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
 	}
 	cmd := exec.Command("ssh", args...)
 	cmd.Stdin = strings.NewReader(script)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
-}
-
-func passwordSSHOptions(h host.Host) []string {
-	return sshconfig.PasswordAuthArgs(h)
 }
 
 func sortItems(items []Item) {

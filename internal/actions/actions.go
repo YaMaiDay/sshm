@@ -23,17 +23,10 @@ type CommandResult struct {
 func SSHCommand(h host.Host) (*exec.Cmd, Cleanup) {
 	args, target, cleanup := sshArgs(h)
 	args = append(args, "-tt", target)
-	if strings.TrimSpace(h.Password) != "" {
-		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := sshconfig.TempPasswordFile(h.Password)
-			if err == nil {
-				baseCleanup := cleanup
-				cleanup = func() { _ = os.Remove(file); baseCleanup() }
-				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
-				fullArgs = append(fullArgs, args...)
-				return interactiveCommand("sshpass", fullArgs...), cleanup
-			}
-		}
+	if fullArgs, passCleanup, ok := sshconfig.SSHPassArgs(h.Password, "ssh", passwordSSHOptions(h), args); ok {
+		baseCleanup := cleanup
+		cleanup = func() { passCleanup(); baseCleanup() }
+		return interactiveCommand("sshpass", fullArgs...), cleanup
 	}
 	return interactiveCommand("ssh", args...), cleanup
 }
@@ -109,19 +102,12 @@ elif [ -f "$p" ]; then
 fi`
 	args, target, cleanup := sshArgs(h)
 	args = append(args, "-o", "LogLevel=ERROR", target, "sh", "-s", "--", remotePath)
-	if strings.TrimSpace(h.Password) != "" {
-		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := sshconfig.TempPasswordFile(h.Password)
-			if err == nil {
-				baseCleanup := cleanup
-				cleanup = func() { _ = os.Remove(file); baseCleanup() }
-				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
-				fullArgs = append(fullArgs, args...)
-				cmd := exec.Command("sshpass", fullArgs...)
-				cmd.Stdin = strings.NewReader(script)
-				return cmd, cleanup
-			}
-		}
+	if fullArgs, passCleanup, ok := sshconfig.SSHPassArgs(h.Password, "ssh", passwordSSHOptions(h), args); ok {
+		baseCleanup := cleanup
+		cleanup = func() { passCleanup(); baseCleanup() }
+		cmd := exec.Command("sshpass", fullArgs...)
+		cmd.Stdin = strings.NewReader(script)
+		return cmd, cleanup
 	}
 	cmd := exec.Command("ssh", args...)
 	cmd.Stdin = strings.NewReader(script)
@@ -205,19 +191,12 @@ func RunCommandStream(cmd *exec.Cmd, onOutput func(string)) CommandResult {
 func remoteShellCommand(ctx context.Context, h host.Host, script string) (*exec.Cmd, Cleanup) {
 	args, target, cleanup := sshArgs(h)
 	args = append(args, "-o", "LogLevel=ERROR", target, "sh", "-s")
-	if strings.TrimSpace(h.Password) != "" {
-		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := sshconfig.TempPasswordFile(h.Password)
-			if err == nil {
-				baseCleanup := cleanup
-				cleanup = func() { _ = os.Remove(file); baseCleanup() }
-				fullArgs := append([]string{"-f", file, "ssh"}, passwordSSHOptions(h)...)
-				fullArgs = append(fullArgs, args...)
-				cmd := exec.CommandContext(ctx, "sshpass", fullArgs...)
-				cmd.Stdin = strings.NewReader(script)
-				return cmd, cleanup
-			}
-		}
+	if fullArgs, passCleanup, ok := sshconfig.SSHPassArgs(h.Password, "ssh", passwordSSHOptions(h), args); ok {
+		baseCleanup := cleanup
+		cleanup = func() { passCleanup(); baseCleanup() }
+		cmd := exec.CommandContext(ctx, "sshpass", fullArgs...)
+		cmd.Stdin = strings.NewReader(script)
+		return cmd, cleanup
 	}
 	cmd := exec.CommandContext(ctx, "ssh", args...)
 	cmd.Stdin = strings.NewReader(script)
@@ -225,32 +204,19 @@ func remoteShellCommand(ctx context.Context, h host.Host, script string) (*exec.
 }
 
 func scpCommand(ctx context.Context, h host.Host, args []string, cleanup Cleanup) (*exec.Cmd, Cleanup) {
-	if strings.TrimSpace(h.Password) != "" {
-		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := sshconfig.TempPasswordFile(h.Password)
-			if err == nil {
-				baseCleanup := cleanup
-				cleanup = func() { _ = os.Remove(file); baseCleanup() }
-				fullArgs := append([]string{"-f", file, "scp"}, passwordSSHOptions(h)...)
-				fullArgs = append(fullArgs, args...)
-				return exec.CommandContext(ctx, "sshpass", fullArgs...), cleanup
-			}
-		}
+	if fullArgs, passCleanup, ok := sshconfig.SSHPassArgs(h.Password, "scp", passwordSSHOptions(h), args); ok {
+		baseCleanup := cleanup
+		cleanup = func() { passCleanup(); baseCleanup() }
+		return exec.CommandContext(ctx, "sshpass", fullArgs...), cleanup
 	}
 	return exec.CommandContext(ctx, "scp", args...), cleanup
 }
 
 func rsyncCommand(ctx context.Context, h host.Host, args []string, cleanup Cleanup) (*exec.Cmd, Cleanup) {
-	if strings.TrimSpace(h.Password) != "" {
-		if _, err := exec.LookPath("sshpass"); err == nil {
-			file, err := sshconfig.TempPasswordFile(h.Password)
-			if err == nil {
-				baseCleanup := cleanup
-				cleanup = func() { _ = os.Remove(file); baseCleanup() }
-				fullArgs := append([]string{"-f", file, "rsync"}, args...)
-				return exec.CommandContext(ctx, "sshpass", fullArgs...), cleanup
-			}
-		}
+	if fullArgs, passCleanup, ok := sshconfig.SSHPassArgs(h.Password, "rsync", nil, args); ok {
+		baseCleanup := cleanup
+		cleanup = func() { passCleanup(); baseCleanup() }
+		return exec.CommandContext(ctx, "sshpass", fullArgs...), cleanup
 	}
 	return exec.CommandContext(ctx, "rsync", args...), cleanup
 }

@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/YaMaiDay/sshm/internal/config"
+	deploymentservice "github.com/YaMaiDay/sshm/internal/deployment"
 )
 
 func (m Model) defaultDeploymentServer() string {
@@ -101,12 +102,12 @@ func deploymentResourceCommandsText(app config.DeploymentApp) string {
 	if len(app.ResourceCommands) > 0 {
 		return strings.Join(app.ResourceCommands, "\n")
 	}
-	return strings.Join(deploymentResourceDefaultCommands(app), "\n")
+	return strings.Join(deploymentservice.ResourceDefaultCommands(app), "\n")
 }
 
 func deploymentAppWithResourceDefaults(app config.DeploymentApp) config.DeploymentApp {
 	if len(app.ResourceCommands) == 0 {
-		app.ResourceCommands = deploymentResourceDefaultCommands(app)
+		app.ResourceCommands = deploymentservice.ResourceDefaultCommands(app)
 	}
 	return app
 }
@@ -199,17 +200,12 @@ func (m Model) updateDeploymentEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = "保存失败：部署服务器不能为空"
 			return m, nil
 		}
-		if err := config.ValidateDeploymentApp(app); err != nil {
-			m.status = "保存失败：" + err.Error()
-			return m, nil
+		index := -1
+		if m.deploymentEditing && m.deploymentEditIndex >= 0 && m.deploymentEditIndex < len(m.deploymentFile.Apps) {
+			index = m.deploymentEditIndex
 		}
-		file := m.deploymentFile
-		if m.deploymentEditing && m.deploymentEditIndex >= 0 && m.deploymentEditIndex < len(file.Apps) {
-			file.Apps[m.deploymentEditIndex] = app
-		} else {
-			file.Apps = append(file.Apps, app)
-		}
-		if err := config.SaveDeployments(m.home, file); err != nil {
+		file, err := deploymentservice.SaveApp(m.home, m.deploymentFile, index, app)
+		if err != nil {
 			m.status = "保存失败：" + err.Error()
 			return m, nil
 		}
