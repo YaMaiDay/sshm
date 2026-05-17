@@ -197,7 +197,7 @@ func (m Model) runDeployment() tea.Cmd {
 			defer cancel()
 			result := deploymentservice.Service{}.Run(ctx, h, app, onOutput)
 			deploymentProgressFinish(progressID, result.Command.Output)
-			return deploymentDoneMsg{ID: progressID, Result: commandResultFromDeployment(result.Command), PreviousVersion: result.PreviousVersion, CurrentVersion: result.CurrentVersion}
+			return deploymentDoneMsg{ID: progressID, Result: result.Command, PreviousVersion: result.PreviousVersion, CurrentVersion: result.CurrentVersion}
 		}
 	}
 	return func() tea.Msg {
@@ -205,7 +205,7 @@ func (m Model) runDeployment() tea.Cmd {
 		defer cancel()
 		result := deploymentservice.Service{}.Run(ctx, h, app, onOutput)
 		deploymentProgressFinish(progressID, result.Command.Output)
-		return deploymentDoneMsg{ID: progressID, Result: commandResultFromDeployment(result.Command), PreviousVersion: result.PreviousVersion, CurrentVersion: result.CurrentVersion}
+		return deploymentDoneMsg{ID: progressID, Result: result.Command, PreviousVersion: result.PreviousVersion, CurrentVersion: result.CurrentVersion}
 	}
 }
 
@@ -226,7 +226,7 @@ func (m Model) runDeploymentRollback() tea.Cmd {
 		defer cancel()
 		result := deploymentservice.Service{}.Rollback(ctx, h, app, func(text string) { deploymentProgressAppend(progressID, text) })
 		deploymentProgressFinish(progressID, result.Output)
-		return deploymentDoneMsg{ID: progressID, Result: commandResultFromDeployment(result)}
+		return deploymentDoneMsg{ID: progressID, Result: result}
 	}
 }
 

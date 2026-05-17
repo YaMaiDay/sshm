@@ -336,7 +336,7 @@ func (m Model) runBatchJob(job int) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
 		result := (commandservice.Service{}).Run(ctx, h, remotescript.NewUserScript(script))
-		return batchCommandDoneMsg{Job: job, Result: commandResultFromCommand(result)}
+		return batchCommandDoneMsg{Job: job, Result: result}
 	}
 }
 

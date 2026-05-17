@@ -111,7 +111,7 @@ func (m Model) runResourceAction() tea.Cmd {
 		defer cancel()
 		script := m.resourceActionScript(kind, action, name)
 		result := (resourceservice.Service{}).ExecuteScript(ctx, h, script)
-		return resourceActionMsg{Index: index, Kind: kind, Action: action, Name: name, Result: commandResultFromResource(result)}
+		return resourceActionMsg{Index: index, Kind: kind, Action: action, Name: name, Result: result}
 	}
 }
 
@@ -145,6 +145,6 @@ func (m Model) openResourceLog() (tea.Model, tea.Cmd) {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		result := (resourceservice.Service{}).ExecuteScript(ctx, h, m.resourceLogScript(kind, name, 200))
-		return resourceLogMsg{Index: index, Kind: kind, Name: name, Output: result.Output, Result: commandResultFromResource(result)}
+		return resourceLogMsg{Index: index, Kind: kind, Name: name, Output: result.Output, Result: result}
 	}
 }

@@ -40,7 +40,7 @@ func (m Model) runCommand(index int, script string) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
 		result := (commandservice.Service{}).Run(ctx, m.states[index].Host, remotescript.NewUserScript(script))
-		return commandDoneMsg{Result: commandResultFromCommand(result)}
+		return commandDoneMsg{Result: result}
 	}
 }
 
