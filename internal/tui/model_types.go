@@ -9,6 +9,7 @@ import (
 
 	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
+	"github.com/YaMaiDay/sshm/internal/dbmonitor"
 	"github.com/YaMaiDay/sshm/internal/fsselect"
 	"github.com/YaMaiDay/sshm/internal/host"
 	"github.com/YaMaiDay/sshm/internal/monitor"
@@ -908,47 +909,9 @@ type databaseDetail struct {
 	Configured  bool
 }
 
-type databaseExtraDetail struct {
-	Configured      bool
-	Engine          string
-	Host            string
-	Port            string
-	User            string
-	Database        string
-	Version         string
-	Uptime          string
-	Connections     string
-	MaxConnections  string
-	ActiveConns     string
-	IdleConns       string
-	DatabaseCount   string
-	CacheHit        string
-	LockWaits       string
-	LongTx          string
-	Deadlocks       string
-	Questions       string
-	SlowQueries     string
-	SizeBytes       uint64
-	TotalBytes      uint64
-	DBTotalBytes    uint64
-	DatabaseTop     []databaseTableSize
-	DataBytes       uint64
-	IndexBytes      uint64
-	IndexTotalBytes uint64
-	TableCount      string
-	TableTop        []databaseTableSize
-	MemoryUsed      string
-	MemoryPeak      string
-	OpsPerSec       string
-	Clients         string
-	Keyspace        string
-	Raw             map[string]string
-}
+type databaseExtraDetail = dbmonitor.Detail
 
-type databaseTableSize struct {
-	Name string
-	Size uint64
-}
+type databaseTableSize = dbmonitor.TableSize
 
 type containerMountDetail struct {
 	Type        string

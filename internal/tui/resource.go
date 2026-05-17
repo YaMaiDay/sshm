@@ -707,7 +707,7 @@ func (m Model) startResourceExternalDatabaseAdd() (tea.Model, tea.Cmd) {
 		DBNote:     item.DBNote,
 	}
 	m.mode = modeResourceAddEdit
-	m.status = m.t("Add external database", "新增外部数据库")
+	m.status = m.t("Add database manually", "手动新增数据库")
 	return m, nil
 }
 

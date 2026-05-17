@@ -219,7 +219,7 @@ The dashboard disk card highlights the real mounted filesystem with the highest 
 
 ## 🧭 Resource Manager
 
-Press `n` on a server to open the resource manager. It discovers Docker containers, systemd services, processes, and listening ports on the selected server.
+Press `n` on a server to open the resource manager. It discovers Docker containers, systemd services, processes, listening ports, and database resources on the selected server.
 
 | Resource | Notes |
 | --- | --- |
@@ -227,10 +227,13 @@ Press `n` on a server to open the resource manager. It discovers Docker containe
 | Services | Auto-discovered from systemd with localized status and the original raw state |
 | Processes | Shows process identity, CPU, memory, user, and command details |
 | Ports | Shows listening protocol, port, state, process, service, and related container when available |
+| Databases | Discovers MySQL, MariaDB, PostgreSQL, Redis, and MongoDB from containers, services, processes, and ports, with optional connection metrics after configuration |
 
 The resource manager keeps a local cache per server and resource type. When a cached view exists, sshm shows it immediately and refreshes in the background to avoid an empty page while remote discovery is running.
 
 Docker containers are managed as discovered resources. They can be favorited, but they cannot be deleted from the resource list because Docker will rediscover them on the next scan. Stop or remove the container on the target server if it should no longer exist.
+
+Database discovery is best-effort. sshm uses names, images, services, processes, and common ports to identify likely databases, then lets you configure the connection before it collects database metrics. If you save a database password, it is stored locally in `~/.config/sshm/resources.toml` with restricted file permissions; do not share that file without removing sensitive values.
 
 ## 🧭 Usage
 
@@ -297,6 +300,7 @@ Remote servers also need `rsync` for file transfer and local-fetch deployment. I
 | `~/.config/sshm/history.toml` | Command history |
 | `~/.config/sshm/transfers.toml` | Transfer jobs and history |
 | `~/.config/sshm/deployments.toml` | Deployment apps and records |
+| `~/.config/sshm/resources.toml` | Resource favorites, pins, custom resource commands, and configured database connection fields |
 | `~/.config/sshm/config.toml` | App settings |
 
 Press `.` on the dashboard to open settings. Common settings can be edited in the TUI without manually editing `config.toml`.

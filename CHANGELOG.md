@@ -2,6 +2,19 @@
 
 This file records user-visible changes. Historical release notes are available in GitHub Releases.
 
+## v0.1.49 - 2026-05-17
+
+### Added
+
+- Add database resources to the resource manager, covering MySQL, MariaDB, PostgreSQL, Redis, and MongoDB discovery.
+- Add database connection configuration and database metric collection for version, uptime, storage, connection, table, cache, and engine-specific runtime details.
+- Add manual external database resources for databases that are not discoverable from local containers, services, processes, or listening ports.
+
+### Changed
+
+- Split resource sorting and database monitoring helpers out of the main TUI resource files.
+- Document that saved database passwords are stored locally in `resources.toml` as plain text with restricted file permissions.
+
 ## v0.1.48 - 2026-05-16
 
 ### Changed

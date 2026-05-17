@@ -839,7 +839,7 @@ func (m Model) databaseCardCountLine(item databaseDetail) string {
 
 func (m Model) databaseCardMeta(item databaseDetail) string {
 	if d, errText, ok := m.databaseCardExtra(item); ok && errText == "" {
-		if seconds := parseUint64Text(d.Raw["Uptime"]); seconds > 0 {
+		if seconds := parseUnsignedText(d.Raw["Uptime"]); seconds > 0 {
 			return m.dashboardDurationShort(time.Duration(seconds) * time.Second)
 		}
 	}
@@ -853,6 +853,14 @@ func (m Model) databaseCardMeta(item databaseDetail) string {
 	default:
 		return ""
 	}
+}
+
+func parseUnsignedText(value string) uint64 {
+	n, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func (m Model) databaseCardExtra(item databaseDetail) (databaseExtraDetail, string, bool) {
@@ -2198,7 +2206,7 @@ func (m Model) resourceAddDatabaseConfigTitle() string {
 	if strings.TrimSpace(m.resourceCommandForm.DBInstance) != "" {
 		return m.t("Configure Database", "配置数据库")
 	}
-	return m.t("Add External Database", "新增外部数据库")
+	return m.t("Add Database Manually", "手动新增数据库")
 }
 
 func (m Model) resourceAddDatabaseInstanceLines() []string {
@@ -2699,251 +2707,6 @@ func (m Model) resourceOutputLines() []string {
 func (m Model) resourceOutputMaxScroll() int {
 	bodyHeight := maxInt(1, m.height-3)
 	return maxInt(0, len(m.resourceOutputLines())-bodyHeight)
-}
-
-func (m Model) filteredResourceIndexes() []resourceRef {
-	items := m.currentResourceRefs()
-	query := strings.ToLower(strings.TrimSpace(m.resourceQuery))
-	indexes := []resourceRef{}
-	for _, ref := range items {
-		text := strings.ToLower(m.resourceSearchText(ref))
-		if query != "" && !strings.Contains(text, query) {
-			continue
-		}
-		if !m.resourceFilterMatches(ref) {
-			continue
-		}
-		if !m.resourcePortFilterMatches(ref) {
-			continue
-		}
-		indexes = append(indexes, ref)
-	}
-	m.sortResourceRefs(indexes)
-	return indexes
-}
-
-func (m Model) sortResourceRefs(refs []resourceRef) {
-	sort.SliceStable(refs, func(i, j int) bool {
-		a := refs[i]
-		b := refs[j]
-		aPinned, aOrder := m.resourceRefPinned(a)
-		bPinned, bOrder := m.resourceRefPinned(b)
-		if aPinned != bPinned {
-			return aPinned
-		}
-		if aPinned && bPinned && aOrder != bOrder {
-			return aOrder > bOrder
-		}
-		if m.resourceKind == resourceAll && a.Kind != b.Kind {
-			return a.Kind < b.Kind
-		}
-		if m.resourceSort == resourceSortDefault {
-			return false
-		}
-		switch m.resourceSort {
-		case resourceSortStatus:
-			ar := m.resourceStatusRank(a)
-			br := m.resourceStatusRank(b)
-			if ar != br {
-				return ar < br
-			}
-		case resourceSortName:
-			return m.resourceSortNameValue(a) < m.resourceSortNameValue(b)
-		case resourceSortCPU:
-			av, aok := m.resourceCPUValue(a)
-			bv, bok := m.resourceCPUValue(b)
-			if aok && bok && av != bv {
-				return av > bv
-			}
-			if aok != bok {
-				return aok
-			}
-		case resourceSortMemory:
-			av, aok := m.resourceMemoryValue(a)
-			bv, bok := m.resourceMemoryValue(b)
-			if aok && bok && av != bv {
-				return av > bv
-			}
-			if aok != bok {
-				return aok
-			}
-		case resourceSortPort:
-			ap, aok := m.resourcePortValue(a)
-			bp, bok := m.resourcePortValue(b)
-			if aok && bok && ap != bp {
-				return ap < bp
-			}
-			if aok != bok {
-				return aok
-			}
-		}
-		if a.Kind != b.Kind {
-			return a.Kind < b.Kind
-		}
-		return m.resourceSortNameValue(a) < m.resourceSortNameValue(b)
-	})
-}
-
-func (m Model) resourceRefPinned(ref resourceRef) (bool, int64) {
-	name, ok := m.resourceNameForRef(ref)
-	if !ok {
-		return false, 0
-	}
-	item, ok := m.managedResource(ref.Kind, name)
-	if !ok {
-		return false, 0
-	}
-	return item.Pinned, item.PinnedOrder
-}
-
-func (m Model) resourceSortNameValue(ref resourceRef) string {
-	name, _ := m.resourceNameForRef(ref)
-	return strings.ToLower(strings.TrimSpace(name))
-}
-
-func (m Model) resourceStatusRank(ref resourceRef) int {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
-		return 9
-	}
-	switch ref.Kind {
-	case resourceContainers:
-		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
-		switch containerDetailKind(item) {
-		case "failed", "missing":
-			return 0
-		case "running":
-			return 1
-		case "stopped":
-			return 2
-		default:
-			return 3
-		}
-	case resourceServices:
-		item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
-		switch serviceDetailKind(item) {
-		case "failed", "missing":
-			return 0
-		case "running":
-			return 1
-		case "active":
-			return 2
-		case "stopped":
-			return 3
-		default:
-			return 4
-		}
-	case resourceProcesses:
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
-		if item.Missing || strings.TrimSpace(item.PID) == "" {
-			return 2
-		}
-		return 1
-	case resourcePorts:
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
-		if item.Missing {
-			return 2
-		}
-		if strings.EqualFold(strings.TrimSpace(item.State), "LISTEN") || strings.TrimSpace(item.State) == "" {
-			return 1
-		}
-		return 3
-	case resourceDatabases:
-		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
-		return databaseStatusRank(item)
-	default:
-		return 9
-	}
-}
-
-func (m Model) resourceCPUValue(ref resourceRef) (float64, bool) {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
-		return 0, false
-	}
-	switch ref.Kind {
-	case resourceContainers:
-		return parsePercentText(m.states[m.resourceHostIndex].ContainerDetails[ref.Index].CPU)
-	default:
-		return 0, false
-	}
-}
-
-func (m Model) resourceMemoryValue(ref resourceRef) (float64, bool) {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
-		return 0, false
-	}
-	switch ref.Kind {
-	case resourceContainers:
-		return parsePercentText(m.states[m.resourceHostIndex].ContainerDetails[ref.Index].MemPerc)
-	default:
-		return 0, false
-	}
-}
-
-func (m Model) resourcePortValue(ref resourceRef) (int, bool) {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
-		return 0, false
-	}
-	if ref.Kind == resourcePorts || ref.Kind == resourceProcesses {
-		port := strings.TrimSpace(m.states[m.resourceHostIndex].PortDetails[ref.Index].Port)
-		n, err := strconv.Atoi(port)
-		return n, err == nil
-	}
-	if ref.Kind == resourceDatabases {
-		port := strings.TrimSpace(m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Port)
-		n, err := strconv.Atoi(port)
-		return n, err == nil
-	}
-	return 0, false
-}
-
-func (m Model) currentResourceRefs() []resourceRef {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
-		return nil
-	}
-	refs := []resourceRef{}
-	if m.resourceKind == resourceAll || m.resourceKind == resourceContainers {
-		for i := range m.states[m.resourceHostIndex].ContainerDetails {
-			ref := resourceRef{Kind: resourceContainers, Index: i}
-			if m.resourceRefInScope(ref) {
-				refs = append(refs, ref)
-			}
-		}
-	}
-	if m.resourceKind == resourceAll || m.resourceKind == resourceServices {
-		for i := range m.states[m.resourceHostIndex].ServiceDetails {
-			if !resourceServiceVisible(m.states[m.resourceHostIndex].ServiceDetails[i]) {
-				continue
-			}
-			ref := resourceRef{Kind: resourceServices, Index: i}
-			if m.resourceRefInScope(ref) {
-				refs = append(refs, ref)
-			}
-		}
-	}
-	if m.resourceKind == resourceAll || m.resourceKind == resourceProcesses {
-		for _, ref := range m.currentProcessRefs() {
-			if m.resourceRefInScope(ref) {
-				refs = append(refs, ref)
-			}
-		}
-	}
-	if m.resourceKind == resourceAll || m.resourceKind == resourcePorts {
-		for i := range m.states[m.resourceHostIndex].PortDetails {
-			ref := resourceRef{Kind: resourcePorts, Index: i}
-			if m.resourceRefInScope(ref) {
-				refs = append(refs, ref)
-			}
-		}
-	}
-	if m.resourceKind == resourceAll || m.resourceKind == resourceDatabases {
-		for i := range m.states[m.resourceHostIndex].DatabaseDetails {
-			ref := resourceRef{Kind: resourceDatabases, Index: i}
-			if m.resourceRefInScope(ref) {
-				refs = append(refs, ref)
-			}
-		}
-	}
-	return refs
 }
 
 func (m Model) resourceManageDiscoveredRefs() []resourceRef {

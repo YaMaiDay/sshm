@@ -41,11 +41,14 @@ Common local files:
 | `~/.config/sshm/history.toml` | Command history |
 | `~/.config/sshm/transfers.toml` | Transfer jobs and history |
 | `~/.config/sshm/deployments.toml` | Deployment apps and records |
+| `~/.config/sshm/resources.toml` | Resource favorites, pins, custom resource commands, and configured database connection fields |
 | `~/.config/sshm/config.toml` | App settings |
 
 Files that may contain sensitive data are written with stricter permissions where practical.
 
 Deployment configuration stores app metadata, repository references, paths, command stages, credential references, and execution records. Do not put GitHub token values, private-key contents, or production passwords into deployment commands. For private Git repositories, prefer least-privilege Deploy Keys. For local fetch, credential parameters reference local private-key paths or local environment variable names; for remote fetch, they reference target-server private-key paths or environment variable names.
+
+Resource configuration may include database connection fields. If a database password is saved, it is stored locally in `resources.toml` with restricted file permissions, but the value is still plain text inside that local file. Do not commit, upload, or share `resources.toml` without removing database passwords and other sensitive values.
 
 ## Reporting A Vulnerability
 
