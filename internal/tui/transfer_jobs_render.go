@@ -21,17 +21,17 @@ func (m Model) renderTransferJobs() string {
 	}
 	help := m.renderTransferJobsHelp(width)
 	reservedBottomLines := strings.Count(help, "\n") + 1
-	counts := transferStatusCounts(m.transferHistory.Entries)
+	counts := transferStatusCounts(m.transferState.History.Entries)
 	filtered := m.filteredTransferIndexes()
 	header := fmt.Sprintf("%s  %s %s  %s %d/%d  %s %d  %s %d  %s %d",
 		m.t("Transfer Jobs", "传输任务"),
 		m.t("Status", "状态"), m.transferStatusFilterName(),
-		m.t("Showing", "显示"), len(filtered), len(m.transferHistory.Entries),
+		m.t("Showing", "显示"), len(filtered), len(m.transferState.History.Entries),
 		m.t("Running", "运行"), counts[config.TransferStatusRunning],
-		m.t("Open", "未完成"), transferUnfinishedCount(m.transferHistory.Entries),
+		m.t("Open", "未完成"), transferUnfinishedCount(m.transferState.History.Entries),
 		m.t("Done", "已完成"), counts[config.TransferStatusDone])
 	lines := []string{titleStyle.Render(fit(header, width)), ""}
-	if len(m.transferHistory.Entries) == 0 {
+	if len(m.transferState.History.Entries) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No transfer records", "暂无传输记录")))
 	} else if len(filtered) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No transfer jobs for this status", "当前状态没有传输任务")))
@@ -82,10 +82,10 @@ func transferStatusFilterOptions() []string {
 
 func (m Model) transferStatusFilterValue() string {
 	options := transferStatusFilterOptions()
-	if m.transferStatusFilter < 0 || m.transferStatusFilter >= len(options) {
+	if m.transferState.StatusFilter < 0 || m.transferState.StatusFilter >= len(options) {
 		return ""
 	}
-	return options[m.transferStatusFilter]
+	return options[m.transferState.StatusFilter]
 }
 
 func (m Model) transferStatusFilterName() string {
@@ -98,8 +98,8 @@ func (m Model) transferStatusFilterName() string {
 
 func (m Model) filteredTransferIndexes() []int {
 	status := m.transferStatusFilterValue()
-	indexes := make([]int, 0, len(m.transferHistory.Entries))
-	for i, entry := range m.transferHistory.Entries {
+	indexes := make([]int, 0, len(m.transferState.History.Entries))
+	for i, entry := range m.transferState.History.Entries {
 		if status == "" || entry.Status == status {
 			indexes = append(indexes, i)
 		}
@@ -123,7 +123,7 @@ func (m Model) transferJobGridLines(width int) ([]string, int, int) {
 		rowHeight := 0
 		rowHasError := false
 		for j := i; j < rowEnd; j++ {
-			entry := m.transferHistory.Entries[indexes[j]]
+			entry := m.transferState.History.Entries[indexes[j]]
 			if strings.TrimSpace(entry.Error) != "" {
 				rowHasError = true
 				break
@@ -136,10 +136,10 @@ func (m Model) transferJobGridLines(width int) ([]string, int, int) {
 				continue
 			}
 			entryIndex := indexes[visibleIndex]
-			if entryIndex == m.transferIndex {
+			if entryIndex == m.transferState.Index {
 				selectedTop = len(lines)
 			}
-			block := m.renderTransferJobCard(m.transferHistory.Entries[entryIndex], cardWidth, entryIndex == m.transferIndex, rowHasError)
+			block := m.renderTransferJobCard(m.transferState.History.Entries[entryIndex], cardWidth, entryIndex == m.transferState.Index, rowHasError)
 			rowBlocks[col] = block
 			if height := blockLineCount(block); height > rowHeight {
 				rowHeight = height
@@ -158,7 +158,7 @@ func (m Model) transferJobGridLines(width int) ([]string, int, int) {
 		rowLines := strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, rowBlocks...), "\n")
 		lines = append(lines, rowLines...)
 		for _, index := range indexes[i:rowEnd] {
-			if index == m.transferIndex {
+			if index == m.transferState.Index {
 				selectedBottom = len(lines)
 				break
 			}

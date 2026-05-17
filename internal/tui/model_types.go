@@ -366,6 +366,22 @@ type activeTransfer struct {
 	Cancel     context.CancelFunc
 }
 
+type transferState struct {
+	Mode         transferMode
+	PickIndex    int
+	PickTitle    string
+	Choices      []choice
+	RemoteTree   remoteTree
+	Pending      pendingTransfer
+	Panel        transferPanel
+	Active       activeTransfer
+	History      config.TransferHistoryFile
+	Index        int
+	StatusFilter int
+	RunAll       bool
+	JobsBack     viewMode
+}
+
 type settingsState struct {
 	Form   settingsForm
 	Field  int
@@ -397,13 +413,7 @@ type Model struct {
 	appState                      config.AppState
 	home                          string
 	mode                          viewMode
-	transfer                      transferMode
-	pickIndex                     int
-	pickTitle                     string
-	choices                       []choice
-	remoteTree                    remoteTree
-	pending                       pendingTransfer
-	panel                         transferPanel
+	transferState                 transferState
 	form                          addForm
 	formIndex                     int
 	formCursor                    int
@@ -425,11 +435,6 @@ type Model struct {
 	favoriteOnly                  bool
 	detailScroll                  int
 	detailSectionIndex            int
-	activeTransfer                activeTransfer
-	transferHistory               config.TransferHistoryFile
-	transferIndex                 int
-	transferStatusFilter          int
-	transferRunAll                bool
 	commandFile                   config.CommandsFile
 	commandItems                  []commandItem
 	commandIndex                  int
@@ -475,10 +480,10 @@ type Model struct {
 	deploymentView                deploymentViewMode
 	deploymentFavoriteOnly        bool
 	activeDeployment              activeDeployment
+	deploymentProgress            *deploymentProgressStore
 	deploymentOutputScroll        int
 	settings                      settingsState
 	anomaly                       anomalyState
-	transferJobsBack              viewMode
 	helpBackMode                  viewMode
 	collectRound                  int
 	manualRound                   int
@@ -733,62 +738,77 @@ type deploymentProgressState struct {
 	Done   bool
 }
 
-var deploymentProgressStore = struct {
+type deploymentProgressStore struct {
 	sync.Mutex
 	items map[string]deploymentProgressState
-}{items: map[string]deploymentProgressState{}}
+}
 
-func deploymentProgressStart(id string) {
+func newDeploymentProgressStore() *deploymentProgressStore {
+	return &deploymentProgressStore{items: map[string]deploymentProgressState{}}
+}
+
+func (s *deploymentProgressStore) ensure() {
+	if s.items == nil {
+		s.items = map[string]deploymentProgressState{}
+	}
+}
+
+func (s *deploymentProgressStore) start(id string) {
 	if id == "" {
 		return
 	}
-	deploymentProgressStore.Lock()
-	deploymentProgressStore.items[id] = deploymentProgressState{}
-	deploymentProgressStore.Unlock()
+	s.Lock()
+	defer s.Unlock()
+	s.ensure()
+	s.items[id] = deploymentProgressState{}
 }
 
-func deploymentProgressAppend(id string, text string) {
+func (s *deploymentProgressStore) append(id string, text string) {
 	if id == "" || text == "" {
 		return
 	}
-	deploymentProgressStore.Lock()
-	state := deploymentProgressStore.items[id]
+	s.Lock()
+	defer s.Unlock()
+	s.ensure()
+	state := s.items[id]
 	state.Output += text
-	deploymentProgressStore.items[id] = state
-	deploymentProgressStore.Unlock()
+	s.items[id] = state
 }
 
-func deploymentProgressFinish(id string, output string) {
+func (s *deploymentProgressStore) finish(id string, output string) {
 	if id == "" {
 		return
 	}
-	deploymentProgressStore.Lock()
-	state := deploymentProgressStore.items[id]
+	s.Lock()
+	defer s.Unlock()
+	s.ensure()
+	state := s.items[id]
 	state.Output = output
 	state.Done = true
-	deploymentProgressStore.items[id] = state
-	deploymentProgressStore.Unlock()
+	s.items[id] = state
 }
 
-func deploymentProgressSnapshot(id string) deploymentProgressState {
-	deploymentProgressStore.Lock()
-	defer deploymentProgressStore.Unlock()
-	return deploymentProgressStore.items[id]
+func (s *deploymentProgressStore) snapshot(id string) deploymentProgressState {
+	s.Lock()
+	defer s.Unlock()
+	s.ensure()
+	return s.items[id]
 }
 
-func deploymentProgressClear(id string) {
+func (s *deploymentProgressStore) clear(id string) {
 	if id == "" {
 		return
 	}
-	deploymentProgressStore.Lock()
-	delete(deploymentProgressStore.items, id)
-	deploymentProgressStore.Unlock()
+	s.Lock()
+	defer s.Unlock()
+	s.ensure()
+	delete(s.items, id)
 }
 
-func deploymentProgressAfter(id string, delay time.Duration) tea.Cmd {
+func deploymentProgressAfter(store *deploymentProgressStore, id string, delay time.Duration) tea.Cmd {
 	return func() tea.Msg {
 		time.Sleep(delay)
-		state := deploymentProgressSnapshot(id)
+		state := store.snapshot(id)
 		return deploymentProgressMsg{ID: id, Output: state.Output, Done: state.Done}
 	}
 }

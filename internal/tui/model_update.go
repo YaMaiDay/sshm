@@ -135,9 +135,9 @@ func (m Model) updateDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
 	case "q", "esc", "ctrl+c":
-		if m.activeTransfer.Active && m.activeTransfer.Cancel != nil {
+		if m.transferState.Active.Active && m.transferState.Active.Cancel != nil {
 			m.markActiveTransferInterrupted()
-			m.activeTransfer.Cancel()
+			m.transferState.Active.Cancel()
 		}
 		return m, tea.Quit
 	case "j", "down":
@@ -181,7 +181,7 @@ func (m Model) updateDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.togglePinned(idx)
 		}
 	case "y":
-		m.transferJobsBack = modeDashboard
+		m.transferState.JobsBack = modeDashboard
 		m.mode = modeTransferJobs
 		m.reloadTransfers()
 	case "g":

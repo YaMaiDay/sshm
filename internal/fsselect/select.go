@@ -56,7 +56,7 @@ func RemoteConfiguredRootItems(h host.Host, roots []string) []Item {
 		}
 		count++
 		b.WriteByte(' ')
-		b.WriteString(shellQuote(root))
+		b.WriteString(remotescript.SingleQuote(root))
 	}
 	if count == 0 {
 		return RemoteRootItems(h)
@@ -127,7 +127,7 @@ func RemoteDirs(h host.Host) []string {
 }
 
 func RemoteItems(h host.Host, dir string) []Item {
-	quoted := shellQuote(dir)
+	quoted := remotescript.SingleQuote(dir)
 	script := fmt.Sprintf(`find %s -maxdepth 1 \( -type f -o -type d \) ! -path %s 2>/dev/null | while IFS= read -r p; do if [ -d "$p" ]; then printf "D	%%s\n" "$p"; else printf "F	%%s\n" "$p"; fi; done`, quoted, quoted)
 	out, err := runSSH(h, script)
 	if err != nil && strings.TrimSpace(out) == "" {
@@ -194,8 +194,4 @@ func sortItems(items []Item) {
 		}
 		return strings.ToLower(items[i].Path) < strings.ToLower(items[j].Path)
 	})
-}
-
-func shellQuote(s string) string {
-	return remotescript.SingleQuote(s)
 }

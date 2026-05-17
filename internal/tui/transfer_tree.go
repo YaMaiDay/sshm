@@ -38,7 +38,7 @@ func newTree(roots []fsselect.Item, hostIndex int, dirsOnly bool, local bool) re
 }
 
 func (m *Model) startRemoteTree(title string, mode viewMode, h host.Host, dirsOnly bool) {
-	m.startTree(title, mode, m.remoteRootItems(h), m.pending.HostIndex, dirsOnly, false)
+	m.startTree(title, mode, m.remoteRootItems(h), m.transferState.Pending.HostIndex, dirsOnly, false)
 }
 
 func (m *Model) startRemoteTreeAt(title string, mode viewMode, h host.Host, root string, dirsOnly bool) {
@@ -46,20 +46,20 @@ func (m *Model) startRemoteTreeAt(title string, mode viewMode, h host.Host, root
 		m.startRemoteTree(title, mode, h, dirsOnly)
 		return
 	}
-	m.startTree(title, mode, []fsselect.Item{{Path: root, IsDir: true}}, m.pending.HostIndex, dirsOnly, false)
-	if len(m.choices) > 0 {
+	m.startTree(title, mode, []fsselect.Item{{Path: root, IsDir: true}}, m.transferState.Pending.HostIndex, dirsOnly, false)
+	if len(m.transferState.Choices) > 0 {
 		_, _ = m.expandTreePick()
 	}
 }
 
 func (m *Model) startTree(title string, mode viewMode, roots []fsselect.Item, hostIndex int, dirsOnly bool, local bool) {
 	tree := newTree(roots, hostIndex, dirsOnly, local)
-	m.remoteTree = tree
-	m.pickTitle = title
+	m.transferState.RemoteTree = tree
+	m.transferState.PickTitle = title
 	m.mode = mode
-	m.pickIndex = 0
+	m.transferState.PickIndex = 0
 	m.refreshTreeChoices()
-	if len(m.choices) == 0 {
+	if len(m.transferState.Choices) == 0 {
 		m.status = title + m.t(": no selectable items", "：没有可选择的项目")
 	} else {
 		m.status = title
@@ -69,7 +69,7 @@ func (m *Model) startTree(title string, mode viewMode, roots []fsselect.Item, ho
 func (m Model) treePickerActive() bool {
 	switch m.mode {
 	case modePickLocalItem, modePickRemoteDir, modePickRemoteItem, modePickSaveDir:
-		return m.remoteTree.Nodes != nil
+		return m.transferState.RemoteTree.Nodes != nil
 	default:
 		return false
 	}
@@ -77,20 +77,20 @@ func (m Model) treePickerActive() bool {
 
 func (m *Model) refreshTreeChoices() {
 	var choices []choice
-	for _, root := range m.remoteTree.Roots {
+	for _, root := range m.transferState.RemoteTree.Roots {
 		m.appendTreeChoice(&choices, root)
 	}
-	m.choices = choices
-	if m.pickIndex >= len(m.choices) {
-		m.pickIndex = len(m.choices) - 1
+	m.transferState.Choices = choices
+	if m.transferState.PickIndex >= len(m.transferState.Choices) {
+		m.transferState.PickIndex = len(m.transferState.Choices) - 1
 	}
-	if m.pickIndex < 0 {
-		m.pickIndex = 0
+	if m.transferState.PickIndex < 0 {
+		m.transferState.PickIndex = 0
 	}
 }
 
 func (m *Model) appendTreeChoice(choices *[]choice, path string) {
-	node := m.remoteTree.Nodes[path]
+	node := m.transferState.RemoteTree.Nodes[path]
 	if node == nil {
 		return
 	}
@@ -127,11 +127,11 @@ func appendTreeChoiceTo(choices *[]choice, tree remoteTree, path string) {
 }
 
 func (m Model) expandTreePick() (tea.Model, tea.Cmd) {
-	if len(m.choices) == 0 || m.pickIndex < 0 || m.pickIndex >= len(m.choices) {
+	if len(m.transferState.Choices) == 0 || m.transferState.PickIndex < 0 || m.transferState.PickIndex >= len(m.transferState.Choices) {
 		return m, nil
 	}
-	pick := m.choices[m.pickIndex]
-	node := m.remoteTree.Nodes[pick.Value]
+	pick := m.transferState.Choices[m.transferState.PickIndex]
+	node := m.transferState.RemoteTree.Nodes[pick.Value]
 	if node == nil || !node.Item.IsDir {
 		return m, nil
 	}
@@ -139,7 +139,7 @@ func (m Model) expandTreePick() (tea.Model, tea.Cmd) {
 		m.loadTreeNode(node)
 	}
 	if len(node.Children) == 0 {
-		if m.remoteTree.DirsOnly {
+		if m.transferState.RemoteTree.DirsOnly {
 			m.status = m.t("No subdirectories: ", "没有子目录：") + node.Item.Path + m.t(". Press Space to select current directory.", "。按空格可选择当前目录。")
 		} else {
 			m.status = m.t("Directory is empty or permission denied: ", "目录为空或没有权限：") + node.Item.Path
@@ -152,11 +152,11 @@ func (m Model) expandTreePick() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) toggleTreePick() (tea.Model, tea.Cmd) {
-	if len(m.choices) == 0 || m.pickIndex < 0 || m.pickIndex >= len(m.choices) {
+	if len(m.transferState.Choices) == 0 || m.transferState.PickIndex < 0 || m.transferState.PickIndex >= len(m.transferState.Choices) {
 		return m, nil
 	}
-	pick := m.choices[m.pickIndex]
-	node := m.remoteTree.Nodes[pick.Value]
+	pick := m.transferState.Choices[m.transferState.PickIndex]
+	node := m.transferState.RemoteTree.Nodes[pick.Value]
 	if node == nil || !node.Item.IsDir {
 		return m.confirmPick()
 	}
@@ -169,11 +169,11 @@ func (m Model) toggleTreePick() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) collapseTreePick() Model {
-	if len(m.choices) == 0 || m.pickIndex < 0 || m.pickIndex >= len(m.choices) {
+	if len(m.transferState.Choices) == 0 || m.transferState.PickIndex < 0 || m.transferState.PickIndex >= len(m.transferState.Choices) {
 		return m
 	}
-	pick := m.choices[m.pickIndex]
-	node := m.remoteTree.Nodes[pick.Value]
+	pick := m.transferState.Choices[m.transferState.PickIndex]
+	node := m.transferState.RemoteTree.Nodes[pick.Value]
 	if node == nil || !node.Item.IsDir {
 		return m
 	}
@@ -184,10 +184,10 @@ func (m Model) collapseTreePick() Model {
 	}
 	parent := filepath.Dir(node.Item.Path)
 	for parent != "." && parent != "/" {
-		if _, ok := m.remoteTree.Nodes[parent]; ok {
-			for i, choice := range m.choices {
+		if _, ok := m.transferState.RemoteTree.Nodes[parent]; ok {
+			for i, choice := range m.transferState.Choices {
 				if choice.Value == parent {
-					m.pickIndex = i
+					m.transferState.PickIndex = i
 					return m
 				}
 			}
@@ -198,7 +198,7 @@ func (m Model) collapseTreePick() Model {
 }
 
 func (m *Model) loadTreeNode(node *remoteTreeNode) {
-	loadTreeNodeFor(&m.remoteTree, node, m.states)
+	loadTreeNodeFor(&m.transferState.RemoteTree, node, m.states)
 }
 
 func loadTreeNodeFor(tree *remoteTree, node *remoteTreeNode, states []hostState) {

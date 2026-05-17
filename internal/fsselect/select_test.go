@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 )
 
 func TestExpandLocalRoots(t *testing.T) {
@@ -49,10 +51,10 @@ func TestParseRemoteItemsDedupesAndSorts(t *testing.T) {
 }
 
 func TestShellQuote(t *testing.T) {
-	got := shellQuote("/tmp/a'b")
+	got := remotescript.SingleQuote("/tmp/a'b")
 	want := `'/tmp/a'\''b'`
 	if got != want {
-		t.Fatalf("shellQuote() = %q, want %q", got, want)
+		t.Fatalf("SingleQuote() = %q, want %q", got, want)
 	}
 }
 

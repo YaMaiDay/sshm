@@ -3017,29 +3017,31 @@ func TestDeploymentRollbackConfirmRunsOnlyRollbackFlow(t *testing.T) {
 
 func TestTransferStatusFilterKeepsSelectionVisible(t *testing.T) {
 	m := Model{
-		mode:          modeTransferJobs,
-		width:         120,
-		height:        30,
-		transferIndex: 1,
-		transferHistory: config.TransferHistoryFile{Entries: []config.TransferEntry{
-			{ID: "queued-1", Status: config.TransferStatusQueued, Source: "/tmp/a", TargetDir: "/srv"},
-			{ID: "done-1", Status: config.TransferStatusDone, Source: "/tmp/b", TargetDir: "/srv"},
-			{ID: "failed-1", Status: config.TransferStatusFailed, Source: "/tmp/c", TargetDir: "/srv"},
-		}},
+		mode:   modeTransferJobs,
+		width:  120,
+		height: 30,
+		transferState: transferState{
+			Index: 1,
+			History: config.TransferHistoryFile{Entries: []config.TransferEntry{
+				{ID: "queued-1", Status: config.TransferStatusQueued, Source: "/tmp/a", TargetDir: "/srv"},
+				{ID: "done-1", Status: config.TransferStatusDone, Source: "/tmp/b", TargetDir: "/srv"},
+				{ID: "failed-1", Status: config.TransferStatusFailed, Source: "/tmp/c", TargetDir: "/srv"},
+			}},
+		},
 	}
 	m.cycleTransferStatusFilter()
 	if got := m.transferStatusFilterValue(); got != config.TransferStatusQueued {
 		t.Fatalf("filter = %q, want queued", got)
 	}
-	if m.transferIndex != 0 {
-		t.Fatalf("transferIndex = %d, want first queued entry", m.transferIndex)
+	if m.transferState.Index != 0 {
+		t.Fatalf("transferIndex = %d, want first queued entry", m.transferState.Index)
 	}
 	m.cycleTransferStatusFilter()
 	if got := m.transferStatusFilterValue(); got != config.TransferStatusPending {
 		t.Fatalf("filter = %q, want pending", got)
 	}
-	if m.transferIndex != 0 {
-		t.Fatalf("empty filtered transferIndex = %d, want stable fallback 0", m.transferIndex)
+	if m.transferState.Index != 0 {
+		t.Fatalf("empty filtered transferIndex = %d, want stable fallback 0", m.transferState.Index)
 	}
 	view := ansi.Strip(m.renderTransferJobs())
 	if !strings.Contains(view, "No transfer jobs for this status") && !strings.Contains(view, "当前状态没有传输任务") {

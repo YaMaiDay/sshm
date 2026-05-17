@@ -11,6 +11,7 @@ import (
 	"github.com/YaMaiDay/sshm/internal/actions"
 	"github.com/YaMaiDay/sshm/internal/config"
 	"github.com/YaMaiDay/sshm/internal/host"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 )
 
 func runLocalFetchDeployment(ctx context.Context, h host.Host, app config.DeploymentApp, onOutput func(string)) CommandResult {
@@ -57,17 +58,17 @@ func runLocalFetchDeployment(ctx context.Context, h host.Host, app config.Deploy
 func buildLocalFetchPreScript(app config.DeploymentApp) string {
 	var b strings.Builder
 	b.WriteString("set -eu\n")
-	b.WriteString("export SSHM_DEPLOY_APP=" + shellSingleQuote(app.Name) + "\n")
-	b.WriteString("export SSHM_DEPLOY_PATH=" + shellSingleQuote(app.Path) + "\n")
-	b.WriteString("export SSHM_DEPLOY_SOURCE=" + shellSingleQuote(app.Source) + "\n")
-	b.WriteString("mkdir -p " + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("export SSHM_DEPLOY_APP=" + remotescript.SingleQuote(app.Name) + "\n")
+	b.WriteString("export SSHM_DEPLOY_PATH=" + remotescript.SingleQuote(app.Path) + "\n")
+	b.WriteString("export SSHM_DEPLOY_SOURCE=" + remotescript.SingleQuote(app.Source) + "\n")
+	b.WriteString("mkdir -p " + remotescript.SingleQuote(app.Path) + "\n")
 	appendDeploymentCommands(&b, app.Path, "更新前", app.BeforeCommands)
 	if app.Source == config.DeploySourceGit {
-		b.WriteString("cd " + shellSingleQuote(app.Path) + "\n")
+		b.WriteString("cd " + remotescript.SingleQuote(app.Path) + "\n")
 		b.WriteString("SSHM_PREVIOUS_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)\n")
 		b.WriteString("echo SSHM_PREVIOUS_VERSION=$SSHM_PREVIOUS_VERSION\n")
 	} else {
-		b.WriteString("cd " + shellSingleQuote(app.Path) + "\n")
+		b.WriteString("cd " + remotescript.SingleQuote(app.Path) + "\n")
 		b.WriteString("SSHM_PREVIOUS_VERSION=$(readlink current 2>/dev/null || true)\n")
 		b.WriteString("echo SSHM_PREVIOUS_VERSION=$SSHM_PREVIOUS_VERSION\n")
 	}
@@ -77,9 +78,9 @@ func buildLocalFetchPreScript(app config.DeploymentApp) string {
 func buildLocalFetchPostScript(app config.DeploymentApp) string {
 	var b strings.Builder
 	b.WriteString("set -eu\n")
-	b.WriteString("export SSHM_DEPLOY_APP=" + shellSingleQuote(app.Name) + "\n")
-	b.WriteString("export SSHM_DEPLOY_PATH=" + shellSingleQuote(app.Path) + "\n")
-	b.WriteString("export SSHM_DEPLOY_SOURCE=" + shellSingleQuote(app.Source) + "\n")
+	b.WriteString("export SSHM_DEPLOY_APP=" + remotescript.SingleQuote(app.Name) + "\n")
+	b.WriteString("export SSHM_DEPLOY_PATH=" + remotescript.SingleQuote(app.Path) + "\n")
+	b.WriteString("export SSHM_DEPLOY_SOURCE=" + remotescript.SingleQuote(app.Source) + "\n")
 	appendDeploymentCommands(&b, app.Path, "更新", app.UpdateCommands)
 	appendDeploymentCommands(&b, app.Path, "更新后", app.AfterCommands)
 	appendDeploymentCommands(&b, app.Path, "健康检查", app.HealthCommands)
@@ -107,11 +108,11 @@ func localFetchDeploymentResource(ctx context.Context, app config.DeploymentApp,
 func localFetchCustomResource(ctx context.Context, app config.DeploymentApp, payload string, onOutput func(string)) CommandResult {
 	var b strings.Builder
 	b.WriteString("set -eu\n")
-	b.WriteString("export SSHM_DEPLOY_APP=" + shellSingleQuote(app.Name) + "\n")
-	b.WriteString("export SSHM_DEPLOY_PATH=" + shellSingleQuote(payload) + "\n")
-	b.WriteString("export SSHM_DEPLOY_SOURCE=" + shellSingleQuote(app.Source) + "\n")
+	b.WriteString("export SSHM_DEPLOY_APP=" + remotescript.SingleQuote(app.Name) + "\n")
+	b.WriteString("export SSHM_DEPLOY_PATH=" + remotescript.SingleQuote(payload) + "\n")
+	b.WriteString("export SSHM_DEPLOY_SOURCE=" + remotescript.SingleQuote(app.Source) + "\n")
 	appendDeploymentStageTitle(&b, "获取资源")
-	b.WriteString("cd " + shellSingleQuote(payload) + "\n")
+	b.WriteString("cd " + remotescript.SingleQuote(payload) + "\n")
 	for _, command := range app.ResourceCommands {
 		if strings.TrimSpace(command) != "" {
 			b.WriteString(command + "\n")
@@ -162,31 +163,31 @@ func buildLocalReleaseScript(app config.DeploymentApp, payload string) string {
 	url, version, asset := deploymentReleaseValues(app)
 	b.WriteString("set -eu\n")
 	appendDeploymentStageTitle(&b, "获取资源")
-	b.WriteString("cd " + shellSingleQuote(payload) + "\n")
-	b.WriteString("mkdir -p packages " + shellSingleQuote("releases/"+version) + "\n")
+	b.WriteString("cd " + remotescript.SingleQuote(payload) + "\n")
+	b.WriteString("mkdir -p packages " + remotescript.SingleQuote("releases/"+version) + "\n")
 	if deploymentAssetIsPattern(asset) && strings.TrimSpace(app.ReleaseURL) == "" {
 		apiURL := deploymentReleaseAPIURL(app.Repo, version)
-		b.WriteString("SSHM_RELEASE_JSON=$(curl -fsL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} " + shellSingleQuote(apiURL) + ")\n")
+		b.WriteString("SSHM_RELEASE_JSON=$(curl -fsL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} " + remotescript.SingleQuote(apiURL) + ")\n")
 		b.WriteString("SSHM_RELEASE_URL=$(printf '%s\\n' \"$SSHM_RELEASE_JSON\" | awk -F '\"' '/\"browser_download_url\":/ {print $4}' | while IFS= read -r url; do name=${url##*/}; case \"$name\" in " + shellCasePattern(asset) + ") printf '%s\\n' \"$url\"; break ;; esac; done)\n")
-		b.WriteString("if [ -z \"$SSHM_RELEASE_URL\" ]; then echo " + shellSingleQuote("未找到匹配的 Release 资源："+asset) + "; exit 1; fi\n")
+		b.WriteString("if [ -z \"$SSHM_RELEASE_URL\" ]; then echo " + remotescript.SingleQuote("未找到匹配的 Release 资源："+asset) + "; exit 1; fi\n")
 		b.WriteString("SSHM_RELEASE_ASSET=${SSHM_RELEASE_URL##*/}\n")
 		b.WriteString("curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} \"$SSHM_RELEASE_URL\" -o \"packages/$SSHM_RELEASE_ASSET\"\n")
 		b.WriteString("SSHM_RELEASE_PACKAGE=\"packages/$SSHM_RELEASE_ASSET\"\n")
-		appendDynamicReleaseUnpackShell(&b, "$SSHM_RELEASE_ASSET", "$SSHM_RELEASE_PACKAGE", shellSingleQuote("releases/"+version), shellSingleQuote("releases/"+version+"/"))
+		appendDynamicReleaseUnpackShell(&b, "$SSHM_RELEASE_ASSET", "$SSHM_RELEASE_PACKAGE", remotescript.SingleQuote("releases/"+version), remotescript.SingleQuote("releases/"+version+"/"))
 	} else {
-		b.WriteString("curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} " + shellSingleQuote(url) + " -o " + shellSingleQuote("packages/"+asset) + "\n")
+		b.WriteString("curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} " + remotescript.SingleQuote(url) + " -o " + remotescript.SingleQuote("packages/"+asset) + "\n")
 		appendReleaseUnpackShell(&b, asset, version)
 	}
-	b.WriteString("ln -sfn " + shellSingleQuote("releases/"+version) + " current\n")
-	b.WriteString("echo SSHM_CURRENT_VERSION=" + shellSingleQuote(version) + "\n")
+	b.WriteString("ln -sfn " + remotescript.SingleQuote("releases/"+version) + " current\n")
+	b.WriteString("echo SSHM_CURRENT_VERSION=" + remotescript.SingleQuote(version) + "\n")
 	return b.String()
 }
 
 func appendReleaseUnpackShell(b *strings.Builder, asset string, version string) {
-	b.WriteString("case " + shellSingleQuote(asset) + " in\n")
-	b.WriteString("  *.tar.gz|*.tgz) tar -xzf " + shellSingleQuote("packages/"+asset) + " -C " + shellSingleQuote("releases/"+version) + " ;;\n")
-	b.WriteString("  *.zip) unzip -o " + shellSingleQuote("packages/"+asset) + " -d " + shellSingleQuote("releases/"+version) + " ;;\n")
-	b.WriteString("  *) cp " + shellSingleQuote("packages/"+asset) + " " + shellSingleQuote("releases/"+version+"/") + " ;;\n")
+	b.WriteString("case " + remotescript.SingleQuote(asset) + " in\n")
+	b.WriteString("  *.tar.gz|*.tgz) tar -xzf " + remotescript.SingleQuote("packages/"+asset) + " -C " + remotescript.SingleQuote("releases/"+version) + " ;;\n")
+	b.WriteString("  *.zip) unzip -o " + remotescript.SingleQuote("packages/"+asset) + " -d " + remotescript.SingleQuote("releases/"+version) + " ;;\n")
+	b.WriteString("  *) cp " + remotescript.SingleQuote("packages/"+asset) + " " + remotescript.SingleQuote("releases/"+version+"/") + " ;;\n")
 	b.WriteString("esac\n")
 }
 
@@ -221,7 +222,7 @@ func deploymentLocalEnv(app config.DeploymentApp) []string {
 			env = append(env, "GIT_SSH_COMMAND=ssh -i "+name+" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new")
 		}
 	case config.DeployCredentialToken:
-		tokenVar := shellEnvName(name)
+		tokenVar := remotescript.EnvName(name)
 		if tokenVar == "" {
 			tokenVar = "GITHUB_TOKEN"
 		}

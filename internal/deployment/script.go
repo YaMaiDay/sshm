@@ -15,11 +15,11 @@ func buildDeploymentScript(app config.DeploymentApp, rollback bool) string {
 func buildRemoteDeploymentScript(app config.DeploymentApp, rollback bool, includeResource bool) string {
 	var b strings.Builder
 	b.WriteString("set -eu\n")
-	b.WriteString("export SSHM_DEPLOY_APP=" + shellSingleQuote(app.Name) + "\n")
-	b.WriteString("export SSHM_DEPLOY_PATH=" + shellSingleQuote(app.Path) + "\n")
-	b.WriteString("export SSHM_DEPLOY_SOURCE=" + shellSingleQuote(app.Source) + "\n")
+	b.WriteString("export SSHM_DEPLOY_APP=" + remotescript.SingleQuote(app.Name) + "\n")
+	b.WriteString("export SSHM_DEPLOY_PATH=" + remotescript.SingleQuote(app.Path) + "\n")
+	b.WriteString("export SSHM_DEPLOY_SOURCE=" + remotescript.SingleQuote(app.Source) + "\n")
 	appendDeploymentCredentialScript(&b, app)
-	b.WriteString("mkdir -p " + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("mkdir -p " + remotescript.SingleQuote(app.Path) + "\n")
 	if rollback {
 		appendDeploymentCommands(&b, app.Path, "回滚", app.RollbackCommands)
 		return b.String()
@@ -49,15 +49,15 @@ func appendGitDeploymentScript(b *strings.Builder, app config.DeploymentApp) {
 	}
 	parent := filepath.Dir(strings.TrimRight(app.Path, "/"))
 	b.WriteString("echo '== 获取 Git 代码 =='\n")
-	b.WriteString("if [ ! -d " + shellSingleQuote(app.Path+"/.git") + " ]; then\n")
-	b.WriteString("  mkdir -p " + shellSingleQuote(parent) + "\n")
-	b.WriteString("  git clone --branch " + shellSingleQuote(branch) + " " + shellSingleQuote(app.Repo) + " " + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("if [ ! -d " + remotescript.SingleQuote(app.Path+"/.git") + " ]; then\n")
+	b.WriteString("  mkdir -p " + remotescript.SingleQuote(parent) + "\n")
+	b.WriteString("  git clone --branch " + remotescript.SingleQuote(branch) + " " + remotescript.SingleQuote(app.Repo) + " " + remotescript.SingleQuote(app.Path) + "\n")
 	b.WriteString("fi\n")
-	b.WriteString("cd " + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("cd " + remotescript.SingleQuote(app.Path) + "\n")
 	b.WriteString("SSHM_PREVIOUS_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)\n")
 	b.WriteString("echo SSHM_PREVIOUS_VERSION=$SSHM_PREVIOUS_VERSION\n")
 	b.WriteString("git fetch --all --prune\n")
-	b.WriteString("git checkout " + shellSingleQuote(branch) + "\n")
+	b.WriteString("git checkout " + remotescript.SingleQuote(branch) + "\n")
 	b.WriteString("git pull --ff-only\n")
 	b.WriteString("SSHM_CURRENT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)\n")
 	b.WriteString("echo SSHM_CURRENT_VERSION=$SSHM_CURRENT_VERSION\n")
@@ -67,38 +67,38 @@ func appendReleaseDeploymentScript(b *strings.Builder, app config.DeploymentApp)
 	url, version, asset := deploymentReleaseValues(app)
 	assetIsPattern := deploymentAssetIsPattern(asset)
 	b.WriteString("echo '== 获取 Release 资源 =='\n")
-	b.WriteString("cd " + shellSingleQuote(app.Path) + "\n")
+	b.WriteString("cd " + remotescript.SingleQuote(app.Path) + "\n")
 	b.WriteString("SSHM_PREVIOUS_VERSION=$(readlink current 2>/dev/null || true)\n")
 	b.WriteString("echo SSHM_PREVIOUS_VERSION=$SSHM_PREVIOUS_VERSION\n")
-	b.WriteString("mkdir -p packages " + shellSingleQuote("releases/"+version) + "\n")
+	b.WriteString("mkdir -p packages " + remotescript.SingleQuote("releases/"+version) + "\n")
 	if assetIsPattern && strings.TrimSpace(app.ReleaseURL) == "" {
 		apiURL := deploymentReleaseAPIURL(app.Repo, version)
-		b.WriteString("SSHM_RELEASE_API=" + shellSingleQuote(apiURL) + "\n")
+		b.WriteString("SSHM_RELEASE_API=" + remotescript.SingleQuote(apiURL) + "\n")
 		b.WriteString("if [ -n \"${SSHM_GITHUB_AUTH_HEADER:-}\" ]; then\n")
 		b.WriteString("  SSHM_RELEASE_JSON=$(curl -fsL -H \"$SSHM_GITHUB_AUTH_HEADER\" \"$SSHM_RELEASE_API\")\n")
 		b.WriteString("else\n")
 		b.WriteString("  SSHM_RELEASE_JSON=$(curl -fsL \"$SSHM_RELEASE_API\")\n")
 		b.WriteString("fi\n")
 		b.WriteString("SSHM_RELEASE_URL=$(printf '%s\\n' \"$SSHM_RELEASE_JSON\" | awk -F '\"' '/\"browser_download_url\":/ {print $4}' | while IFS= read -r url; do name=${url##*/}; case \"$name\" in " + shellCasePattern(asset) + ") printf '%s\\n' \"$url\"; break ;; esac; done)\n")
-		b.WriteString("if [ -z \"$SSHM_RELEASE_URL\" ]; then echo " + shellSingleQuote("未找到匹配的 Release 资源："+asset) + "; exit 1; fi\n")
+		b.WriteString("if [ -z \"$SSHM_RELEASE_URL\" ]; then echo " + remotescript.SingleQuote("未找到匹配的 Release 资源："+asset) + "; exit 1; fi\n")
 		b.WriteString("SSHM_RELEASE_ASSET=${SSHM_RELEASE_URL##*/}\n")
 		b.WriteString("curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} \"$SSHM_RELEASE_URL\" -o \"packages/$SSHM_RELEASE_ASSET\"\n")
 		b.WriteString("SSHM_RELEASE_PACKAGE=\"packages/$SSHM_RELEASE_ASSET\"\n")
-		b.WriteString("SSHM_RELEASE_TARGET=" + shellSingleQuote("releases/"+version) + "\n")
+		b.WriteString("SSHM_RELEASE_TARGET=" + remotescript.SingleQuote("releases/"+version) + "\n")
 		appendDynamicReleaseUnpackShell(b, "$SSHM_RELEASE_ASSET", "$SSHM_RELEASE_PACKAGE", "\"$SSHM_RELEASE_TARGET\"", "\"$SSHM_RELEASE_TARGET/\"")
-		b.WriteString("ln -sfn " + shellSingleQuote("releases/"+version) + " current\n")
-		b.WriteString("SSHM_CURRENT_VERSION=" + shellSingleQuote(version) + "\n")
+		b.WriteString("ln -sfn " + remotescript.SingleQuote("releases/"+version) + " current\n")
+		b.WriteString("SSHM_CURRENT_VERSION=" + remotescript.SingleQuote(version) + "\n")
 		b.WriteString("echo SSHM_CURRENT_VERSION=$SSHM_CURRENT_VERSION\n")
 		return
 	}
 	b.WriteString("if [ -n \"${SSHM_GITHUB_AUTH_HEADER:-}\" ]; then\n")
-	b.WriteString("  curl -fL -H \"$SSHM_GITHUB_AUTH_HEADER\" " + shellSingleQuote(url) + " -o " + shellSingleQuote("packages/"+asset) + "\n")
+	b.WriteString("  curl -fL -H \"$SSHM_GITHUB_AUTH_HEADER\" " + remotescript.SingleQuote(url) + " -o " + remotescript.SingleQuote("packages/"+asset) + "\n")
 	b.WriteString("else\n")
-	b.WriteString("  curl -fL " + shellSingleQuote(url) + " -o " + shellSingleQuote("packages/"+asset) + "\n")
+	b.WriteString("  curl -fL " + remotescript.SingleQuote(url) + " -o " + remotescript.SingleQuote("packages/"+asset) + "\n")
 	b.WriteString("fi\n")
 	appendReleaseUnpackShell(b, asset, version)
-	b.WriteString("ln -sfn " + shellSingleQuote("releases/"+version) + " current\n")
-	b.WriteString("SSHM_CURRENT_VERSION=" + shellSingleQuote(version) + "\n")
+	b.WriteString("ln -sfn " + remotescript.SingleQuote("releases/"+version) + " current\n")
+	b.WriteString("SSHM_CURRENT_VERSION=" + remotescript.SingleQuote(version) + "\n")
 	b.WriteString("echo SSHM_CURRENT_VERSION=$SSHM_CURRENT_VERSION\n")
 }
 
@@ -145,7 +145,7 @@ func shellCasePattern(value string) string {
 		if literal.Len() == 0 {
 			return
 		}
-		b.WriteString(shellSingleQuote(literal.String()))
+		b.WriteString(remotescript.SingleQuote(literal.String()))
 		literal.Reset()
 	}
 	for _, r := range value {
@@ -173,24 +173,24 @@ func deploymentResourceDefaultCommands(app config.DeploymentApp) []string {
 		url, version, asset := deploymentReleaseValues(app)
 		commands := []string{}
 		if !localFetch {
-			commands = append(commands, "cd "+shellSingleQuote(app.Path))
+			commands = append(commands, "cd "+remotescript.SingleQuote(app.Path))
 		}
-		commands = append(commands, "mkdir -p packages "+shellSingleQuote("releases/"+version))
+		commands = append(commands, "mkdir -p packages "+remotescript.SingleQuote("releases/"+version))
 		if deploymentAssetIsPattern(asset) && strings.TrimSpace(app.ReleaseURL) == "" {
 			commands = append(commands,
-				"SSHM_RELEASE_JSON=$(curl -fsL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} "+shellSingleQuote(deploymentReleaseAPIURL(app.Repo, version))+")",
+				"SSHM_RELEASE_JSON=$(curl -fsL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} "+remotescript.SingleQuote(deploymentReleaseAPIURL(app.Repo, version))+")",
 				"SSHM_RELEASE_URL=$(printf '%s\\n' \"$SSHM_RELEASE_JSON\" | awk -F '\"' '/\"browser_download_url\":/ {print $4}' | while IFS= read -r url; do name=${url##*/}; case \"$name\" in "+shellCasePattern(asset)+") printf '%s\\n' \"$url\"; break ;; esac; done)",
-				"if [ -z \"$SSHM_RELEASE_URL\" ]; then echo "+shellSingleQuote("未找到匹配的 Release 资源："+asset)+"; exit 1; fi",
+				"if [ -z \"$SSHM_RELEASE_URL\" ]; then echo "+remotescript.SingleQuote("未找到匹配的 Release 资源："+asset)+"; exit 1; fi",
 				"SSHM_RELEASE_ASSET=${SSHM_RELEASE_URL##*/}",
 				"curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} \"$SSHM_RELEASE_URL\" -o \"packages/$SSHM_RELEASE_ASSET\"",
 				"SSHM_RELEASE_PACKAGE=\"packages/$SSHM_RELEASE_ASSET\"",
 			)
 			commands = appendReleaseDynamicUnpackPreview(commands, version)
-			return append(commands, "ln -sfn "+shellSingleQuote("releases/"+version)+" current")
+			return append(commands, "ln -sfn "+remotescript.SingleQuote("releases/"+version)+" current")
 		}
-		commands = append(commands, "curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} "+shellSingleQuote(url)+" -o "+shellSingleQuote("packages/"+asset))
+		commands = append(commands, "curl -fL ${SSHM_GITHUB_AUTH_HEADER:+-H \"$SSHM_GITHUB_AUTH_HEADER\"} "+remotescript.SingleQuote(url)+" -o "+remotescript.SingleQuote("packages/"+asset))
 		commands = appendReleaseUnpackPreview(commands, asset, version)
-		commands = append(commands, "ln -sfn "+shellSingleQuote("releases/"+version)+" current")
+		commands = append(commands, "ln -sfn "+remotescript.SingleQuote("releases/"+version)+" current")
 		return commands
 	}
 	branch := strings.TrimSpace(app.Branch)
@@ -199,18 +199,18 @@ func deploymentResourceDefaultCommands(app config.DeploymentApp) []string {
 	}
 	if localFetch {
 		return []string{
-			"git clone --branch " + shellSingleQuote(branch) + " " + shellSingleQuote(app.Repo) + " .",
+			"git clone --branch " + remotescript.SingleQuote(branch) + " " + remotescript.SingleQuote(app.Repo) + " .",
 			"SSHM_CURRENT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)",
 			"echo SSHM_CURRENT_VERSION=$SSHM_CURRENT_VERSION",
 		}
 	}
 	parent := filepath.Dir(strings.TrimRight(app.Path, "/"))
 	return []string{
-		"if [ ! -d " + shellSingleQuote(app.Path+"/.git") + " ]; then mkdir -p " + shellSingleQuote(parent) + " && git clone --branch " + shellSingleQuote(branch) + " " + shellSingleQuote(app.Repo) + " " + shellSingleQuote(app.Path) + "; fi",
-		"cd " + shellSingleQuote(app.Path),
+		"if [ ! -d " + remotescript.SingleQuote(app.Path+"/.git") + " ]; then mkdir -p " + remotescript.SingleQuote(parent) + " && git clone --branch " + remotescript.SingleQuote(branch) + " " + remotescript.SingleQuote(app.Repo) + " " + remotescript.SingleQuote(app.Path) + "; fi",
+		"cd " + remotescript.SingleQuote(app.Path),
 		"SSHM_PREVIOUS_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)",
 		"git fetch --all --prune",
-		"git checkout " + shellSingleQuote(branch),
+		"git checkout " + remotescript.SingleQuote(branch),
 		"git pull --ff-only",
 		"SSHM_CURRENT_VERSION=$(git rev-parse --short HEAD 2>/dev/null || true)",
 	}
@@ -219,9 +219,9 @@ func deploymentResourceDefaultCommands(app config.DeploymentApp) []string {
 func appendReleaseDynamicUnpackPreview(commands []string, version string) []string {
 	return append(commands,
 		"case \"$SSHM_RELEASE_ASSET\" in",
-		"  *.tar.gz|*.tgz) tar -xzf \"$SSHM_RELEASE_PACKAGE\" -C "+shellSingleQuote("releases/"+version)+" ;;",
-		"  *.zip) unzip -o \"$SSHM_RELEASE_PACKAGE\" -d "+shellSingleQuote("releases/"+version)+" ;;",
-		"  *) cp \"$SSHM_RELEASE_PACKAGE\" "+shellSingleQuote("releases/"+version+"/")+" ;;",
+		"  *.tar.gz|*.tgz) tar -xzf \"$SSHM_RELEASE_PACKAGE\" -C "+remotescript.SingleQuote("releases/"+version)+" ;;",
+		"  *.zip) unzip -o \"$SSHM_RELEASE_PACKAGE\" -d "+remotescript.SingleQuote("releases/"+version)+" ;;",
+		"  *) cp \"$SSHM_RELEASE_PACKAGE\" "+remotescript.SingleQuote("releases/"+version+"/")+" ;;",
 		"esac",
 	)
 }
@@ -229,11 +229,11 @@ func appendReleaseDynamicUnpackPreview(commands []string, version string) []stri
 func appendReleaseUnpackPreview(commands []string, asset string, version string) []string {
 	switch {
 	case strings.HasSuffix(asset, ".tar.gz") || strings.HasSuffix(asset, ".tgz"):
-		return append(commands, "tar -xzf "+shellSingleQuote("packages/"+asset)+" -C "+shellSingleQuote("releases/"+version))
+		return append(commands, "tar -xzf "+remotescript.SingleQuote("packages/"+asset)+" -C "+remotescript.SingleQuote("releases/"+version))
 	case strings.HasSuffix(asset, ".zip"):
-		return append(commands, "unzip -o "+shellSingleQuote("packages/"+asset)+" -d "+shellSingleQuote("releases/"+version))
+		return append(commands, "unzip -o "+remotescript.SingleQuote("packages/"+asset)+" -d "+remotescript.SingleQuote("releases/"+version))
 	default:
-		return append(commands, "cp "+shellSingleQuote("packages/"+asset)+" "+shellSingleQuote("releases/"+version+"/"))
+		return append(commands, "cp "+remotescript.SingleQuote("packages/"+asset)+" "+remotescript.SingleQuote("releases/"+version+"/"))
 	}
 }
 
@@ -244,10 +244,10 @@ func appendDeploymentCredentialScript(b *strings.Builder, app config.DeploymentA
 		if name == "" {
 			return
 		}
-		gitSSHCommand := "ssh -i " + shellSingleQuote(name) + " -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
-		b.WriteString("export GIT_SSH_COMMAND=" + shellSingleQuote(gitSSHCommand) + "\n")
+		gitSSHCommand := "ssh -i " + remotescript.SingleQuote(name) + " -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+		b.WriteString("export GIT_SSH_COMMAND=" + remotescript.SingleQuote(gitSSHCommand) + "\n")
 	case config.DeployCredentialToken:
-		tokenVar := shellEnvName(name)
+		tokenVar := remotescript.EnvName(name)
 		if tokenVar == "" {
 			tokenVar = "GITHUB_TOKEN"
 		}
@@ -263,7 +263,7 @@ func appendDeploymentCommands(b *strings.Builder, path string, title string, com
 		return
 	}
 	appendDeploymentStageTitle(b, title)
-	b.WriteString("cd " + shellSingleQuote(path) + "\n")
+	b.WriteString("cd " + remotescript.SingleQuote(path) + "\n")
 	for _, command := range commands {
 		command = strings.TrimSpace(command)
 		if command != "" {
@@ -273,15 +273,7 @@ func appendDeploymentCommands(b *strings.Builder, path string, title string, com
 }
 
 func appendDeploymentStageTitle(b *strings.Builder, title string) {
-	b.WriteString("echo " + shellSingleQuote("== "+title+" ==") + "\n")
-}
-
-func shellSingleQuote(value string) string {
-	return remotescript.SingleQuote(value)
-}
-
-func shellEnvName(value string) string {
-	return remotescript.EnvName(value)
+	b.WriteString("echo " + remotescript.SingleQuote("== "+title+" ==") + "\n")
 }
 
 func parseDeploymentVersions(output string) (string, string) {

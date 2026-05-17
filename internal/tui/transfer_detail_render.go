@@ -45,10 +45,10 @@ func (m Model) renderTransferDetail() string {
 }
 
 func (m Model) selectedTransferEntry() (config.TransferEntry, bool) {
-	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
+	if len(m.transferState.History.Entries) == 0 || m.transferState.Index < 0 || m.transferState.Index >= len(m.transferState.History.Entries) {
 		return config.TransferEntry{}, false
 	}
-	return m.transferHistory.Entries[m.transferIndex], true
+	return m.transferState.History.Entries[m.transferState.Index], true
 }
 
 func (m Model) transferDetailLines(entry config.TransferEntry) []string {
@@ -77,7 +77,7 @@ func (m Model) transferDetailLines(entry config.TransferEntry) []string {
 		m.detailRow(m.t("Connection", "连接"), transferEntryConnection(entry)),
 		m.detailRow(m.t("Created", "创建时间"), transferTimeShort(entry.Time)),
 		m.detailRow(m.t("Updated", "更新时间"), transferTimeShort(entry.UpdatedAt)),
-		m.detailRow(m.t("Queue", "队列位置"), transferQueueText(m.transferHistory.Entries, entry)),
+		m.detailRow(m.t("Queue", "队列位置"), transferQueueText(m.transferState.History.Entries, entry)),
 		m.detailRow(m.t("Method", "传输方式"), m.t("rsync, resumable, keeps partial files", "rsync，支持断点续传，保留半成品")),
 		"",
 		m.renderDetailSectionLine(m.t("Paths", "路径信息"), sectionTitle(m.t("Paths", "路径信息"))),

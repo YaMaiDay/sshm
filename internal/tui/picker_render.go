@@ -8,13 +8,13 @@ import (
 )
 
 func (m Model) renderPicker() string {
-	header := m.pickTitle
-	if m.status != "" && m.status != m.pickTitle {
+	header := m.transferState.PickTitle
+	if m.status != "" && m.status != m.transferState.PickTitle {
 		header += "  " + m.status
 	}
 	width := detailFrameWidth(m.width)
 	lines := []string{titleStyle.Render(fit(header, width)), ""}
-	if len(m.choices) == 0 {
+	if len(m.transferState.Choices) == 0 {
 		lines = append(lines, mutedStyle.Render("没有可选择的项目"))
 	} else {
 		maxRows := m.height - 5
@@ -22,22 +22,22 @@ func (m Model) renderPicker() string {
 			maxRows = 5
 		}
 		start := 0
-		if m.pickIndex >= maxRows {
-			start = m.pickIndex - maxRows + 1
+		if m.transferState.PickIndex >= maxRows {
+			start = m.transferState.PickIndex - maxRows + 1
 		}
 		end := start + maxRows
-		if end > len(m.choices) {
-			end = len(m.choices)
+		if end > len(m.transferState.Choices) {
+			end = len(m.transferState.Choices)
 		}
 		for i := start; i < end; i++ {
 			prefix := " "
 			style := lipgloss.NewStyle()
-			if i == m.pickIndex {
+			if i == m.transferState.PickIndex {
 				prefix = "▶"
 				style = lipgloss.NewStyle().Foreground(blue).Bold(true)
 			}
-			label := m.choices[i].Label
-			if m.treePickerActive() && m.choices[i].IsDir {
+			label := m.transferState.Choices[i].Label
+			if m.treePickerActive() && m.transferState.Choices[i].IsDir {
 				label = blueStyle.Render(label)
 			}
 			lines = append(lines, style.Render(fit(fmt.Sprintf("%s %s", prefix, label), width)))

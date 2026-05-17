@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/YaMaiDay/sshm/internal/config"
+	"github.com/YaMaiDay/sshm/internal/remotescript"
 	resourceservice "github.com/YaMaiDay/sshm/internal/resource"
 )
 
@@ -64,20 +65,20 @@ func defaultManagedResource(server string, kind string, name string) config.Mana
 	item := config.ManagedResource{Server: server, Kind: kind, Name: name}
 	switch kind {
 	case config.ResourceKindService:
-		target := resourceservice.QuoteShell(name)
+		target := remotescript.Quote(name)
 		item.StartCommand = "systemctl start " + target
 		item.StopCommand = "systemctl stop " + target
 		item.RestartCommand = "systemctl restart " + target
 		item.LogCommand = "journalctl -u " + target + " -n 200 --no-pager"
 	case config.ResourceKindContainer:
-		target := resourceservice.QuoteShell(name)
+		target := remotescript.Quote(name)
 		item.StartCommand = "docker start " + target
 		item.StopCommand = "docker stop " + target
 		item.RestartCommand = "docker restart " + target
 		item.LogCommand = "docker logs --tail 200 " + target
 	case config.ResourceKindPort:
 		_, port := splitManagedPortName(name)
-		item.HealthCommand = "curl -f http://127.0.0.1:" + resourceservice.QuoteShell(port) + "/health"
+		item.HealthCommand = "curl -f http://127.0.0.1:" + remotescript.Quote(port) + "/health"
 	case config.ResourceKindDatabase:
 		item.DBEngine = "MySQL"
 		item.DBHost = "127.0.0.1"

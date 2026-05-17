@@ -7,21 +7,6 @@ import (
 	"github.com/YaMaiDay/sshm/internal/config"
 )
 
-func TestQuoteShell(t *testing.T) {
-	tests := map[string]string{
-		"simple-name_1": "simple-name_1",
-		"/var/log/app":  "/var/log/app",
-		"needs space":   "'needs space'",
-		"it's":          "'it'\\''s'",
-		"":              "''",
-	}
-	for input, want := range tests {
-		if got := QuoteShell(input); got != want {
-			t.Fatalf("QuoteShell(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
-
 func TestActionScriptBuildsServiceAndContainerCommands(t *testing.T) {
 	service := ActionScript(config.ResourceKindService, "restart", "nginx.service")
 	if !strings.Contains(service, "systemctl restart nginx.service") || !strings.Contains(service, "sudo -n systemctl restart nginx.service") {

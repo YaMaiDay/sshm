@@ -26,7 +26,7 @@ func (m Model) updateCollect(msg collectMsg) (tea.Model, tea.Cmd) {
 		delete(m.pendingByRound, msg.Round)
 		if msg.Manual && msg.Round == m.manualRound {
 			m.refreshStatus = fmt.Sprintf("%s%s", m.t("Manual refresh done: ", "手动刷新完成："), time.Now().Format("15:04:05"))
-			if !m.activeTransfer.Active {
+			if !m.transferState.Active.Active {
 				m.status = m.refreshStatus
 			}
 		} else {
@@ -40,8 +40,8 @@ func (m Model) updateCollect(msg collectMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateTransferDone(msg transferDoneMsg) (tea.Model, tea.Cmd) {
-	m.activeTransfer.Active = false
-	m.activeTransfer.Cancel = nil
+	m.transferState.Active.Active = false
+	m.transferState.Active.Cancel = nil
 	m.updateTransferEntryDone(msg)
 	m.reloadTransfers()
 	if status, ok := m.transferEntryStatus(msg.ID); ok {
@@ -56,13 +56,13 @@ func (m Model) updateTransferDone(msg transferDoneMsg) (tea.Model, tea.Cmd) {
 	}
 	if msg.Err != nil {
 		m.status = fmt.Sprintf(m.t("%s failed: %s", "%s失败：%s"), msg.Kind, transferErrorText(msg.Err, msg.Output))
-		if m.transferRunAll {
+		if m.transferState.RunAll {
 			return m.startNextQueuedTransfer()
 		}
 		return m, clearStatusAfter(3 * time.Second)
 	}
 	m.status = fmt.Sprintf(m.t("%s complete: %s -> %s", "%s完成：%s -> %s"), msg.Kind, filepath.Base(msg.Source), msg.Target)
-	if m.transferRunAll {
+	if m.transferState.RunAll {
 		return m.startNextQueuedTransfer()
 	}
 	return m, clearStatusAfter(3 * time.Second)
@@ -70,7 +70,7 @@ func (m Model) updateTransferDone(msg transferDoneMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateRsyncCheck(msg rsyncCheckMsg) (tea.Model, tea.Cmd) {
 	if msg.Missing {
-		m.panel.NeedsInstall = true
+		m.transferState.Panel.NeedsInstall = true
 		m.status = m.t("Remote rsync is not installed. Press i to install and continue, Esc to cancel.", "远程未安装 rsync。按 i 尝试安装并继续，Esc 取消。")
 		return m, nil
 	}
@@ -86,22 +86,22 @@ func (m Model) updateRsyncInstall(msg rsyncInstallMsg) (tea.Model, tea.Cmd) {
 		m.status = m.t("Rsync install failed: ", "安装 rsync 失败：") + msg.ErrText
 		return m, nil
 	}
-	m.panel.NeedsInstall = false
+	m.transferState.Panel.NeedsInstall = false
 	m.status = m.t("Rsync installed, starting transfer.", "rsync 安装成功，开始传输。")
 	return m.createTransferJobsFromPanel()
 }
 
 func (m Model) updateTransferProgress() (tea.Model, tea.Cmd) {
-	if !m.activeTransfer.Active {
+	if !m.transferState.Active.Active {
 		return m, nil
 	}
 	m.reloadTransfers()
-	m.status = m.transferProgressText(m.activeTransfer)
+	m.status = m.transferProgressText(m.transferState.Active)
 	return m, transferProgressAfter(500 * time.Millisecond)
 }
 
 func (m Model) updateClearStatus() (tea.Model, tea.Cmd) {
-	if !m.activeTransfer.Active {
+	if !m.transferState.Active.Active {
 		m.status = ""
 	}
 	return m, nil

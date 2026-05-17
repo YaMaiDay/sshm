@@ -251,13 +251,9 @@ func passwordSSHOptions(h host.Host) []string {
 func shellQuoteArgs(args []string) []string {
 	out := make([]string, 0, len(args))
 	for _, arg := range args {
-		out = append(out, shellQuote(arg))
+		out = append(out, remotescript.Quote(arg))
 	}
 	return out
-}
-
-func shellQuote(value string) string {
-	return remotescript.Quote(value)
 }
 
 func ensureRsyncSource(path string) string {

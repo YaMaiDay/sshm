@@ -106,8 +106,9 @@ func (m Model) startQueuedDeployment(index int) (tea.Model, tea.Cmd) {
 	} else {
 		m.status = m.t("Deploying...", "正在部署...")
 	}
-	deploymentProgressStart(m.activeDeployment.ProgressID)
-	return m, tea.Batch(m.runDeployment(), deploymentProgressAfter(m.activeDeployment.ProgressID, 200*time.Millisecond))
+	progress := m.ensureDeploymentProgressStore()
+	progress.start(m.activeDeployment.ProgressID)
+	return m, tea.Batch(m.runDeployment(), deploymentProgressAfter(progress, m.activeDeployment.ProgressID, 200*time.Millisecond))
 }
 
 func (m Model) startNextQueuedDeployment() (tea.Model, tea.Cmd) {
@@ -172,31 +173,43 @@ func (m Model) updateDeploymentRollbackConfirm(msg tea.KeyMsg) (tea.Model, tea.C
 		m.deploymentOutputScroll = 0
 		m.mode = modeDeploymentOutput
 		m.status = m.t("Running rollback...", "正在执行回滚...")
-		deploymentProgressStart(m.activeDeployment.ProgressID)
-		return m, tea.Batch(m.runDeploymentRollback(), deploymentProgressAfter(m.activeDeployment.ProgressID, 200*time.Millisecond))
+		progress := m.ensureDeploymentProgressStore()
+		progress.start(m.activeDeployment.ProgressID)
+		return m, tea.Batch(m.runDeploymentRollback(), deploymentProgressAfter(progress, m.activeDeployment.ProgressID, 200*time.Millisecond))
 	}
 	return m, nil
+}
+
+func (m *Model) ensureDeploymentProgressStore() *deploymentProgressStore {
+	if m.deploymentProgress == nil {
+		m.deploymentProgress = newDeploymentProgressStore()
+	}
+	return m.deploymentProgress
 }
 
 func (m Model) runDeployment() tea.Cmd {
 	index := m.activeDeployment.HostIndex
 	app := m.activeDeployment.App
 	progressID := m.activeDeployment.ProgressID
+	progress := m.deploymentProgress
+	if progress == nil {
+		progress = newDeploymentProgressStore()
+	}
 	if index < 0 || index >= len(m.states) {
 		return func() tea.Msg {
 			result := commandResult{Err: fmt.Errorf("%s%s", m.t("Deployment server does not exist: ", "部署服务器不存在："), emptyDash(app.Server)), ExitCode: -1}
-			deploymentProgressFinish(progressID, result.Output)
+			progress.finish(progressID, result.Output)
 			return deploymentDoneMsg{ID: progressID, Result: result}
 		}
 	}
 	h := m.states[index].Host
-	onOutput := func(text string) { deploymentProgressAppend(progressID, text) }
+	onOutput := func(text string) { progress.append(progressID, text) }
 	if app.FetchMode == config.DeployFetchLocal {
 		return func() tea.Msg {
 			ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 			defer cancel()
 			result := deploymentservice.Service{}.Run(ctx, h, app, onOutput)
-			deploymentProgressFinish(progressID, result.Command.Output)
+			progress.finish(progressID, result.Command.Output)
 			return deploymentDoneMsg{ID: progressID, Result: result.Command, PreviousVersion: result.PreviousVersion, CurrentVersion: result.CurrentVersion}
 		}
 	}
@@ -204,7 +217,7 @@ func (m Model) runDeployment() tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
 		result := deploymentservice.Service{}.Run(ctx, h, app, onOutput)
-		deploymentProgressFinish(progressID, result.Command.Output)
+		progress.finish(progressID, result.Command.Output)
 		return deploymentDoneMsg{ID: progressID, Result: result.Command, PreviousVersion: result.PreviousVersion, CurrentVersion: result.CurrentVersion}
 	}
 }
@@ -213,10 +226,14 @@ func (m Model) runDeploymentRollback() tea.Cmd {
 	index := m.activeDeployment.HostIndex
 	app := m.activeDeployment.App
 	progressID := m.activeDeployment.ProgressID
+	progress := m.deploymentProgress
+	if progress == nil {
+		progress = newDeploymentProgressStore()
+	}
 	if index < 0 || index >= len(m.states) {
 		return func() tea.Msg {
 			result := commandResult{Err: fmt.Errorf("%s%s", m.t("Deployment server does not exist: ", "部署服务器不存在："), emptyDash(app.Server)), ExitCode: -1}
-			deploymentProgressFinish(progressID, result.Output)
+			progress.finish(progressID, result.Output)
 			return deploymentDoneMsg{ID: progressID, Result: result}
 		}
 	}
@@ -224,8 +241,8 @@ func (m Model) runDeploymentRollback() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), m.appConfig.CommandDuration())
 		defer cancel()
-		result := deploymentservice.Service{}.Rollback(ctx, h, app, func(text string) { deploymentProgressAppend(progressID, text) })
-		deploymentProgressFinish(progressID, result.Output)
+		result := deploymentservice.Service{}.Rollback(ctx, h, app, func(text string) { progress.append(progressID, text) })
+		progress.finish(progressID, result.Output)
 		return deploymentDoneMsg{ID: progressID, Result: result}
 	}
 }
@@ -249,7 +266,7 @@ func (m Model) handleDeploymentDone(msg deploymentDoneMsg) (tea.Model, tea.Cmd) 
 		m.status += m.t(" Record save failed: ", " 记录保存失败：") + err.Error()
 	}
 	if msg.ID != "" {
-		deploymentProgressClear(msg.ID)
+		m.ensureDeploymentProgressStore().clear(msg.ID)
 	}
 	if m.activeDeployment.Action == config.DeployActionDeploy && len(m.activeDeployment.Queue) > 0 {
 		if failed {
@@ -282,7 +299,7 @@ func (m Model) handleDeploymentProgress(msg deploymentProgressMsg) (tea.Model, t
 	if msg.Done {
 		return m, nil
 	}
-	return m, deploymentProgressAfter(msg.ID, 300*time.Millisecond)
+	return m, deploymentProgressAfter(m.ensureDeploymentProgressStore(), msg.ID, 300*time.Millisecond)
 }
 
 func (m *Model) recordDeployment(result commandResult) error {

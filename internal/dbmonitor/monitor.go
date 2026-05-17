@@ -151,13 +151,13 @@ func mysqlMetricScript(host string, port string, user string, password string) s
 if command -v mysql >/dev/null 2>&1; then DB_CLIENT="$(command -v mysql)"; elif command -v mariadb >/dev/null 2>&1; then DB_CLIENT="$(command -v mariadb)"; fi
 if [ -z "$DB_CLIENT" ]; then echo "__SSHM_DB_ERROR__ mysql/mariadb客户端不可用"; exit 0; fi
 MYSQL_PWD=%s "$DB_CLIENT" -N -B -h %s -P %s -u %s -e %s 2>&1 | awk 'BEGIN{FS="\t"} /^__SSHM_DB__/ {print; next} NF>=2 {print "__SSHM_DB__\t"$1"\t"$2}'`,
-		shellQuote(password), shellQuote(host), shellQuote(port), shellQuote(firstNonEmpty(user, "root")), shellQuote(query))
+		remotescript.Quote(password), remotescript.Quote(host), remotescript.Quote(port), remotescript.Quote(firstNonEmpty(user, "root")), remotescript.Quote(query))
 }
 
 func redisMetricScript(host string, port string, password string) string {
 	auth := ""
 	if strings.TrimSpace(password) != "" {
-		auth = " -a " + shellQuote(password)
+		auth = " -a " + remotescript.Quote(password)
 	}
 	return fmt.Sprintf(`if ! command -v redis-cli >/dev/null 2>&1; then echo "__SSHM_DB_ERROR__ redis-cli不可用"; exit 0; fi
 redis-cli -h %s -p %s%s INFO 2>&1 | awk -F: '
@@ -168,7 +168,7 @@ $1=="used_memory_human"{print "__SSHM_DB__\tMEMORY_USED\t"$2}
 $1=="used_memory_peak_human"{print "__SSHM_DB__\tMEMORY_PEAK\t"$2}
 $1=="instantaneous_ops_per_sec"{print "__SSHM_DB__\tOPS_PER_SEC\t"$2}
 $1 ~ /^db[0-9]+$/ {print "__SSHM_DB__\tKEYSPACE\t"$1":"$2}
-'`, shellQuote(host), shellQuote(firstNonEmpty(port, "6379")), auth)
+'`, remotescript.Quote(host), remotescript.Quote(firstNonEmpty(port, "6379")), auth)
 }
 
 func postgresMetricScript(host string, port string, user string, password string, database string, container string) string {
@@ -229,30 +229,30 @@ if command -v psql >/dev/null 2>&1; then
   exit 0
 fi
 echo "__SSHM_DB_ERROR__ psql客户端不可用"`,
-		shellQuote(container),
-		shellQuote("PGPASSWORD="+password), shellQuote(firstNonEmpty(user, "postgres")), shellQuote(database), shellQuote(query),
-		shellQuote("PGPASSWORD="+password), shellQuote(firstNonEmpty(user, "postgres")), shellQuote(database), shellQuote(query),
-		shellQuote(password), shellQuote(host), shellQuote(port), shellQuote(firstNonEmpty(user, "postgres")), shellQuote(database), shellQuote(query))
+		remotescript.Quote(container),
+		remotescript.Quote("PGPASSWORD="+password), remotescript.Quote(firstNonEmpty(user, "postgres")), remotescript.Quote(database), remotescript.Quote(query),
+		remotescript.Quote("PGPASSWORD="+password), remotescript.Quote(firstNonEmpty(user, "postgres")), remotescript.Quote(database), remotescript.Quote(query),
+		remotescript.Quote(password), remotescript.Quote(host), remotescript.Quote(port), remotescript.Quote(firstNonEmpty(user, "postgres")), remotescript.Quote(database), remotescript.Quote(query))
 }
 
 func mongoMetricScript(host string, port string, user string, password string, database string) string {
 	database = firstNonEmpty(database, "admin")
 	auth := ""
 	if strings.TrimSpace(user) != "" {
-		auth = " -u " + shellQuote(user)
+		auth = " -u " + remotescript.Quote(user)
 	}
 	if strings.TrimSpace(password) != "" {
-		auth += " -p " + shellQuote(password)
+		auth += " -p " + remotescript.Quote(password)
 	}
 	if strings.TrimSpace(user) != "" {
-		auth += " --authenticationDatabase " + shellQuote(database)
+		auth += " --authenticationDatabase " + remotescript.Quote(database)
 	}
 	eval := `var s=db.serverStatus(); var st=db.stats(); print('__SSHM_DB__\tVERSION\t'+s.version); print('__SSHM_DB__\tUptime\t'+s.uptime); print('__SSHM_DB__\tThreads_connected\t'+(s.connections?s.connections.current:'')); print('__SSHM_DB__\tMax_connections\t'+(s.connections?s.connections.available+s.connections.current:'')); print('__SSHM_DB__\tSIZE_BYTES\t'+(st.storageSize||0)); print('__SSHM_DB__\tDATA_BYTES\t'+(st.dataSize||0)); print('__SSHM_DB__\tINDEX_BYTES\t'+(st.indexSize||0));`
 	return fmt.Sprintf(`MONGO_CLIENT=""
 if command -v mongosh >/dev/null 2>&1; then MONGO_CLIENT="$(command -v mongosh)"; elif command -v mongo >/dev/null 2>&1; then MONGO_CLIENT="$(command -v mongo)"; fi
 if [ -z "$MONGO_CLIENT" ]; then echo "__SSHM_DB_ERROR__ mongosh/mongo客户端不可用"; exit 0; fi
 "$MONGO_CLIENT" --quiet --host %s --port %s%s %s --eval %s 2>&1`,
-		shellQuote(host), shellQuote(port), auth, shellQuote(database), shellQuote(eval))
+		remotescript.Quote(host), remotescript.Quote(port), auth, remotescript.Quote(database), remotescript.Quote(eval))
 }
 
 func Parse(output string) (Detail, string) {
@@ -422,10 +422,6 @@ func formatSeconds(value string) string {
 		return fmt.Sprintf("%d小时%d分钟", hours, minutes)
 	}
 	return fmt.Sprintf("%d分钟", minutes)
-}
-
-func shellQuote(value string) string {
-	return remotescript.Quote(value)
 }
 
 func firstNonEmpty(values ...string) string {

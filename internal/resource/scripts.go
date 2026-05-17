@@ -95,7 +95,7 @@ exit 0`
 }
 
 func ServiceExtraDetailScript(unit string) string {
-	quoted := QuoteShell(unit)
+	quoted := remotescript.Quote(unit)
 	return fmt.Sprintf(`if ! command -v systemctl >/dev/null 2>&1; then
   echo "__SSHM_SYSTEMCTL_UNAVAILABLE__"
   exit 0
@@ -166,7 +166,7 @@ done`
 }
 
 func ProcessExtraDetailScript(pid string) string {
-	quoted := QuoteShell(pid)
+	quoted := remotescript.Quote(pid)
 	return fmt.Sprintf(`pid=%s
 case "$pid" in
   ''|*[!0-9]*)
@@ -254,8 +254,8 @@ fi`
 }
 
 func ContainerExtraDetailScript(name string) string {
-	quoted := QuoteShell(name)
-	filter := QuoteShell("name=^/" + name + "$")
+	quoted := remotescript.Quote(name)
+	filter := remotescript.Quote("name=^/" + name + "$")
 	return fmt.Sprintf(`if ! command -v docker >/dev/null 2>&1; then
   echo "__SSHM_DOCKER_UNAVAILABLE__"
   exit 0
@@ -299,19 +299,19 @@ func ActionScript(kind string, command string, name string) string {
 	if kind == config.ResourceKindProcess || kind == config.ResourceKindPort || kind == config.ResourceKindDatabase {
 		return ""
 	}
-	target := QuoteShell(name)
+	target := remotescript.Quote(name)
 	if kind == config.ResourceKindService {
-		return SudoFallbackScript("systemctl "+command+" "+target, "sudo -n systemctl "+command+" "+target)
+		return remotescript.SudoFallback("systemctl "+command+" "+target, "sudo -n systemctl "+command+" "+target)
 	}
 	if kind == config.ResourceKindContainer {
-		return SudoFallbackScript("docker "+command+" "+target, "sudo -n docker "+command+" "+target)
+		return remotescript.SudoFallback("docker "+command+" "+target, "sudo -n docker "+command+" "+target)
 	}
 	return ""
 }
 
 func ManagedActionScript(kind string, command string, name string, managed config.ManagedResource) string {
 	if cmd := managedActionCommand(command, managed); cmd != "" {
-		return SudoFallbackScript(cmd, "sudo -n "+cmd)
+		return remotescript.SudoFallback(cmd, "sudo -n "+cmd)
 	}
 	return ActionScript(kind, command, name)
 }
@@ -323,7 +323,7 @@ func ActionPreview(kind string, command string, name string, managed config.Mana
 	if !isDefaultActionCommand(command) {
 		return "-"
 	}
-	target := QuoteShell(name)
+	target := remotescript.Quote(name)
 	if kind == config.ResourceKindService {
 		return "systemctl " + command + " " + target
 	}
@@ -362,11 +362,11 @@ func LogScript(kind string, name string, lines int) string {
 	if lines <= 0 {
 		lines = 200
 	}
-	target := QuoteShell(name)
+	target := remotescript.Quote(name)
 	if kind == config.ResourceKindService {
 		cmd := fmt.Sprintf("journalctl -u %s -n %d --no-pager", target, lines)
 		sudoCmd := fmt.Sprintf("sudo -n journalctl -u %s -n %d --no-pager", target, lines)
-		return SudoFallbackScript(cmd, sudoCmd)
+		return remotescript.SudoFallback(cmd, sudoCmd)
 	}
 	if kind == config.ResourceKindProcess || kind == config.ResourceKindPort || kind == config.ResourceKindDatabase {
 		return ""
@@ -374,14 +374,14 @@ func LogScript(kind string, name string, lines int) string {
 	if kind == config.ResourceKindContainer {
 		cmd := fmt.Sprintf("docker logs --tail %d %s", lines, target)
 		sudoCmd := fmt.Sprintf("sudo -n docker logs --tail %d %s", lines, target)
-		return SudoFallbackScript(cmd, sudoCmd)
+		return remotescript.SudoFallback(cmd, sudoCmd)
 	}
 	return ""
 }
 
 func ManagedLogScript(kind string, name string, lines int, managed config.ManagedResource) string {
 	if cmd := remotescript.UserCommand(managed.LogCommand); cmd != "" {
-		return SudoFallbackScript(cmd, "sudo -n "+cmd)
+		return remotescript.SudoFallback(cmd, "sudo -n "+cmd)
 	}
 	return LogScript(kind, name, lines)
 }
@@ -393,7 +393,7 @@ func LogPreview(kind string, name string, lines int, managed config.ManagedResou
 	if lines <= 0 {
 		lines = 200
 	}
-	target := QuoteShell(name)
+	target := remotescript.Quote(name)
 	if kind == config.ResourceKindService {
 		return fmt.Sprintf("journalctl -u %s -n %d --no-pager", target, lines)
 	}
@@ -404,12 +404,4 @@ func LogPreview(kind string, name string, lines int, managed config.ManagedResou
 		return fmt.Sprintf("docker logs --tail %d %s", lines, target)
 	}
 	return "-"
-}
-
-func SudoFallbackScript(command string, sudoCommand string) string {
-	return remotescript.SudoFallback(command, sudoCommand)
-}
-
-func QuoteShell(value string) string {
-	return remotescript.Quote(value)
 }

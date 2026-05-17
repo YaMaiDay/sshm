@@ -34,20 +34,21 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	collector.Timeout = appConfig.CommandDuration()
 	collector.ConnectTimeout = appConfig.ConnectDuration()
 	m := Model{
-		states:          states,
-		collector:       collector,
-		passwords:       passwords,
-		appConfig:       appConfig,
-		appState:        appState,
-		home:            home,
-		commandFile:     commandFile,
-		deploymentFile:  deploymentFile,
-		resourceFile:    resourceFile,
-		transferHistory: transferHistory,
-		categories:      categories,
-		status:          "",
-		collectRound:    1,
-		pendingByRound:  pendingByRound,
+		states:             states,
+		collector:          collector,
+		passwords:          passwords,
+		appConfig:          appConfig,
+		appState:           appState,
+		home:               home,
+		commandFile:        commandFile,
+		deploymentFile:     deploymentFile,
+		deploymentProgress: newDeploymentProgressStore(),
+		resourceFile:       resourceFile,
+		transferState:      transferState{History: transferHistory},
+		categories:         categories,
+		status:             "",
+		collectRound:       1,
+		pendingByRound:     pendingByRound,
 	}
 	m.status = m.t("Collecting server status...", "正在采集服务器状态...")
 	return m

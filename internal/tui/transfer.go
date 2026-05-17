@@ -17,37 +17,37 @@ import (
 )
 
 func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.panel.NeedsInstall {
+	if m.transferState.Panel.NeedsInstall {
 		key := shortcutKey(msg)
 		switch key {
 		case "i":
 			m.status = m.t("Installing rsync on remote host...", "正在远程安装 rsync...")
-			return m, m.installRemoteRsync(m.panel.HostIndex)
+			return m, m.installRemoteRsync(m.transferState.Panel.HostIndex)
 		case "esc", "q":
-			m.panel.NeedsInstall = false
+			m.transferState.Panel.NeedsInstall = false
 			m.status = m.t("Canceled.", "已取消。")
 			return m, nil
 		}
 		return m, nil
 	}
-	if m.panel.Confirming && msg.String() != "enter" {
-		m.panel.Confirming = false
-		m.status = m.transferPanelStatus(m.panel.Mode)
+	if m.transferState.Panel.Confirming && msg.String() != "enter" {
+		m.transferState.Panel.Confirming = false
+		m.status = m.transferPanelStatus(m.transferState.Panel.Mode)
 		return m, nil
 	}
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "q":
 		m.mode = modeDashboard
-		m.transfer = transferNone
-		m.panel = transferPanel{}
+		m.transferState.Mode = transferNone
+		m.transferState.Panel = transferPanel{}
 		m.status = m.t("Canceled.", "已取消。")
 	case "tab":
 		m.cancelTransferConfirm()
-		if m.panel.ActivePane == 0 {
-			m.panel.ActivePane = 1
+		if m.transferState.Panel.ActivePane == 0 {
+			m.transferState.Panel.ActivePane = 1
 		} else {
-			m.panel.ActivePane = 0
+			m.transferState.Panel.ActivePane = 0
 		}
 	case "j", "down":
 		m.cancelTransferConfirm()
@@ -56,7 +56,7 @@ func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cancelTransferConfirm()
 		m.movePanel(-1)
 	case "enter":
-		if m.panel.Confirming {
+		if m.transferState.Panel.Confirming {
 			return m.confirmTransferPanel()
 		}
 		m.cancelTransferConfirm()
@@ -72,14 +72,14 @@ func (m Model) updateTransferPanel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateTransferJobs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.panel.NeedsInstall {
+	if m.transferState.Panel.NeedsInstall {
 		key := shortcutKey(msg)
 		switch key {
 		case "i":
 			m.status = m.t("Installing rsync on remote host...", "正在远程安装 rsync...")
-			return m, m.installRemoteRsync(m.panel.HostIndex)
+			return m, m.installRemoteRsync(m.transferState.Panel.HostIndex)
 		case "esc", "q":
-			m.panel.NeedsInstall = false
+			m.transferState.Panel.NeedsInstall = false
 			m.status = m.t("Canceled rsync install.", "已取消安装 rsync。")
 			return m, nil
 		}
@@ -88,7 +88,7 @@ func (m Model) updateTransferJobs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "q":
-		m.mode = m.transferJobsBack
+		m.mode = m.transferState.JobsBack
 		if m.mode == 0 {
 			m.mode = modeDashboard
 		}
@@ -103,7 +103,7 @@ func (m Model) updateTransferJobs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "tab":
 		m.cycleTransferStatusFilter()
 	case "enter":
-		m.transferRunAll = false
+		m.transferState.RunAll = false
 		return m.startSelectedTransfer()
 	case " ":
 		return m.openTransferDetail(), nil
@@ -120,7 +120,7 @@ func (m Model) updateTransferJobs(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) openTransferDetail() Model {
-	if len(m.transferHistory.Entries) == 0 || m.transferIndex < 0 || m.transferIndex >= len(m.transferHistory.Entries) {
+	if len(m.transferState.History.Entries) == 0 || m.transferState.Index < 0 || m.transferState.Index >= len(m.transferState.History.Entries) {
 		return m
 	}
 	m.mode = modeTransferDetail
@@ -139,7 +139,7 @@ func (m Model) updateTransferDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		m.detailScroll = moveClampedInt(m.detailScroll, -1, 0, m.transferDetailMaxScroll())
 	case "enter":
-		m.transferRunAll = false
+		m.transferState.RunAll = false
 		return m.startSelectedTransfer()
 	case "a":
 		return m.startAllQueuedTransfers()
@@ -156,68 +156,68 @@ func (m Model) updateTransferDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) moveTransferIndex(delta int) {
 	indexes := m.filteredTransferIndexes()
 	if len(indexes) == 0 {
-		m.transferIndex = 0
+		m.transferState.Index = 0
 		return
 	}
 	pos := 0
 	for i, index := range indexes {
-		if index == m.transferIndex {
+		if index == m.transferState.Index {
 			pos = i
 			break
 		}
 	}
 	pos = clampInt(pos+delta, 0, len(indexes)-1)
-	m.transferIndex = indexes[pos]
+	m.transferState.Index = indexes[pos]
 }
 
 func (m *Model) cycleTransferStatusFilter() {
-	m.transferStatusFilter++
-	if m.transferStatusFilter >= len(transferStatusFilterOptions()) {
-		m.transferStatusFilter = 0
+	m.transferState.StatusFilter++
+	if m.transferState.StatusFilter >= len(transferStatusFilterOptions()) {
+		m.transferState.StatusFilter = 0
 	}
 	m.ensureTransferIndexVisible()
 }
 
 func (m *Model) cancelTransferConfirm() {
-	if m.panel.Confirming {
-		m.panel.Confirming = false
-		m.status = m.transferPanelStatus(m.panel.Mode)
+	if m.transferState.Panel.Confirming {
+		m.transferState.Panel.Confirming = false
+		m.status = m.transferPanelStatus(m.transferState.Panel.Mode)
 	}
 }
 
 func (m *Model) movePanel(delta int) {
-	if m.panel.ActivePane == 0 {
-		m.panel.LeftIndex = moveIndex(m.panel.LeftIndex, len(m.panel.LeftChoices), delta)
+	if m.transferState.Panel.ActivePane == 0 {
+		m.transferState.Panel.LeftIndex = moveIndex(m.transferState.Panel.LeftIndex, len(m.transferState.Panel.LeftChoices), delta)
 		return
 	}
-	m.panel.RightIndex = moveIndex(m.panel.RightIndex, len(m.panel.RightChoices), delta)
+	m.transferState.Panel.RightIndex = moveIndex(m.transferState.Panel.RightIndex, len(m.transferState.Panel.RightChoices), delta)
 }
 
 func (m *Model) togglePanelSelection() {
-	if m.panel.ActivePane != 0 {
+	if m.transferState.Panel.ActivePane != 0 {
 		return
 	}
-	if len(m.panel.LeftChoices) == 0 || m.panel.LeftIndex < 0 || m.panel.LeftIndex >= len(m.panel.LeftChoices) {
+	if len(m.transferState.Panel.LeftChoices) == 0 || m.transferState.Panel.LeftIndex < 0 || m.transferState.Panel.LeftIndex >= len(m.transferState.Panel.LeftChoices) {
 		return
 	}
-	pick := m.panel.LeftChoices[m.panel.LeftIndex]
-	if m.panel.LeftSelected == nil {
-		m.panel.LeftSelected = map[string]bool{}
+	pick := m.transferState.Panel.LeftChoices[m.transferState.Panel.LeftIndex]
+	if m.transferState.Panel.LeftSelected == nil {
+		m.transferState.Panel.LeftSelected = map[string]bool{}
 	}
-	if m.panel.LeftSelected[pick.Value] {
-		delete(m.panel.LeftSelected, pick.Value)
+	if m.transferState.Panel.LeftSelected[pick.Value] {
+		delete(m.transferState.Panel.LeftSelected, pick.Value)
 	} else {
-		m.panel.LeftSelected[pick.Value] = true
+		m.transferState.Panel.LeftSelected[pick.Value] = true
 	}
 }
 
 func (m Model) selectedTransferSources() []choice {
-	if len(m.panel.LeftSelected) == 0 {
+	if len(m.transferState.Panel.LeftSelected) == 0 {
 		return nil
 	}
-	out := make([]choice, 0, len(m.panel.LeftSelected))
-	for path := range m.panel.LeftSelected {
-		node := m.panel.LeftTree.Nodes[path]
+	out := make([]choice, 0, len(m.transferState.Panel.LeftSelected))
+	for path := range m.transferState.Panel.LeftSelected {
+		node := m.transferState.Panel.LeftTree.Nodes[path]
 		if node == nil {
 			continue
 		}
@@ -280,43 +280,43 @@ func (m *Model) togglePanelTree() {
 }
 
 func (m *Model) activePanelTree() (*remoteTree, *[]choice, *int) {
-	if m.panel.ActivePane == 0 {
-		return &m.panel.LeftTree, &m.panel.LeftChoices, &m.panel.LeftIndex
+	if m.transferState.Panel.ActivePane == 0 {
+		return &m.transferState.Panel.LeftTree, &m.transferState.Panel.LeftChoices, &m.transferState.Panel.LeftIndex
 	}
-	return &m.panel.RightTree, &m.panel.RightChoices, &m.panel.RightIndex
+	return &m.transferState.Panel.RightTree, &m.transferState.Panel.RightChoices, &m.transferState.Panel.RightIndex
 }
 
 func (m Model) confirmTransferPanel() (tea.Model, tea.Cmd) {
-	m.panel.Confirming = false
-	if len(m.selectedTransferSources()) == 0 || len(m.panel.RightChoices) == 0 {
+	m.transferState.Panel.Confirming = false
+	if len(m.selectedTransferSources()) == 0 || len(m.transferState.Panel.RightChoices) == 0 {
 		m.status = m.t("Select at least one source on the left and a target directory on the right.", "左侧至少选择一个文件或目录，右侧选择目标目录。")
 		return m, nil
 	}
-	right := m.panel.RightChoices[m.panel.RightIndex]
+	right := m.transferState.Panel.RightChoices[m.transferState.Panel.RightIndex]
 	if !right.IsDir {
 		m.status = m.t("The right side must be a directory.", "右侧必须选择目录。")
 		return m, nil
 	}
-	m.transferJobsBack = modeTransferPanel
+	m.transferState.JobsBack = modeTransferPanel
 	m.mode = modeTransferJobs
 	m.status = m.t("Checking remote rsync...", "正在检测远程 rsync...")
-	return m, m.checkRemoteRsync(m.panel.HostIndex)
+	return m, m.checkRemoteRsync(m.transferState.Panel.HostIndex)
 }
 
 func (m Model) prepareTransferConfirm() (tea.Model, tea.Cmd) {
 	selected := m.selectedTransferSources()
-	if len(selected) == 0 || len(m.panel.RightChoices) == 0 {
+	if len(selected) == 0 || len(m.transferState.Panel.RightChoices) == 0 {
 		m.status = m.t("Select at least one source on the left and a target directory on the right.", "左侧至少选择一个文件或目录，右侧选择目标目录。")
 		return m, nil
 	}
-	right := m.panel.RightChoices[m.panel.RightIndex]
+	right := m.transferState.Panel.RightChoices[m.transferState.Panel.RightIndex]
 	if !right.IsDir {
 		m.status = m.t("The right side must be a directory.", "右侧必须选择目录。")
 		return m, nil
 	}
-	h := m.states[m.panel.HostIndex].Host
-	m.panel.Confirming = true
-	if m.panel.Mode == transferUpload {
+	h := m.states[m.transferState.Panel.HostIndex].Host
+	m.transferState.Panel.Confirming = true
+	if m.transferState.Panel.Mode == transferUpload {
 		m.status = fmt.Sprintf(m.t("Upload Enter: %d items -> %s:%s/  Cancel Esc", "上传 Enter：%d 项 -> %s:%s/  取消 Esc"), len(selected), hostDisplayName(h), right.Value)
 		return m, nil
 	}
@@ -325,53 +325,53 @@ func (m Model) prepareTransferConfirm() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) movePick(delta int) {
-	if len(m.choices) == 0 {
-		m.pickIndex = 0
+	if len(m.transferState.Choices) == 0 {
+		m.transferState.PickIndex = 0
 		return
 	}
-	m.pickIndex += delta
-	if m.pickIndex < 0 {
-		m.pickIndex = len(m.choices) - 1
+	m.transferState.PickIndex += delta
+	if m.transferState.PickIndex < 0 {
+		m.transferState.PickIndex = len(m.transferState.Choices) - 1
 	}
-	if m.pickIndex >= len(m.choices) {
-		m.pickIndex = 0
+	if m.transferState.PickIndex >= len(m.transferState.Choices) {
+		m.transferState.PickIndex = 0
 	}
 }
 
 func (m Model) confirmPick() (tea.Model, tea.Cmd) {
-	if len(m.choices) == 0 || m.pickIndex < 0 || m.pickIndex >= len(m.choices) {
+	if len(m.transferState.Choices) == 0 || m.transferState.PickIndex < 0 || m.transferState.PickIndex >= len(m.transferState.Choices) {
 		m.status = m.t("No selectable item.", "没有可选择的项目。")
 		return m, nil
 	}
-	pick := m.choices[m.pickIndex]
+	pick := m.transferState.Choices[m.transferState.PickIndex]
 	switch m.mode {
 	case modePickLocalRoot:
-		m.pending.LocalRoot = pick.Value
+		m.transferState.Pending.LocalRoot = pick.Value
 		m.setChoices(m.t("Select local file/dir", "选择本地文件/目录"), modePickLocalItem, localItemChoices(fsselect.LocalItems(pick.Value)))
 	case modePickLocalItem:
-		m.pending.LocalPath = pick.Value
-		m.pending.LocalIsDir = pick.IsDir
-		h := m.states[m.pending.HostIndex].Host
+		m.transferState.Pending.LocalPath = pick.Value
+		m.transferState.Pending.LocalIsDir = pick.IsDir
+		h := m.states[m.transferState.Pending.HostIndex].Host
 		m.startRemoteTree(m.t("Select remote dir", "选择远程目录"), modePickRemoteDir, h, true)
 	case modePickRemoteDir:
-		m.pending.RemoteDir = pick.Value
+		m.transferState.Pending.RemoteDir = pick.Value
 		return m.startUploadTransfer()
 	case modePickRemoteItem:
-		m.pending.RemotePath = pick.Value
-		m.pending.RemoteIsDir = pick.IsDir
+		m.transferState.Pending.RemotePath = pick.Value
+		m.transferState.Pending.RemoteIsDir = pick.IsDir
 		m.startLocalTree(m.t("Select local save dir", "选择本地保存目录"), modePickSaveDir, true)
 	case modePickSaveDir:
-		m.pending.SaveDir = pick.Value
+		m.transferState.Pending.SaveDir = pick.Value
 		return m.startDownloadTransfer()
 	}
 	return m, nil
 }
 
 func (m *Model) setChoices(title string, mode viewMode, choices []choice) {
-	m.pickTitle = title
+	m.transferState.PickTitle = title
 	m.mode = mode
-	m.choices = choices
-	m.pickIndex = 0
+	m.transferState.Choices = choices
+	m.transferState.PickIndex = 0
 	if len(choices) == 0 {
 		m.status = title + m.t(": no selectable items", "：没有可选择的项目")
 	} else {
@@ -381,45 +381,45 @@ func (m *Model) setChoices(title string, mode viewMode, choices []choice) {
 
 func (m Model) startTransfer(status string, cmd tea.Cmd) (tea.Model, tea.Cmd) {
 	m.mode = modeDashboard
-	m.transfer = transferNone
-	m.choices = nil
-	m.remoteTree = remoteTree{}
-	m.pickIndex = 0
+	m.transferState.Mode = transferNone
+	m.transferState.Choices = nil
+	m.transferState.RemoteTree = remoteTree{}
+	m.transferState.PickIndex = 0
 	m.status = status
 	return m, cmd
 }
 
 func (m Model) startUploadTransfer() (tea.Model, tea.Cmd) {
-	h := m.states[m.pending.HostIndex].Host
-	localPath := m.pending.LocalPath
-	remoteDir := m.pending.RemoteDir
+	h := m.states[m.transferState.Pending.HostIndex].Host
+	localPath := m.transferState.Pending.LocalPath
+	remoteDir := m.transferState.Pending.RemoteDir
 	remotePath := remoteJoin(remoteDir, filepath.Base(localPath))
 	total := transferservice.LocalSizeBytes(localPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mode = modeDashboard
-	m.transfer = transferNone
-	m.choices = nil
-	m.remoteTree = remoteTree{}
-	m.pickIndex = 0
-	m.activeTransfer = activeTransfer{
+	m.transferState.Mode = transferNone
+	m.transferState.Choices = nil
+	m.transferState.RemoteTree = remoteTree{}
+	m.transferState.PickIndex = 0
+	m.transferState.Active = activeTransfer{
 		Kind:       m.t("Upload", "上传"),
 		Source:     localPath,
 		Target:     h.Name + ":" + remoteDir + "/",
 		LocalPath:  localPath,
 		RemotePath: remotePath,
-		HostIndex:  m.pending.HostIndex,
+		HostIndex:  m.transferState.Pending.HostIndex,
 		Total:      total,
 		Active:     true,
 		Cancel:     cancel,
 	}
-	m.status = m.transferProgressText(m.activeTransfer)
+	m.status = m.transferProgressText(m.transferState.Active)
 	return m, tea.Batch(m.runUpload(ctx), transferProgressAfter(500*time.Millisecond))
 }
 
 func (m Model) startDownloadTransfer() (tea.Model, tea.Cmd) {
-	h := m.states[m.pending.HostIndex].Host
-	remotePath := m.pending.RemotePath
-	saveDir := m.pending.SaveDir
+	h := m.states[m.transferState.Pending.HostIndex].Host
+	remotePath := m.transferState.Pending.RemotePath
+	saveDir := m.transferState.Pending.SaveDir
 	localPath := filepath.Join(saveDir, filepath.Base(remotePath))
 	total := transferservice.RemoteSizeBytes(h, remotePath)
 	if total < 0 {
@@ -427,21 +427,21 @@ func (m Model) startDownloadTransfer() (tea.Model, tea.Cmd) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.mode = modeDashboard
-	m.transfer = transferNone
-	m.choices = nil
-	m.remoteTree = remoteTree{}
-	m.pickIndex = 0
-	m.activeTransfer = activeTransfer{
+	m.transferState.Mode = transferNone
+	m.transferState.Choices = nil
+	m.transferState.RemoteTree = remoteTree{}
+	m.transferState.PickIndex = 0
+	m.transferState.Active = activeTransfer{
 		Kind:      m.t("Download", "下载"),
 		Source:    remotePath,
 		Target:    saveDir + "/",
 		LocalPath: localPath,
-		HostIndex: m.pending.HostIndex,
+		HostIndex: m.transferState.Pending.HostIndex,
 		Total:     total,
 		Active:    true,
 		Cancel:    cancel,
 	}
-	m.status = m.transferProgressText(m.activeTransfer)
+	m.status = m.transferProgressText(m.transferState.Active)
 	return m, tea.Batch(m.runDownload(ctx), transferProgressAfter(500*time.Millisecond))
 }
 
@@ -476,16 +476,16 @@ func (m Model) installRemoteRsync(index int) tea.Cmd {
 
 func (m Model) createTransferJobsFromPanel() (tea.Model, tea.Cmd) {
 	selected := m.selectedTransferSources()
-	if len(selected) == 0 || len(m.panel.RightChoices) == 0 {
+	if len(selected) == 0 || len(m.transferState.Panel.RightChoices) == 0 {
 		m.status = m.t("No transferable items.", "没有可传输的项目。")
 		return m, nil
 	}
-	target := m.panel.RightChoices[m.panel.RightIndex]
-	h := m.states[m.panel.HostIndex].Host
+	target := m.transferState.Panel.RightChoices[m.transferState.Panel.RightIndex]
+	h := m.states[m.transferState.Panel.HostIndex].Host
 	now := time.Now()
 	for i, item := range selected {
 		totalBytes := int64(0)
-		if m.panel.Mode == transferDownload {
+		if m.transferState.Panel.Mode == transferDownload {
 			totalBytes = transferservice.RemoteSizeBytes(h, item.Value)
 		} else {
 			totalBytes = transferservice.LocalSizeBytes(item.Value)
@@ -493,18 +493,21 @@ func (m Model) createTransferJobsFromPanel() (tea.Model, tea.Cmd) {
 		entry := transferservice.BuildEntry(h, transferservice.EntrySpec{
 			ID:         config.NewTransferID(now.Add(time.Duration(i))),
 			Time:       now,
-			Kind:       transferKindString(m.panel.Mode),
+			Kind:       transferKindString(m.transferState.Panel.Mode),
 			Source:     item.Value,
 			TargetDir:  target.Value,
 			IsDir:      item.IsDir,
 			TotalBytes: totalBytes,
 		})
-		m.appendTransferEntry(entry)
+		if err := m.appendTransferEntry(entry); err != nil {
+			m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+			return m, nil
+		}
 	}
 	m.reloadTransfers()
-	m.transferJobsBack = modeTransferPanel
+	m.transferState.JobsBack = modeTransferPanel
 	m.mode = modeTransferJobs
-	m.transfer = transferNone
+	m.transferState.Mode = transferNone
 	m.status = fmt.Sprintf(m.t("Created %d transfer jobs.", "已创建 %d 个传输任务。"), len(selected))
 	return m, nil
 }
@@ -518,12 +521,12 @@ func transferKindString(mode transferMode) string {
 
 func (m *Model) reloadTransfers() {
 	file, _, _ := transferservice.LoadHistory(m.home)
-	m.transferHistory = file
-	if m.transferIndex >= len(m.transferHistory.Entries) {
-		m.transferIndex = len(m.transferHistory.Entries) - 1
+	m.transferState.History = file
+	if m.transferState.Index >= len(m.transferState.History.Entries) {
+		m.transferState.Index = len(m.transferState.History.Entries) - 1
 	}
-	if m.transferIndex < 0 {
-		m.transferIndex = 0
+	if m.transferState.Index < 0 {
+		m.transferState.Index = 0
 	}
 	m.ensureTransferIndexVisible()
 }
@@ -531,15 +534,15 @@ func (m *Model) reloadTransfers() {
 func (m *Model) ensureTransferIndexVisible() {
 	indexes := m.filteredTransferIndexes()
 	if len(indexes) == 0 {
-		m.transferIndex = 0
+		m.transferState.Index = 0
 		return
 	}
 	for _, index := range indexes {
-		if index == m.transferIndex {
+		if index == m.transferState.Index {
 			return
 		}
 	}
-	m.transferIndex = indexes[0]
+	m.transferState.Index = indexes[0]
 }
 
 func (m Model) startTransferPanel(idx int, mode transferMode) Model {
@@ -562,9 +565,9 @@ func (m Model) startTransferPanel(idx int, mode transferMode) Model {
 	panel.LeftChoices = flattenTree(panel.LeftTree)
 	panel.RightChoices = flattenTree(panel.RightTree)
 	m.mode = modeTransferPanel
-	m.transfer = mode
-	m.pending = pendingTransfer{HostIndex: idx}
-	m.panel = panel
+	m.transferState.Mode = mode
+	m.transferState.Pending = pendingTransfer{HostIndex: idx}
+	m.transferState.Panel = panel
 	return m
 }
 
@@ -600,10 +603,10 @@ func (m Model) startDownload(idx int) Model {
 }
 
 func (m Model) runUpload(ctx context.Context) tea.Cmd {
-	h := m.states[m.pending.HostIndex].Host
-	localPath := m.pending.LocalPath
-	remoteDir := m.pending.RemoteDir
-	recursive := m.pending.LocalIsDir
+	h := m.states[m.transferState.Pending.HostIndex].Host
+	localPath := m.transferState.Pending.LocalPath
+	remoteDir := m.transferState.Pending.RemoteDir
+	recursive := m.transferState.Pending.LocalIsDir
 	return func() tea.Msg {
 		result := (transferservice.Service{}).Upload(ctx, h, localPath, remoteDir, recursive)
 		return transferDoneMsg{Kind: m.t("Upload", "上传"), Source: localPath, Target: h.Name + ":" + remoteDir + "/", Err: result.Err, Output: result.Output}
@@ -611,10 +614,10 @@ func (m Model) runUpload(ctx context.Context) tea.Cmd {
 }
 
 func (m Model) runDownload(ctx context.Context) tea.Cmd {
-	h := m.states[m.pending.HostIndex].Host
-	remotePath := m.pending.RemotePath
-	saveDir := m.pending.SaveDir
-	recursive := m.pending.RemoteIsDir
+	h := m.states[m.transferState.Pending.HostIndex].Host
+	remotePath := m.transferState.Pending.RemotePath
+	saveDir := m.transferState.Pending.SaveDir
+	recursive := m.transferState.Pending.RemoteIsDir
 	return func() tea.Msg {
 		result := (transferservice.Service{}).Download(ctx, h, remotePath, saveDir, recursive)
 		return transferDoneMsg{Kind: m.t("Download", "下载"), Source: remotePath, Target: saveDir + "/", Err: result.Err, Output: result.Output}
@@ -622,15 +625,15 @@ func (m Model) runDownload(ctx context.Context) tea.Cmd {
 }
 
 func (m Model) startNextQueuedTransfer() (tea.Model, tea.Cmd) {
-	if m.activeTransfer.Active {
+	if m.transferState.Active.Active {
 		return m, nil
 	}
-	for _, entry := range m.transferHistory.Entries {
+	for _, entry := range m.transferState.History.Entries {
 		if entry.Status == config.TransferStatusPending {
 			return m.startTransferEntry(entry)
 		}
 	}
-	m.transferRunAll = false
+	m.transferState.RunAll = false
 	return m, clearStatusAfter(3 * time.Second)
 }
 
@@ -638,13 +641,19 @@ func (m Model) startTransferEntry(entry config.TransferEntry) (tea.Model, tea.Cm
 	h, index, ok := m.findTransferHost(entry)
 	if !ok {
 		transferservice.SetEntryStatus(&entry, config.TransferStatusFailed, m.t("Server not found: ", "找不到服务器：")+entry.HostName)
-		m.updateTransferEntryAndReload(entry)
+		if err := m.updateTransferEntryAndReload(entry); err != nil {
+			m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+		}
 		return m, clearStatusAfter(3 * time.Second)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	transferservice.SetEntryStatus(&entry, config.TransferStatusRunning, "")
-	m.updateTransferEntry(entry)
-	m.activeTransfer = activeTransfer{
+	if err := m.updateTransferEntry(entry); err != nil {
+		cancel()
+		m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+		return m, nil
+	}
+	m.transferState.Active = activeTransfer{
 		ID:        entry.ID,
 		Kind:      m.transferEntryKindText(entry),
 		Source:    entry.Source,
@@ -654,7 +663,7 @@ func (m Model) startTransferEntry(entry config.TransferEntry) (tea.Model, tea.Cm
 		Cancel:    cancel,
 	}
 	m.reloadTransfers()
-	m.status = m.transferProgressText(m.activeTransfer)
+	m.status = m.transferProgressText(m.transferState.Active)
 	cmd := func() tea.Msg {
 		result := (transferservice.Service{}).RunJob(ctx, h, entry, func(progress string) {
 			updateTransferProgress(m.home, entry.ID, progress)

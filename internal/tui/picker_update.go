@@ -7,10 +7,10 @@ func (m Model) updatePicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
 		m.mode = modeDashboard
-		m.transfer = transferNone
-		m.choices = nil
-		m.remoteTree = remoteTree{}
-		m.pickIndex = 0
+		m.transferState.Mode = transferNone
+		m.transferState.Choices = nil
+		m.transferState.RemoteTree = remoteTree{}
+		m.transferState.PickIndex = 0
 		m.status = m.t("Canceled.", "已取消。")
 	case "j", "down":
 		m.movePick(1)

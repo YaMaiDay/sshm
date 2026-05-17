@@ -8,7 +8,7 @@ import (
 
 func (m Model) renderTransferPanel() string {
 	title := m.t("Upload File", "上传文件")
-	if m.panel.Mode == transferDownload {
+	if m.transferState.Panel.Mode == transferDownload {
 		title = m.t("Download File", "下载文件")
 	}
 	header := title
@@ -23,17 +23,17 @@ func (m Model) renderTransferPanel() string {
 	}
 	body := ""
 	if m.useSingleTransferPane(width) {
-		if m.panel.ActivePane == 0 {
-			body = m.renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, width, height, true, m.panel.LeftSelected)
+		if m.transferState.Panel.ActivePane == 0 {
+			body = m.renderTransferPane(m.transferState.Panel.LeftTitle, m.transferState.Panel.LeftChoices, m.transferState.Panel.LeftIndex, width, height, true, m.transferState.Panel.LeftSelected)
 		} else {
-			body = m.renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, width, height, true, nil)
+			body = m.renderTransferPane(m.transferState.Panel.RightTitle, m.transferState.Panel.RightChoices, m.transferState.Panel.RightIndex, width, height, true, nil)
 		}
 	} else {
 		gap := 1
 		leftWidth := (width - gap) / 2
 		rightWidth := width - gap - leftWidth
-		left := m.renderTransferPane(m.panel.LeftTitle, m.panel.LeftChoices, m.panel.LeftIndex, leftWidth, height, m.panel.ActivePane == 0, m.panel.LeftSelected)
-		right := m.renderTransferPane(m.panel.RightTitle, m.panel.RightChoices, m.panel.RightIndex, rightWidth, height, m.panel.ActivePane == 1, nil)
+		left := m.renderTransferPane(m.transferState.Panel.LeftTitle, m.transferState.Panel.LeftChoices, m.transferState.Panel.LeftIndex, leftWidth, height, m.transferState.Panel.ActivePane == 0, m.transferState.Panel.LeftSelected)
+		right := m.renderTransferPane(m.transferState.Panel.RightTitle, m.transferState.Panel.RightChoices, m.transferState.Panel.RightIndex, rightWidth, height, m.transferState.Panel.ActivePane == 1, nil)
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, strings.Repeat(" ", gap), right)
 	}
 	return strings.Join([]string{
