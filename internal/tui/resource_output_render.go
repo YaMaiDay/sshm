@@ -13,7 +13,7 @@ func (m Model) renderResourceLog() string {
 	width := detailFrameWidth(m.width)
 	bodyHeight := m.resourceLogBodyHeight()
 	lines := m.resourceLogLines()
-	start, end := resourceLogWindowRange(len(lines), m.resourceLogScroll, bodyHeight)
+	start, end := resourceLogWindowRange(len(lines), m.resourceState.LogScroll, bodyHeight)
 	bodyLines := fitLines(lines[start:end], width-4)
 	for len(bodyLines) < bodyHeight {
 		bodyLines = append(bodyLines, "")
@@ -38,7 +38,7 @@ func (m Model) resourceLogBodyHeight() int {
 }
 
 func (m Model) resourceLogLines() []string {
-	lines := strings.Split(strings.TrimRight(m.resourceLogOutput, "\n"), "\n")
+	lines := strings.Split(strings.TrimRight(m.resourceState.LogOutput, "\n"), "\n")
 	if len(lines) == 0 || len(lines) == 1 && strings.TrimSpace(lines[0]) == "" {
 		return []string{m.t("No log output.", "没有日志输出。")}
 	}
@@ -74,8 +74,8 @@ func (m Model) resourceLogHeader(total int, start int, end int) string {
 		">",
 		m.t("Logs", "日志"),
 		m.resourceHostTitle(),
-		m.resourceKindName(m.resourceLogKind),
-		m.resourceLogName,
+		m.resourceKindName(m.resourceState.LogKind),
+		m.resourceState.LogName,
 		mutedStyle.Render(rangeText),
 	}, "  ")
 }
@@ -88,21 +88,21 @@ func (m Model) renderResourceCommandEdit() string {
 	}
 	lines := []string{
 		detailSubTitle(m.resourceCommandEditHeading()),
-		m.detailRow(m.t("Resource", "资源"), m.resourceCommandForm.Name),
-		m.detailRow(m.t("Type", "类型"), m.resourceKindName(m.resourceCommandForm.Kind)),
+		m.detailRow(m.t("Resource", "资源"), m.resourceState.CommandForm.Name),
+		m.detailRow(m.t("Type", "类型"), m.resourceKindName(m.resourceState.CommandForm.Kind)),
 		"",
 	}
-	if resourceCommandFieldCount(m.resourceCommandForm.Kind) == 0 {
+	if resourceCommandFieldCount(m.resourceState.CommandForm.Kind) == 0 {
 		lines = append(lines, m.detailRow(m.t("Mode", "模式"), m.t("Read-only resource", "只读资源")))
 	}
-	for i := 0; i < resourceCommandFieldCount(m.resourceCommandForm.Kind); i++ {
+	for i := 0; i < resourceCommandFieldCount(m.resourceState.CommandForm.Kind); i++ {
 		lines = append(lines, m.resourceCommandFieldLine(i, bodyWidth))
 	}
 	bodyHeight := m.height - 3
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
-	start, end := visibleRange(len(lines), maxInt(0, m.resourceCommandField+3), bodyHeight)
+	start, end := visibleRange(len(lines), maxInt(0, m.resourceState.CommandField+3), bodyHeight)
 	body := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(softGray).
@@ -114,14 +114,14 @@ func (m Model) renderResourceCommandEdit() string {
 }
 
 func (m Model) resourceCommandEditHeading() string {
-	if m.resourceCommandForm.Kind == resourceDatabases {
+	if m.resourceState.CommandForm.Kind == resourceDatabases {
 		return m.t("Database Connection", "数据库连接")
 	}
 	return m.t("Resource Commands", "资源命令")
 }
 
 func (m Model) resourceCommandEditTitle() string {
-	if m.resourceCommandForm.Kind == resourceDatabases {
+	if m.resourceState.CommandForm.Kind == resourceDatabases {
 		return m.t("Configure Database", "配置数据库")
 	}
 	return m.t("Edit Resource Commands", "编辑资源命令")
@@ -134,13 +134,13 @@ func (m Model) resourceCommandFieldLine(field int, width int) string {
 	if inputWidth < 18 {
 		inputWidth = 18
 	}
-	display := commandInputText(value, m.resourceCommandCursor, m.resourceCommandField == field, inputWidth)
-	if m.resourceCommandForm.Kind == resourceDatabases && field == 0 {
+	display := commandInputText(value, m.resourceState.CommandCursor, m.resourceState.CommandField == field, inputWidth)
+	if m.resourceState.CommandForm.Kind == resourceDatabases && field == 0 {
 		display = m.resourceCommandDatabaseEngineDisplay(inputWidth)
 	}
 	prefix := "  "
 	style := detailValueStyle
-	if m.resourceCommandField == field {
+	if m.resourceState.CommandField == field {
 		prefix = "▶ "
 		style = blueStyle.Bold(true)
 	}
@@ -148,22 +148,22 @@ func (m Model) resourceCommandFieldLine(field int, width int) string {
 }
 
 func (m Model) resourceCommandDatabaseEngineDisplay(width int) string {
-	value := resourceservice.NormalizeDatabaseEngine(m.resourceCommandForm.DBEngine)
+	value := resourceservice.NormalizeDatabaseEngine(m.resourceState.CommandForm.DBEngine)
 	if value == "" {
 		value = "MySQL"
 	}
 	text := value
-	if m.resourceCommandField == 0 {
+	if m.resourceState.CommandField == 0 {
 		text = "← " + text + " →"
 	}
 	return fitANSI(text, width)
 }
 
 func (m Model) resourceCommandFieldName(field int) string {
-	if m.resourceCommandForm.Kind == resourcePorts {
+	if m.resourceState.CommandForm.Kind == resourcePorts {
 		return m.t("Health", "健康检查")
 	}
-	if m.resourceCommandForm.Kind == resourceDatabases {
+	if m.resourceState.CommandForm.Kind == resourceDatabases {
 		switch field {
 		case 0:
 			return m.t("Engine", "数据库")
@@ -200,11 +200,11 @@ func (m Model) resourceCommandFieldName(field int) string {
 func (m Model) renderResourceConfirm() string {
 	width := detailFrameWidth(m.width)
 	bodyWidth := width - 4
-	command := resourceActionCommandPreview(m.resourceActionResource, m.resourceAction, m.resourceActionName)
+	command := resourceActionCommandPreview(m.resourceState.ActionResource, m.resourceState.Action, m.resourceState.ActionName)
 	lines := []string{
 		m.t("Server: ", "服务器：") + m.resourceHostTitle(),
-		m.resourceKindName(m.resourceActionResource) + ": " + m.resourceActionName,
-		m.t("Action: ", "操作：") + m.resourceActionNameText(m.resourceAction),
+		m.resourceKindName(m.resourceState.ActionResource) + ": " + m.resourceState.ActionName,
+		m.t("Action: ", "操作：") + m.resourceActionNameText(m.resourceState.Action),
 		m.t("Command: ", "命令：") + command,
 	}
 	wrapped := []string{}
@@ -221,7 +221,7 @@ func (m Model) renderResourceOutput() string {
 		bodyHeight = 1
 	}
 	lines := m.resourceOutputLines()
-	start, end := visibleRange(len(lines), m.resourceScroll, bodyHeight)
+	start, end := visibleRange(len(lines), m.resourceState.Scroll, bodyHeight)
 	body := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(softGray).
@@ -233,16 +233,16 @@ func (m Model) renderResourceOutput() string {
 
 func (m Model) resourceOutputLines() []string {
 	lines := []string{
-		"$ " + m.resourceCommandPreview(m.resourceActionResource, m.resourceAction, m.resourceActionName),
+		"$ " + m.resourceCommandPreview(m.resourceState.ActionResource, m.resourceState.Action, m.resourceState.ActionName),
 		"",
 	}
-	if m.resourceActionRunning {
+	if m.resourceState.ActionRunning {
 		lines = append(lines, m.t("Running...", "执行中..."))
 	} else {
-		if strings.TrimSpace(m.resourceActionOutput) != "" {
-			lines = append(lines, strings.Split(m.resourceActionOutput, "\n")...)
+		if strings.TrimSpace(m.resourceState.ActionOutput) != "" {
+			lines = append(lines, strings.Split(m.resourceState.ActionOutput, "\n")...)
 		}
-		lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.resourceActionExitCode))
+		lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.resourceState.ActionExitCode))
 	}
 	return lines
 }

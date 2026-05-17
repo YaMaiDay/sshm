@@ -22,7 +22,7 @@ func (m Model) startSelectedTransfer() (tea.Model, tea.Cmd) {
 	case config.TransferStatusFailed, config.TransferStatusInterrupted:
 		transferservice.SetEntryStatus(&entry, config.TransferStatusQueued, "")
 		if err := m.updateTransferEntryAndReload(entry); err != nil {
-			m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+			m.setPersistenceError("Save transfer job failed", "保存传输任务失败", err)
 			return m, nil
 		}
 		return m.startTransferEntry(entry)
@@ -47,7 +47,7 @@ func (m Model) startAllQueuedTransfers() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := m.saveTransferFile(file); err != nil {
-		m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+		m.setPersistenceError("Save transfer jobs failed", "保存传输任务失败", err)
 		return m, nil
 	}
 	m.transferState.StatusFilter = 0
@@ -89,7 +89,7 @@ func (m Model) pauseRunningTransfers() (tea.Model, tea.Cmd) {
 	}
 	m.transferState.RunAll = false
 	if err := m.saveTransferFile(file); err != nil {
-		m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+		m.setPersistenceError("Save transfer jobs failed", "保存传输任务失败", err)
 		return m, nil
 	}
 	m.reloadTransfers()
@@ -110,7 +110,7 @@ func (m Model) deleteSelectedTransfer() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if err := m.deleteTransferEntry(entry.ID); err != nil {
-		m.status = m.t("Delete failed: ", "删除失败：") + err.Error()
+		m.setPersistenceError("Delete transfer job failed", "删除传输任务失败", err)
 	}
 	return m, nil
 }
@@ -123,14 +123,14 @@ func (m Model) cancelSelectedTransfer() (tea.Model, tea.Cmd) {
 	if entry.Status == config.TransferStatusQueued {
 		transferservice.SetEntryStatus(&entry, config.TransferStatusCanceled, entry.Error)
 		if err := m.updateTransferEntryAndReload(entry); err != nil {
-			m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+			m.setPersistenceError("Save transfer job failed", "保存传输任务失败", err)
 		}
 		return m, nil
 	}
 	if entry.Status == config.TransferStatusRunning && m.transferState.Active.ID == entry.ID && m.transferState.Active.Cancel != nil {
 		transferservice.SetEntryStatus(&entry, config.TransferStatusInterrupted, entry.Error)
 		if err := m.updateTransferEntryAndReload(entry); err != nil {
-			m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+			m.setPersistenceError("Save transfer job failed", "保存传输任务失败", err)
 			return m, nil
 		}
 		m.transferState.Active.Cancel()
@@ -140,7 +140,7 @@ func (m Model) cancelSelectedTransfer() (tea.Model, tea.Cmd) {
 	if entry.Status == config.TransferStatusInterrupted {
 		transferservice.SetEntryStatus(&entry, config.TransferStatusCanceled, entry.Error)
 		if err := m.updateTransferEntryAndReload(entry); err != nil {
-			m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+			m.setPersistenceError("Save transfer job failed", "保存传输任务失败", err)
 			return m, nil
 		}
 		m.status = m.t("Canceled interrupted transfer.", "已取消当前中断任务。")
@@ -169,13 +169,9 @@ func (m *Model) updateTransferEntryDone(msg transferDoneMsg) {
 		completion.Failed = true
 		completion.ErrorText = transferErrorText(msg.Err, msg.Output)
 	}
-	_ = transferservice.CompleteJob(m.home, completion)
+	m.completeTransferEntry(completion)
 }
 
 func updateTransferProgress(home string, id string, progress string) {
 	_ = transferservice.UpdateProgress(home, id, progress)
-}
-
-func (m Model) markActiveTransferInterrupted() {
-	_ = transferservice.MarkRunningInterrupted(m.home, m.transferState.Active.ID)
 }

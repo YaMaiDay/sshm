@@ -10,7 +10,7 @@ import (
 
 func (m Model) managedResourcesForServer(server string) []config.ManagedResource {
 	items := []config.ManagedResource{}
-	for _, item := range m.resourceFile.Items {
+	for _, item := range m.resourceState.File.Items {
 		if item.Server == server {
 			items = append(items, item)
 		}

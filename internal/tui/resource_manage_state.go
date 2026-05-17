@@ -10,10 +10,10 @@ import (
 )
 
 func (m Model) resourceRefForManagedItem(item config.ManagedResource) (resourceRef, bool) {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return resourceRef{}, false
 	}
-	state := m.states[m.resourceHostIndex]
+	state := m.states[m.resourceState.HostIndex]
 	switch item.Kind {
 	case config.ResourceKindService:
 		for i := range state.ServiceDetails {
@@ -71,24 +71,24 @@ func (m Model) resourceMissingMetaForItem(item config.ManagedResource) string {
 }
 
 func (m Model) resourceMetaForRef(ref resourceRef) string {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return ""
 	}
 	switch ref.Kind {
 	case resourceContainers:
-		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index]
 		return "  " + emptyDash(item.Status)
 	case resourceServices:
-		item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index]
 		return "  " + serviceFullRawState(item)
 	case resourceProcesses:
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		return "  " + strings.TrimSpace(item.Protocol+"/"+item.Port)
 	case resourcePorts:
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		return "  " + emptyDash(portListenText(item))
 	case resourceDatabases:
-		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index]
 		return "  " + emptyDash(firstNonEmpty(item.Engine, item.Endpoint))
 	default:
 		return ""
@@ -108,24 +108,24 @@ func serviceFullRawState(item resourceservice.ServiceDetail) string {
 }
 
 func (m Model) resourceManageStatusForRef(ref resourceRef) string {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return ""
 	}
 	switch ref.Kind {
 	case resourceContainers:
-		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index]
 		return coloredContainerStatus(m.containerStatusLabel(item), containerDetailKind(item))
 	case resourceServices:
-		item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index]
 		return coloredServiceStatus(m.serviceStatusText(item), serviceDetailKind(item))
 	case resourceProcesses:
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		return m.processStatusStyled(item)
 	case resourcePorts:
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		return m.portStatusStyledLabel(item, m.portStatusLabel(item))
 	case resourceDatabases:
-		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index]
 		return m.databaseStatusStyled(item)
 	default:
 		return ""
@@ -143,12 +143,12 @@ func (m Model) processStatusStyled(item resourceservice.PortDetail) string {
 }
 
 func (m Model) resourceManageDiscoveredRefs() []resourceRef {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return nil
 	}
 	refs := []resourceRef{}
 	add := func(ref resourceRef) {
-		if ref.Kind == resourceDatabases && m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Configured {
+		if ref.Kind == resourceDatabases && m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index].Configured {
 			return
 		}
 		if m.resourceRefAdded(ref) || m.resourceRefMissing(ref) {
@@ -159,15 +159,15 @@ func (m Model) resourceManageDiscoveredRefs() []resourceRef {
 		}
 		refs = append(refs, ref)
 	}
-	switch m.resourceAddKind {
+	switch m.resourceState.AddKind {
 	case resourceContainers:
-		for i := range m.states[m.resourceHostIndex].ContainerDetails {
+		for i := range m.states[m.resourceState.HostIndex].ContainerDetails {
 			add(resourceRef{Kind: resourceContainers, Index: i})
 		}
 	case resourceServices:
-		searching := strings.TrimSpace(m.resourceManageQuery) != ""
-		for i := range m.states[m.resourceHostIndex].ServiceDetails {
-			if serviceNotFoundInactiveDead(m.states[m.resourceHostIndex].ServiceDetails[i]) && !searching {
+		searching := strings.TrimSpace(m.resourceState.ManageQuery) != ""
+		for i := range m.states[m.resourceState.HostIndex].ServiceDetails {
+			if serviceNotFoundInactiveDead(m.states[m.resourceState.HostIndex].ServiceDetails[i]) && !searching {
 				continue
 			}
 			add(resourceRef{Kind: resourceServices, Index: i})
@@ -178,8 +178,8 @@ func (m Model) resourceManageDiscoveredRefs() []resourceRef {
 		}
 	case resourcePorts:
 		seen := map[string]bool{}
-		for i := range m.states[m.resourceHostIndex].PortDetails {
-			item := m.states[m.resourceHostIndex].PortDetails[i]
+		for i := range m.states[m.resourceState.HostIndex].PortDetails {
+			item := m.states[m.resourceState.HostIndex].PortDetails[i]
 			key := strings.ToLower(strings.TrimSpace(item.Protocol)) + "/" + strings.TrimSpace(item.Port)
 			if key == "/" || seen[key] {
 				continue
@@ -188,7 +188,7 @@ func (m Model) resourceManageDiscoveredRefs() []resourceRef {
 			add(resourceRef{Kind: resourcePorts, Index: i})
 		}
 	case resourceDatabases:
-		for i := range m.states[m.resourceHostIndex].DatabaseDetails {
+		for i := range m.states[m.resourceState.HostIndex].DatabaseDetails {
 			add(resourceRef{Kind: resourceDatabases, Index: i})
 		}
 	}
@@ -208,11 +208,11 @@ func (m Model) sortResourceManagerRefs(refs []resourceRef) {
 }
 
 func (m Model) resourceManageFavorites() []config.ManagedResource {
-	server := m.resourceServerKey(m.resourceHostIndex)
-	kind := configResourceKind(m.resourceAddKind)
-	query := strings.ToLower(strings.TrimSpace(m.resourceManageQuery))
+	server := m.resourceServerKey(m.resourceState.HostIndex)
+	kind := configResourceKind(m.resourceState.AddKind)
+	query := strings.ToLower(strings.TrimSpace(m.resourceState.ManageQuery))
 	items := []config.ManagedResource{}
-	for _, item := range m.resourceFile.Items {
+	for _, item := range m.resourceState.File.Items {
 		if item.Server == server && item.Kind == kind && item.Added {
 			if item.Kind == config.ResourceKindDatabase && !managedDatabaseResourceConfigured(item) {
 				continue
@@ -251,7 +251,7 @@ func (m Model) resourceManagerItemStatusRank(item config.ManagedResource) int {
 }
 
 func (m Model) resourceManageQueryMatchesRef(ref resourceRef) bool {
-	query := strings.ToLower(strings.TrimSpace(m.resourceManageQuery))
+	query := strings.ToLower(strings.TrimSpace(m.resourceState.ManageQuery))
 	if query == "" {
 		return true
 	}
@@ -259,12 +259,12 @@ func (m Model) resourceManageQueryMatchesRef(ref resourceRef) bool {
 }
 
 func (m Model) currentProcessRefs() []resourceRef {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return nil
 	}
 	seen := map[string]bool{}
 	refs := []resourceRef{}
-	for i, port := range m.states[m.resourceHostIndex].PortDetails {
+	for i, port := range m.states[m.resourceState.HostIndex].PortDetails {
 		if !m.portLooksStandaloneProcess(port) {
 			continue
 		}
@@ -282,12 +282,12 @@ func (m Model) currentProcessRefs() []resourceRef {
 }
 
 func (m Model) allProcessRefs() []resourceRef {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return nil
 	}
 	seen := map[string]bool{}
 	refs := []resourceRef{}
-	for i, port := range m.states[m.resourceHostIndex].PortDetails {
+	for i, port := range m.states[m.resourceState.HostIndex].PortDetails {
 		process := strings.TrimSpace(port.Process)
 		if process == "" {
 			continue
@@ -303,36 +303,36 @@ func (m Model) allProcessRefs() []resourceRef {
 }
 
 func (m Model) resourceNameForRef(ref resourceRef) (string, bool) {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return "", false
 	}
 	switch ref.Kind {
 	case resourceContainers:
-		items := m.states[m.resourceHostIndex].ContainerDetails
+		items := m.states[m.resourceState.HostIndex].ContainerDetails
 		if ref.Index < 0 || ref.Index >= len(items) {
 			return "", false
 		}
 		return items[ref.Index].Name, true
 	case resourceServices:
-		items := m.states[m.resourceHostIndex].ServiceDetails
+		items := m.states[m.resourceState.HostIndex].ServiceDetails
 		if ref.Index < 0 || ref.Index >= len(items) {
 			return "", false
 		}
 		return items[ref.Index].Unit, true
 	case resourceProcesses:
-		items := m.states[m.resourceHostIndex].PortDetails
+		items := m.states[m.resourceState.HostIndex].PortDetails
 		if ref.Index < 0 || ref.Index >= len(items) {
 			return "", false
 		}
 		return items[ref.Index].Process, true
 	case resourcePorts:
-		items := m.states[m.resourceHostIndex].PortDetails
+		items := m.states[m.resourceState.HostIndex].PortDetails
 		if ref.Index < 0 || ref.Index >= len(items) {
 			return "", false
 		}
 		return fmt.Sprintf("%s/%s", items[ref.Index].Protocol, items[ref.Index].Port), true
 	case resourceDatabases:
-		items := m.states[m.resourceHostIndex].DatabaseDetails
+		items := m.states[m.resourceState.HostIndex].DatabaseDetails
 		if ref.Index < 0 || ref.Index >= len(items) {
 			return "", false
 		}
@@ -343,7 +343,7 @@ func (m Model) resourceNameForRef(ref resourceRef) (string, bool) {
 }
 
 func (m Model) resourceRefInScope(ref resourceRef) bool {
-	if m.resourceScope == resourceScopeManaged {
+	if m.resourceState.Scope == resourceScopeManaged {
 		return m.resourceRefAdded(ref) && m.resourceRefFavorite(ref)
 	}
 	return m.resourceRefAdded(ref)
@@ -354,7 +354,7 @@ func (m Model) resourceRefManaged(ref resourceRef) bool {
 }
 
 func (m Model) resourceRefAdded(ref resourceRef) bool {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return false
 	}
 	name, ok := m.resourceNameForRef(ref)
@@ -365,44 +365,44 @@ func (m Model) resourceRefAdded(ref resourceRef) bool {
 	if kind == "" {
 		return false
 	}
-	idx := findManagedResource(m.resourceFile.Items, m.resourceServerKey(m.resourceHostIndex), kind, name)
+	idx := findManagedResource(m.resourceState.File.Items, m.resourceServerKey(m.resourceState.HostIndex), kind, name)
 	if idx >= 0 {
-		if kind == config.ResourceKindDatabase && !managedDatabaseResourceConfigured(m.resourceFile.Items[idx]) {
+		if kind == config.ResourceKindDatabase && !managedDatabaseResourceConfigured(m.resourceState.File.Items[idx]) {
 			return false
 		}
-		return m.resourceFile.Items[idx].Added
+		return m.resourceState.File.Items[idx].Added
 	}
 	switch ref.Kind {
 	case resourceContainers:
-		return m.states[m.resourceHostIndex].ContainerDetails[ref.Index].Managed
+		return m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index].Managed
 	case resourceServices:
-		return m.states[m.resourceHostIndex].ServiceDetails[ref.Index].Managed
+		return m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index].Managed
 	case resourceProcesses:
-		return m.states[m.resourceHostIndex].PortDetails[ref.Index].ProcessManaged
+		return m.states[m.resourceState.HostIndex].PortDetails[ref.Index].ProcessManaged
 	case resourcePorts:
-		return m.states[m.resourceHostIndex].PortDetails[ref.Index].Managed
+		return m.states[m.resourceState.HostIndex].PortDetails[ref.Index].Managed
 	case resourceDatabases:
-		return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Managed
+		return m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index].Managed
 	default:
 		return false
 	}
 }
 
 func (m Model) resourceRefFavorite(ref resourceRef) bool {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return false
 	}
 	switch ref.Kind {
 	case resourceContainers:
-		return m.states[m.resourceHostIndex].ContainerDetails[ref.Index].Favorite
+		return m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index].Favorite
 	case resourceServices:
-		return m.states[m.resourceHostIndex].ServiceDetails[ref.Index].Favorite
+		return m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index].Favorite
 	case resourceProcesses:
-		return m.states[m.resourceHostIndex].PortDetails[ref.Index].ProcessFavorite
+		return m.states[m.resourceState.HostIndex].PortDetails[ref.Index].ProcessFavorite
 	case resourcePorts:
-		return m.states[m.resourceHostIndex].PortDetails[ref.Index].Favorite
+		return m.states[m.resourceState.HostIndex].PortDetails[ref.Index].Favorite
 	case resourceDatabases:
-		return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Favorite
+		return m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index].Favorite
 	default:
 		return false
 	}
@@ -417,20 +417,20 @@ func (m Model) selectedResourceManaged() bool {
 }
 
 func (m Model) resourceRefMissing(ref resourceRef) bool {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return false
 	}
 	switch ref.Kind {
 	case resourceContainers:
-		return m.states[m.resourceHostIndex].ContainerDetails[ref.Index].Missing
+		return m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index].Missing
 	case resourceServices:
-		return m.states[m.resourceHostIndex].ServiceDetails[ref.Index].Missing
+		return m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index].Missing
 	case resourceProcesses:
 		return false
 	case resourcePorts:
-		return m.states[m.resourceHostIndex].PortDetails[ref.Index].Missing
+		return m.states[m.resourceState.HostIndex].PortDetails[ref.Index].Missing
 	case resourceDatabases:
-		return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Missing
+		return m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index].Missing
 	default:
 		return false
 	}

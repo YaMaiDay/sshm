@@ -16,26 +16,26 @@ func (m Model) startResourceList(index int, kind resourceKind, back viewMode) (t
 		return m, nil
 	}
 	if file, _, err := resourceservice.LoadConfig(m.home); err == nil {
-		m.resourceFile = file
+		m.resourceState.File = file
 	} else {
 		m.status = m.t("Failed to read resource config: ", "读取资源配置失败：") + err.Error()
 	}
 	m.mode = modeResourceList
-	m.resourceHostIndex = index
-	m.resourceBackMode = back
-	m.resourceKind = kind
-	m.resourceScope = resourceScopeDiscovered
-	m.resourceIndex = 0
-	m.resourceScroll = 0
-	m.resourceQuery = ""
-	m.resourceSearch = false
+	m.resourceState.HostIndex = index
+	m.resourceState.BackMode = back
+	m.resourceState.Kind = kind
+	m.resourceState.Scope = resourceScopeDiscovered
+	m.resourceState.Index = 0
+	m.resourceState.Scroll = 0
+	m.resourceState.Query = ""
+	m.resourceState.Search = false
 	m.applyCachedResourceDetails(index, kind)
 	m.applyManagedResources(index)
-	m.resourceLoading = true
-	m.resourceLoadingKind = kind
-	m.resourceLoadingPending = resourceLoadPartCount(kind)
-	m.resourceManualRefresh = false
-	m.resourceRefreshStatus = ""
+	m.resourceState.Loading = true
+	m.resourceState.LoadingKind = kind
+	m.resourceState.LoadingPending = resourceLoadPartCount(kind)
+	m.resourceState.ManualRefresh = false
+	m.resourceState.RefreshStatus = ""
 	m.status = m.t("Loading resources...", "正在读取资源...")
 	return m, m.fetchResourceDetails(index, kind)
 }
@@ -154,40 +154,40 @@ func resourceErrText(result resourceservice.PartResult, remoteErrText func(error
 }
 
 func (m Model) updateResourceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.resourceSearch {
+	if m.resourceState.Search {
 		return m.updateResourceSearch(msg)
 	}
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "q":
-		m.mode = m.resourceBackMode
+		m.mode = m.resourceState.BackMode
 		m.status = ""
-		m.resourceDetailName = ""
+		m.resourceState.DetailName = ""
 	case "tab":
-		m.resourceKind = (m.resourceKind + 1) % 6
-		m.resourceIndex = 0
-		m.resourceScroll = 0
+		m.resourceState.Kind = (m.resourceState.Kind + 1) % 6
+		m.resourceState.Index = 0
+		m.resourceState.Scroll = 0
 	case "g":
 		m.cycleResourceListFilter()
-		m.resourceIndex = 0
-		m.resourceScroll = 0
+		m.resourceState.Index = 0
+		m.resourceState.Scroll = 0
 	case "v":
-		if m.resourceScope == resourceScopeManaged {
-			m.resourceScope = resourceScopeDiscovered
+		if m.resourceState.Scope == resourceScopeManaged {
+			m.resourceState.Scope = resourceScopeDiscovered
 		} else {
-			m.resourceScope = resourceScopeManaged
+			m.resourceState.Scope = resourceScopeManaged
 		}
-		m.resourceIndex = 0
-		m.resourceScroll = 0
+		m.resourceState.Index = 0
+		m.resourceState.Scroll = 0
 	case "f":
 		return m.toggleManagedResource()
 	case "t":
 		return m.toggleResourcePinned()
 	case "y":
-		m.resourceSort = (m.resourceSort + 1) % 6
-		m.resourceIndex = 0
-		m.resourceScroll = 0
-		m.status = m.t("Sort: ", "排序：") + m.resourceSortName(m.resourceSort)
+		m.resourceState.Sort = (m.resourceState.Sort + 1) % 6
+		m.resourceState.Index = 0
+		m.resourceState.Scroll = 0
+		m.status = m.t("Sort: ", "排序：") + m.resourceSortName(m.resourceState.Sort)
 	case "x":
 		return m.startSelectedResourceRemoveConfirm()
 	case "j", "down":
@@ -205,16 +205,16 @@ func (m Model) updateResourceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		return m.startResourceAdd()
 	case "/":
-		m.resourceSearch = true
-		m.resourceQuery = ""
-		m.resourceIndex = 0
+		m.resourceState.Search = true
+		m.resourceState.Query = ""
+		m.resourceState.Index = 0
 	case "z":
-		if m.resourceView == resourceViewCards {
-			m.resourceView = resourceViewList
+		if m.resourceState.View == resourceViewCards {
+			m.resourceState.View = resourceViewList
 		} else {
-			m.resourceView = resourceViewCards
+			m.resourceState.View = resourceViewCards
 		}
-		m.resourceScroll = 0
+		m.resourceState.Scroll = 0
 	case "s":
 		return m.startResourceAction(resourceActionStart)
 	case "p":
@@ -222,52 +222,52 @@ func (m Model) updateResourceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		return m.startResourceAction(resourceActionRestart)
 	case "r":
-		return m.refreshResourceDetails(m.resourceKind)
+		return m.refreshResourceDetails(m.resourceState.Kind)
 	case " ", "enter":
 		m.mode = modeResourceDetail
-		m.resourceScroll = 0
+		m.resourceState.Scroll = 0
 		if ref, ok := m.selectedResourceRef(); ok {
-			m.resourceDetailKind = ref.Kind
+			m.resourceState.DetailKind = ref.Kind
 			if name, nameOK := m.selectedResourceName(); nameOK {
-				m.resourceDetailName = name
+				m.resourceState.DetailName = name
 			} else {
-				m.resourceDetailName = ""
+				m.resourceState.DetailName = ""
 			}
 		}
 		if ref, ok := m.selectedResourceRef(); ok && ref.Kind == resourceContainers {
 			if item, ok := m.selectedContainer(); ok {
-				m.resourceContainerExtraName = item.Name
-				m.resourceContainerExtra = resourceservice.ContainerExtraDetail{}
-				m.resourceContainerExtraErr = ""
-				m.resourceContainerExtraLoading = true
-				return m, m.fetchContainerExtraDetail(m.resourceHostIndex, item.Name)
+				m.resourceState.ContainerExtraName = item.Name
+				m.resourceState.ContainerExtra = resourceservice.ContainerExtraDetail{}
+				m.resourceState.ContainerExtraErr = ""
+				m.resourceState.ContainerExtraLoading = true
+				return m, m.fetchContainerExtraDetail(m.resourceState.HostIndex, item.Name)
 			}
 		}
 		if ref, ok := m.selectedResourceRef(); ok && ref.Kind == resourceServices {
 			if item, ok := m.selectedService(); ok {
-				m.resourceServiceExtraName = item.Unit
-				m.resourceServiceExtra = resourceservice.ServiceDetail{}
-				m.resourceServiceExtraErr = ""
-				m.resourceServiceExtraLoading = true
-				return m, m.fetchServiceExtraDetail(m.resourceHostIndex, item.Unit)
+				m.resourceState.ServiceExtraName = item.Unit
+				m.resourceState.ServiceExtra = resourceservice.ServiceDetail{}
+				m.resourceState.ServiceExtraErr = ""
+				m.resourceState.ServiceExtraLoading = true
+				return m, m.fetchServiceExtraDetail(m.resourceState.HostIndex, item.Unit)
 			}
 		}
 		if ref, ok := m.selectedResourceRef(); ok && ref.Kind == resourceProcesses {
 			if item, ok := m.selectedProcess(); ok {
-				m.resourceProcessExtraPID = item.PID
-				m.resourceProcessExtra = resourceservice.ProcessExtraDetail{}
-				m.resourceProcessExtraErr = ""
-				m.resourceProcessExtraLoading = true
-				return m, m.fetchProcessExtraDetail(m.resourceHostIndex, item.PID)
+				m.resourceState.ProcessExtraPID = item.PID
+				m.resourceState.ProcessExtra = resourceservice.ProcessExtraDetail{}
+				m.resourceState.ProcessExtraErr = ""
+				m.resourceState.ProcessExtraLoading = true
+				return m, m.fetchProcessExtraDetail(m.resourceState.HostIndex, item.PID)
 			}
 		}
 		if ref, ok := m.selectedResourceRef(); ok && ref.Kind == resourceDatabases {
 			if item, ok := m.selectedDatabase(); ok {
-				m.resourceDatabaseExtraName = item.Name
-				m.resourceDatabaseExtra = resourceservice.DatabaseExtraDetail{}
-				m.resourceDatabaseExtraErr = ""
-				m.resourceDatabaseExtraLoading = true
-				return m, m.fetchDatabaseExtraDetail(m.resourceHostIndex, item.Name)
+				m.resourceState.DatabaseExtraName = item.Name
+				m.resourceState.DatabaseExtra = resourceservice.DatabaseExtraDetail{}
+				m.resourceState.DatabaseExtraErr = ""
+				m.resourceState.DatabaseExtraLoading = true
+				return m, m.fetchDatabaseExtraDetail(m.resourceState.HostIndex, item.Name)
 			}
 		}
 	}
@@ -275,32 +275,32 @@ func (m Model) updateResourceList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) cycleResourceListFilter() {
-	if m.resourceKind == resourcePorts {
-		m.resourcePortFilter = (m.resourcePortFilter + 1) % 6
+	if m.resourceState.Kind == resourcePorts {
+		m.resourceState.PortFilter = (m.resourceState.PortFilter + 1) % 6
 		return
 	}
-	m.resourceFilter = (m.resourceFilter + 1) % 4
+	m.resourceState.Filter = (m.resourceState.Filter + 1) % 4
 }
 
 func (m Model) updateResourceSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
 	case "esc":
-		m.resourceSearch = false
-		m.resourceQuery = ""
-		m.resourceIndex = 0
+		m.resourceState.Search = false
+		m.resourceState.Query = ""
+		m.resourceState.Index = 0
 	case "enter":
-		m.resourceSearch = false
+		m.resourceState.Search = false
 	case "backspace":
-		r := []rune(m.resourceQuery)
+		r := []rune(m.resourceState.Query)
 		if len(r) > 0 {
-			m.resourceQuery = string(r[:len(r)-1])
+			m.resourceState.Query = string(r[:len(r)-1])
 		}
-		m.resourceIndex = 0
+		m.resourceState.Index = 0
 	default:
 		if len(msg.Runes) > 0 {
-			m.resourceQuery += string(msg.Runes)
-			m.resourceIndex = 0
+			m.resourceState.Query += string(msg.Runes)
+			m.resourceState.Index = 0
 		}
 	}
 	return m, nil
@@ -309,14 +309,14 @@ func (m Model) updateResourceSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) moveResourceSelection(delta int) {
 	total := len(m.filteredResourceIndexes())
 	if total == 0 {
-		m.resourceIndex = 0
+		m.resourceState.Index = 0
 		return
 	}
-	m.resourceIndex = clampInt(m.resourceIndex+delta, 0, total-1)
+	m.resourceState.Index = clampInt(m.resourceState.Index+delta, 0, total-1)
 }
 
 func (m *Model) moveResourceDown() {
-	if m.resourceView == resourceViewCards {
+	if m.resourceState.View == resourceViewCards {
 		m.moveResourceSelection(m.dashboardColumns())
 		return
 	}
@@ -324,7 +324,7 @@ func (m *Model) moveResourceDown() {
 }
 
 func (m *Model) moveResourceUp() {
-	if m.resourceView == resourceViewCards {
+	if m.resourceState.View == resourceViewCards {
 		m.moveResourceSelection(-m.dashboardColumns())
 		return
 	}
@@ -341,28 +341,28 @@ func (m *Model) moveResourceRight() {
 
 func (m Model) toggleManagedResource() (tea.Model, tea.Cmd) {
 	name, ok := m.selectedResourceName()
-	if !ok || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if !ok || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return m, nil
 	}
 	ref, _ := m.selectedResourceRef()
-	server := m.resourceServerKey(m.resourceHostIndex)
+	server := m.resourceServerKey(m.resourceState.HostIndex)
 	kind := configResourceKind(ref.Kind)
 	if kind == "" {
 		return m, nil
 	}
-	idx := findManagedResource(m.resourceFile.Items, server, kind, name)
-	if idx < 0 || !m.resourceFile.Items[idx].Added {
+	idx := findManagedResource(m.resourceState.File.Items, server, kind, name)
+	if idx < 0 || !m.resourceState.File.Items[idx].Added {
 		m.status = m.t("Add this resource first with a.", "请先按 a 添加该资源。")
 		return m, clearStatusAfter(2 * time.Second)
 	}
-	m.resourceFile.Items[idx].Favorite = !m.resourceFile.Items[idx].Favorite
-	if err := resourceservice.SaveConfig(m.home, m.resourceFile); err != nil {
+	m.resourceState.File.Items[idx].Favorite = !m.resourceState.File.Items[idx].Favorite
+	if err := resourceservice.SaveConfig(m.home, m.resourceState.File); err != nil {
 		m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
 		return m, nil
 	}
-	m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
-	m.applyManagedResources(m.resourceHostIndex)
-	if idx >= 0 && m.resourceFile.Items[idx].Favorite {
+	m.resourceState.File.Items = config.NormalizeManagedResources(m.resourceState.File.Items)
+	m.applyManagedResources(m.resourceState.HostIndex)
+	if idx >= 0 && m.resourceState.File.Items[idx].Favorite {
 		m.status = m.t("Added to favorites: ", "已收藏：") + name
 	} else {
 		m.status = m.t("Removed from favorites: ", "已取消收藏：") + name
@@ -372,35 +372,35 @@ func (m Model) toggleManagedResource() (tea.Model, tea.Cmd) {
 
 func (m Model) toggleResourcePinned() (tea.Model, tea.Cmd) {
 	name, ok := m.selectedResourceName()
-	if !ok || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if !ok || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return m, nil
 	}
 	ref, _ := m.selectedResourceRef()
-	server := m.resourceServerKey(m.resourceHostIndex)
+	server := m.resourceServerKey(m.resourceState.HostIndex)
 	kind := configResourceKind(ref.Kind)
 	if kind == "" {
 		return m, nil
 	}
-	idx := findManagedResource(m.resourceFile.Items, server, kind, name)
+	idx := findManagedResource(m.resourceState.File.Items, server, kind, name)
 	pinnedNow := false
-	if idx < 0 || !m.resourceFile.Items[idx].Added {
+	if idx < 0 || !m.resourceState.File.Items[idx].Added {
 		m.status = m.t("Add this resource first with a.", "请先按 a 添加该资源。")
 		return m, clearStatusAfter(2 * time.Second)
 	}
-	if m.resourceFile.Items[idx].Pinned {
-		m.resourceFile.Items[idx].Pinned = false
-		m.resourceFile.Items[idx].PinnedOrder = 0
+	if m.resourceState.File.Items[idx].Pinned {
+		m.resourceState.File.Items[idx].Pinned = false
+		m.resourceState.File.Items[idx].PinnedOrder = 0
 	} else {
-		m.resourceFile.Items[idx].Pinned = true
-		m.resourceFile.Items[idx].PinnedOrder = nextResourcePinnedOrder(m.resourceFile.Items)
+		m.resourceState.File.Items[idx].Pinned = true
+		m.resourceState.File.Items[idx].PinnedOrder = nextResourcePinnedOrder(m.resourceState.File.Items)
 		pinnedNow = true
 	}
-	if err := resourceservice.SaveConfig(m.home, m.resourceFile); err != nil {
+	if err := resourceservice.SaveConfig(m.home, m.resourceState.File); err != nil {
 		m.status = m.t("Failed to update pin: ", "置顶更新失败：") + err.Error()
 		return m, nil
 	}
-	m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
-	m.applyManagedResources(m.resourceHostIndex)
+	m.resourceState.File.Items = config.NormalizeManagedResources(m.resourceState.File.Items)
+	m.applyManagedResources(m.resourceState.HostIndex)
 	if pinnedNow {
 		m.status = m.t("Pinned: ", "已置顶：") + name
 	} else {
@@ -421,7 +421,7 @@ func nextResourcePinnedOrder(items []config.ManagedResource) int64 {
 
 func (m Model) hasManagedResources(index int) bool {
 	server := m.resourceServerKey(index)
-	for _, item := range m.resourceFile.Items {
+	for _, item := range m.resourceState.File.Items {
 		if item.Server == server && item.Added {
 			return true
 		}

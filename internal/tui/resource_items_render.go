@@ -24,14 +24,14 @@ func (m Model) resourceCardLines(indexes []resourceRef, width int) ([]string, in
 				continue
 			}
 			visible := i + col
-			if visible == m.resourceIndex {
+			if visible == m.resourceState.Index {
 				selectedTop = len(lines)
 			}
-			row = append(row, padBlock(m.resourceCard(indexes[visible], visible == m.resourceIndex, cardWidth), cardWidth))
+			row = append(row, padBlock(m.resourceCard(indexes[visible], visible == m.resourceState.Index, cardWidth), cardWidth))
 		}
 		rowLines := strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, row...), "\n")
 		lines = append(lines, rowLines...)
-		if m.resourceIndex >= i && m.resourceIndex < rowEnd {
+		if m.resourceState.Index >= i && m.resourceState.Index < rowEnd {
 			selectedBottom = len(lines)
 		}
 	}
@@ -44,7 +44,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 		borderStyle = selectedCardBorderStyle
 	}
 	if ref.Kind == resourceContainers {
-		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index]
 		kind := containerDetailKind(item)
 		title := m.resourceTypeBadge(ref.Kind) + " " + item.Name
 		title = m.resourceMarkedTitle(ref, title, item.Favorite)
@@ -68,7 +68,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 		}, "\n")
 	}
 	if ref.Kind == resourcePorts {
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		title := m.resourceTypeBadge(ref.Kind) + " " + fmt.Sprintf("%s/%s", item.Protocol, item.Port)
 		dot := greenStyle.Render("●")
 		if item.Missing {
@@ -91,7 +91,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 		}, "\n")
 	}
 	if ref.Kind == resourceProcesses {
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		title := m.resourceTypeBadge(ref.Kind) + " " + emptyDash(item.Process)
 		title = m.resourceMarkedTitle(ref, title, item.ProcessFavorite)
 		extra, hasExtra := m.processExtraForCard(item)
@@ -110,7 +110,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 		}, "\n")
 	}
 	if ref.Kind == resourceDatabases {
-		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index]
 		title := databaseTitleMark() + " " + databaseDisplayTitle(item)
 		title = m.resourceMarkedTitle(ref, title, item.Favorite)
 		meta := cardMutedStyle.Render(m.databaseCardMeta(item))
@@ -125,7 +125,7 @@ func (m Model) resourceCard(ref resourceRef, selected bool, width int) string {
 			cardBottomLine(width, borderStyle),
 		}, "\n")
 	}
-	item := m.mergedServiceDetail(m.states[m.resourceHostIndex].ServiceDetails[ref.Index])
+	item := m.mergedServiceDetail(m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index])
 	kind := serviceDetailKind(item)
 	title := m.resourceTypeBadge(ref.Kind) + " " + item.Unit
 	title = m.resourceMarkedTitle(ref, title, item.Favorite)
@@ -238,10 +238,10 @@ func (m Model) resourceListRows(indexes []resourceRef, width int) ([]string, int
 			rows = append(rows, m.resourceListGroupHeader(ref.Kind, width))
 			lastKind = ref.Kind
 		}
-		if i == m.resourceIndex {
+		if i == m.resourceState.Index {
 			selectedRow = len(rows)
 		}
-		rows = append(rows, m.resourceListLine(ref, i == m.resourceIndex, width))
+		rows = append(rows, m.resourceListLine(ref, i == m.resourceState.Index, width))
 	}
 	return rows, selectedRow
 }
@@ -267,27 +267,27 @@ func (m Model) resourceListLine(ref resourceRef, selected bool, width int) strin
 	}
 	nameWidth, statusWidth, infoWidth := resourceListColumnWidths(width)
 	if ref.Kind == resourceContainers {
-		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index]
 		kind := containerDetailKind(item)
 		displayName := m.resourceTypeBadge(ref.Kind) + " " + item.Name
 		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), coloredContainerStatus(emptyDash(item.Status), kind), containerResourceText(item), firstNonEmpty(item.Image, simplifyDockerPorts(item.Ports)), width, nameWidth, statusWidth, infoWidth)
 	}
 	if ref.Kind == resourcePorts {
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		displayName := m.resourceTypeBadge(ref.Kind) + " " + fmt.Sprintf("%s/%s", item.Protocol, item.Port)
 		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), m.portStatusStyled(item), portListenText(item), portProcessDetailText(item), width, nameWidth, statusWidth, infoWidth)
 	}
 	if ref.Kind == resourceProcesses {
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		displayName := m.resourceTypeBadge(ref.Kind) + " " + emptyDash(item.Process)
 		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.ProcessFavorite, nameStyle.Render(fitANSI(displayName, nameWidth)), portListenText(item), "PID "+emptyDash(item.PID), m.portRiskText(item), width, nameWidth, statusWidth, infoWidth)
 	}
 	if ref.Kind == resourceDatabases {
-		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index]
 		displayName := databaseTitleMark() + " " + databaseDisplayTitle(item)
 		return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), m.databaseStatusStyled(item), item.Engine+"  "+emptyDash(item.Source), firstNonEmpty(item.Endpoint, item.RawStatus), width, nameWidth, statusWidth, infoWidth)
 	}
-	item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
+	item := m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index]
 	kind := serviceDetailKind(item)
 	displayName := m.resourceTypeBadge(ref.Kind) + " " + item.Unit
 	return m.resourceListColumns(prefix, m.resourceRefPinnedOnly(ref), item.Favorite, nameStyle.Render(fitANSI(displayName, nameWidth)), coloredServiceStatus(m.serviceStatusText(item), kind), serviceResourceText(item), m.serviceUnitFileStateText(item.UnitFileState), width, nameWidth, statusWidth, infoWidth)

@@ -14,9 +14,9 @@ func (m Model) renderResourceDetail() string {
 	lines := expandLines(m.resourceDetailLines())
 	bodyHeight := m.resourceDetailBodyHeight()
 	maxScroll := maxInt(0, len(lines)-bodyHeight)
-	m.resourceScroll = clampInt(m.resourceScroll, 0, maxScroll)
+	m.resourceState.Scroll = clampInt(m.resourceState.Scroll, 0, maxScroll)
 	if len(lines) > bodyHeight {
-		lines = lines[m.resourceScroll : m.resourceScroll+bodyHeight]
+		lines = lines[m.resourceState.Scroll : m.resourceState.Scroll+bodyHeight]
 	}
 	body := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -56,7 +56,7 @@ func (m Model) resourceDetailHelp() string {
 func (m Model) resourceDetailTitle() string {
 	kind := m.currentSelectedResourceKind()
 	title := fmt.Sprintf("%s  %s", m.t(m.resourceKindName(kind)+" Detail", m.resourceKindName(kind)+"详情"), m.resourceHostTitle())
-	name := m.resourceDetailName
+	name := m.resourceState.DetailName
 	if strings.TrimSpace(name) == "" {
 		name = m.currentSelectedResourceName()
 	}
@@ -225,7 +225,7 @@ func (m Model) resourceDetailLines() []string {
 			m.detailRow(m.t("Endpoint", "地址"), emptyDash(item.Endpoint)),
 			m.detailRow(m.t("Connection", "连接方式"), m.t("Run from server", "通过服务器执行")),
 			m.detailRow(m.t("Runner", "执行位置"), m.resourceHostTitle()),
-			m.detailRow(m.t("Jump host", "跳板机"), m.resourceHostJumpText(m.resourceHostIndex)),
+			m.detailRow(m.t("Jump host", "跳板机"), m.resourceHostJumpText(m.resourceState.HostIndex)),
 			"",
 			sectionTitle(m.t("Runtime", "运行信息")),
 			m.detailRow(m.t("Container", "容器"), emptyDash(item.Container)),
@@ -320,16 +320,16 @@ func (m Model) processExtraDetailLines(item resourceservice.PortDetail) []string
 	if strings.TrimSpace(item.PID) == "" {
 		return []string{"", sectionTitle(m.t("Details", "详情")), m.detailRow(m.t("Status", "状态"), "-")}
 	}
-	if m.resourceProcessExtraPID != item.PID {
+	if m.resourceState.ProcessExtraPID != item.PID {
 		return nil
 	}
-	if m.resourceProcessExtraLoading {
+	if m.resourceState.ProcessExtraLoading {
 		return []string{"", sectionTitle(m.t("Details", "详情")), m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
 	}
-	if strings.TrimSpace(m.resourceProcessExtraErr) != "" {
-		return []string{"", sectionTitle(m.t("Details", "详情")), m.detailRow(m.t("Status", "状态"), redStyle.Render(m.resourceProcessExtraErr))}
+	if strings.TrimSpace(m.resourceState.ProcessExtraErr) != "" {
+		return []string{"", sectionTitle(m.t("Details", "详情")), m.detailRow(m.t("Status", "状态"), redStyle.Render(m.resourceState.ProcessExtraErr))}
 	}
-	d := m.resourceProcessExtra
+	d := m.resourceState.ProcessExtra
 	lines := []string{
 		"",
 		sectionTitle(m.t("Runtime", "运行信息")),
@@ -356,13 +356,13 @@ func (m Model) processExtraDetailLines(item resourceservice.PortDetail) []string
 }
 
 func (m Model) containerExtraDetailLines() []string {
-	if m.resourceContainerExtraLoading {
+	if m.resourceState.ContainerExtraLoading {
 		return []string{"", sectionTitle(m.t("Details", "详情")), m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中"))}
 	}
-	if strings.TrimSpace(m.resourceContainerExtraErr) != "" {
-		return []string{"", sectionTitle(m.t("Details", "详情")), m.detailRow(m.t("Status", "状态"), redStyle.Render(m.resourceContainerExtraErr))}
+	if strings.TrimSpace(m.resourceState.ContainerExtraErr) != "" {
+		return []string{"", sectionTitle(m.t("Details", "详情")), m.detailRow(m.t("Status", "状态"), redStyle.Render(m.resourceState.ContainerExtraErr))}
 	}
-	d := m.resourceContainerExtra
+	d := m.resourceState.ContainerExtra
 	if d.ID == "" && d.Size == "" && d.VirtualSize == "" && d.BlockIO == "" && len(d.Mounts) == 0 {
 		return []string{"", sectionTitle(m.t("Details", "详情")), m.detailRow(m.t("Status", "状态"), "-")}
 	}
@@ -425,20 +425,20 @@ func (m Model) containerExtraDetailLines() []string {
 
 func (m Model) databaseExtraDetailLines(item resourceservice.DatabaseDetail) []string {
 	lines := []string{"", sectionTitle(m.t("Deep metrics", "深度指标"))}
-	if m.resourceDatabaseExtraName != item.Name {
+	if m.resourceState.DatabaseExtraName != item.Name {
 		return append(lines, m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中")))
 	}
-	if m.resourceDatabaseExtraLoading {
+	if m.resourceState.DatabaseExtraLoading {
 		return append(lines, m.detailRow(m.t("Status", "状态"), m.t("Loading", "加载中")))
 	}
-	if strings.TrimSpace(m.resourceDatabaseExtraErr) != "" {
+	if strings.TrimSpace(m.resourceState.DatabaseExtraErr) != "" {
 		lines = append(lines,
-			m.detailRow(m.t("Status", "状态"), redStyle.Render(m.resourceDatabaseExtraErr)),
+			m.detailRow(m.t("Status", "状态"), redStyle.Render(m.resourceState.DatabaseExtraErr)),
 			m.detailRow(m.t("Config", "配置"), m.t("Press e to configure or update database connection.", "按 e 配置或更新数据库连接。")),
 		)
 		return lines
 	}
-	d := m.resourceDatabaseExtra
+	d := m.resourceState.DatabaseExtra
 	lines = append(lines,
 		m.detailRow(m.t("Version", "版本"), emptyDash(d.Version)),
 		m.detailRow(m.t("Uptime", "运行时间"), emptyDash(d.Uptime)),

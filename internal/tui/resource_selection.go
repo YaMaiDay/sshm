@@ -8,71 +8,71 @@ import (
 )
 
 func (m Model) resourceSearchText(ref resourceRef) string {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return ""
 	}
 	if ref.Kind == resourceContainers {
-		item := m.states[m.resourceHostIndex].ContainerDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index]
 		return strings.Join([]string{item.Name, item.Image, item.Status, item.Ports}, " ")
 	}
 	if ref.Kind == resourcePorts {
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		return strings.Join([]string{item.Protocol, item.Port, item.LocalAddress, item.ForeignAddress, item.State, item.Process, item.PID, item.FD, item.ServiceUnit, item.Container, item.ContainerPort}, " ")
 	}
 	if ref.Kind == resourceProcesses {
-		item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
 		return strings.Join([]string{item.Process, item.PID, item.ServiceUnit, item.Protocol, item.Port, item.LocalAddress, item.State}, " ")
 	}
 	if ref.Kind == resourceDatabases {
-		item := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index]
+		item := m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index]
 		return strings.Join([]string{item.Name, item.Engine, item.Source, item.Status, item.RawStatus, item.Endpoint, item.ServiceUnit, item.Container, item.Image, item.Process, item.PID, item.Port}, " ")
 	}
-	item := m.states[m.resourceHostIndex].ServiceDetails[ref.Index]
+	item := m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index]
 	return strings.Join([]string{item.Unit, item.Load, item.Active, item.Sub, item.Description, item.FragmentPath, item.WorkingDirectory, item.ExecStart}, " ")
 }
 
 func (m Model) resourceFilterMatches(ref resourceRef) bool {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return false
 	}
-	if m.resourceKind == resourcePorts && ref.Kind == resourcePorts {
+	if m.resourceState.Kind == resourcePorts && ref.Kind == resourcePorts {
 		return true
 	}
-	switch m.resourceFilter {
+	switch m.resourceState.Filter {
 	case resourceFilterRunning:
 		if ref.Kind == resourceContainers {
-			return containerDetailKind(m.states[m.resourceHostIndex].ContainerDetails[ref.Index]) == "running"
+			return containerDetailKind(m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index]) == "running"
 		}
 		if ref.Kind == resourcePorts {
-			return !m.states[m.resourceHostIndex].PortDetails[ref.Index].Missing
+			return !m.states[m.resourceState.HostIndex].PortDetails[ref.Index].Missing
 		}
 		if ref.Kind == resourceProcesses {
 			return true
 		}
 		if ref.Kind == resourceDatabases {
-			return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Status == "running"
+			return m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index].Status == "running"
 		}
-		return serviceDetailKind(m.states[m.resourceHostIndex].ServiceDetails[ref.Index]) == "running"
+		return serviceDetailKind(m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index]) == "running"
 	case resourceFilterProblems:
 		if ref.Kind == resourceContainers {
-			kind := containerDetailKind(m.states[m.resourceHostIndex].ContainerDetails[ref.Index])
+			kind := containerDetailKind(m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index])
 			return kind == "failed" || kind == "missing"
 		}
 		if ref.Kind == resourcePorts {
-			return m.states[m.resourceHostIndex].PortDetails[ref.Index].Missing
+			return m.states[m.resourceState.HostIndex].PortDetails[ref.Index].Missing
 		}
 		if ref.Kind == resourceProcesses {
 			return false
 		}
 		if ref.Kind == resourceDatabases {
-			status := m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Status
+			status := m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index].Status
 			return status == "problem" || status == "missing"
 		}
-		kind := serviceDetailKind(m.states[m.resourceHostIndex].ServiceDetails[ref.Index])
+		kind := serviceDetailKind(m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index])
 		return kind == "failed" || kind == "missing"
 	case resourceFilterStopped:
 		if ref.Kind == resourceContainers {
-			return containerDetailKind(m.states[m.resourceHostIndex].ContainerDetails[ref.Index]) == "stopped"
+			return containerDetailKind(m.states[m.resourceState.HostIndex].ContainerDetails[ref.Index]) == "stopped"
 		}
 		if ref.Kind == resourcePorts {
 			return false
@@ -81,23 +81,23 @@ func (m Model) resourceFilterMatches(ref resourceRef) bool {
 			return false
 		}
 		if ref.Kind == resourceDatabases {
-			return m.states[m.resourceHostIndex].DatabaseDetails[ref.Index].Status == "stopped"
+			return m.states[m.resourceState.HostIndex].DatabaseDetails[ref.Index].Status == "stopped"
 		}
-		return serviceDetailKind(m.states[m.resourceHostIndex].ServiceDetails[ref.Index]) == "stopped"
+		return serviceDetailKind(m.states[m.resourceState.HostIndex].ServiceDetails[ref.Index]) == "stopped"
 	default:
 		return true
 	}
 }
 
 func (m Model) resourcePortFilterMatches(ref resourceRef) bool {
-	if m.resourceKind != resourcePorts || ref.Kind != resourcePorts {
+	if m.resourceState.Kind != resourcePorts || ref.Kind != resourcePorts {
 		return true
 	}
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return false
 	}
-	item := m.states[m.resourceHostIndex].PortDetails[ref.Index]
-	switch m.resourcePortFilter {
+	item := m.states[m.resourceState.HostIndex].PortDetails[ref.Index]
+	switch m.resourceState.PortFilter {
 	case resourcePortFilterPublic:
 		return !item.Missing && portAddressScope(item.LocalAddress) == portScopeWildcard
 	case resourcePortFilterLoopback:
@@ -143,29 +143,29 @@ func (m Model) selectedResourceName() (string, bool) {
 
 func (m Model) selectedResourceRef() (resourceRef, bool) {
 	indexes := m.filteredResourceIndexes()
-	if len(indexes) == 0 || m.resourceIndex < 0 || m.resourceIndex >= len(indexes) {
+	if len(indexes) == 0 || m.resourceState.Index < 0 || m.resourceState.Index >= len(indexes) {
 		return resourceRef{}, false
 	}
-	return indexes[m.resourceIndex], true
+	return indexes[m.resourceState.Index], true
 }
 
 func (m Model) currentSelectedResourceKind() resourceKind {
-	if strings.TrimSpace(m.resourceDetailName) != "" {
-		return m.resourceDetailKind
+	if strings.TrimSpace(m.resourceState.DetailName) != "" {
+		return m.resourceState.DetailKind
 	}
 	if ref, ok := m.selectedResourceRef(); ok {
 		return ref.Kind
 	}
-	if m.resourceKind == resourcePorts {
+	if m.resourceState.Kind == resourcePorts {
 		return resourcePorts
 	}
-	if m.resourceKind == resourceProcesses {
+	if m.resourceState.Kind == resourceProcesses {
 		return resourceProcesses
 	}
-	if m.resourceKind == resourceServices {
+	if m.resourceState.Kind == resourceServices {
 		return resourceServices
 	}
-	if m.resourceKind == resourceDatabases {
+	if m.resourceState.Kind == resourceDatabases {
 		return resourceDatabases
 	}
 	return resourceContainers
@@ -173,10 +173,10 @@ func (m Model) currentSelectedResourceKind() resourceKind {
 
 func (m Model) selectedDatabase() (resourceservice.DatabaseDetail, bool) {
 	ref, ok := m.selectedResourceRef()
-	if !ok || ref.Kind != resourceDatabases || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if !ok || ref.Kind != resourceDatabases || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return resourceservice.DatabaseDetail{}, false
 	}
-	items := m.states[m.resourceHostIndex].DatabaseDetails
+	items := m.states[m.resourceState.HostIndex].DatabaseDetails
 	real := ref.Index
 	if real < 0 || real >= len(items) {
 		return resourceservice.DatabaseDetail{}, false
@@ -186,10 +186,10 @@ func (m Model) selectedDatabase() (resourceservice.DatabaseDetail, bool) {
 
 func (m Model) selectedPort() (resourceservice.PortDetail, bool) {
 	ref, ok := m.selectedResourceRef()
-	if !ok || ref.Kind != resourcePorts || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if !ok || ref.Kind != resourcePorts || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return resourceservice.PortDetail{}, false
 	}
-	items := m.states[m.resourceHostIndex].PortDetails
+	items := m.states[m.resourceState.HostIndex].PortDetails
 	real := ref.Index
 	if real < 0 || real >= len(items) {
 		return resourceservice.PortDetail{}, false
@@ -199,10 +199,10 @@ func (m Model) selectedPort() (resourceservice.PortDetail, bool) {
 
 func (m Model) selectedProcess() (resourceservice.PortDetail, bool) {
 	ref, ok := m.selectedResourceRef()
-	if !ok || ref.Kind != resourceProcesses || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if !ok || ref.Kind != resourceProcesses || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return resourceservice.PortDetail{}, false
 	}
-	items := m.states[m.resourceHostIndex].PortDetails
+	items := m.states[m.resourceState.HostIndex].PortDetails
 	real := ref.Index
 	if real < 0 || real >= len(items) {
 		return resourceservice.PortDetail{}, false
@@ -212,10 +212,10 @@ func (m Model) selectedProcess() (resourceservice.PortDetail, bool) {
 
 func (m Model) selectedContainer() (resourceservice.ContainerDetail, bool) {
 	ref, ok := m.selectedResourceRef()
-	if !ok || ref.Kind != resourceContainers || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if !ok || ref.Kind != resourceContainers || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return resourceservice.ContainerDetail{}, false
 	}
-	items := m.states[m.resourceHostIndex].ContainerDetails
+	items := m.states[m.resourceState.HostIndex].ContainerDetails
 	real := ref.Index
 	if real < 0 || real >= len(items) {
 		return resourceservice.ContainerDetail{}, false
@@ -225,10 +225,10 @@ func (m Model) selectedContainer() (resourceservice.ContainerDetail, bool) {
 
 func (m Model) selectedService() (resourceservice.ServiceDetail, bool) {
 	ref, ok := m.selectedResourceRef()
-	if !ok || ref.Kind != resourceServices || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if !ok || ref.Kind != resourceServices || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return resourceservice.ServiceDetail{}, false
 	}
-	items := m.states[m.resourceHostIndex].ServiceDetails
+	items := m.states[m.resourceState.HostIndex].ServiceDetails
 	real := ref.Index
 	if real < 0 || real >= len(items) {
 		return resourceservice.ServiceDetail{}, false

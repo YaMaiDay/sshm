@@ -33,12 +33,12 @@ func (m Model) resourceLogScript(kind resourceKind, name string, lines int) stri
 }
 
 func (m Model) managedResource(kind resourceKind, name string) (config.ManagedResource, bool) {
-	server := m.resourceServerKey(m.resourceHostIndex)
+	server := m.resourceServerKey(m.resourceState.HostIndex)
 	configKind := configResourceKind(kind)
 	if server == "" || configKind == "" {
 		return config.ManagedResource{}, false
 	}
-	for _, item := range m.resourceFile.Items {
+	for _, item := range m.resourceState.File.Items {
 		if item.Server == server && item.Kind == configKind && item.Name == name && item.Added {
 			if item.Kind == config.ResourceKindDatabase && !managedDatabaseResourceConfigured(item) {
 				continue

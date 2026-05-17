@@ -28,7 +28,7 @@ func (m Model) renderResourceAdd() string {
 	rightLines := m.resourceManageFavoriteLines(favorites, rightWidth-4, bodyHeight)
 	leftTitle := m.t("Discovered", "发现")
 	rightTitle := m.t("Added", "已添加")
-	if m.resourceManagePane == 0 {
+	if m.resourceState.ManagePane == 0 {
 		leftTitle = blueStyle.Bold(true).Render(leftTitle)
 	} else {
 		rightTitle = blueStyle.Bold(true).Render(rightTitle)
@@ -48,21 +48,21 @@ func (m Model) renderResourceAdd() string {
 		Height(bodyHeight).
 		Render(strings.Join(append([]string{rightTitle}, rightLines...), "\n"))
 	headerParts := []string{m.t("Resource Manager", "资源管理"), m.resourceHostTitle(), m.resourceManageTypeTabs()}
-	if m.resourceManageSearch {
+	if m.resourceState.ManageSearch {
 		searchWidth := width / 3
 		if searchWidth < 8 {
 			searchWidth = 8
 		}
-		headerParts = append(headerParts, blueStyle.Render(m.t("Search ", "搜索 ")+inlineCursorText(m.resourceManageQuery, searchWidth, len([]rune(m.resourceManageQuery)))))
-	} else if strings.TrimSpace(m.resourceManageQuery) != "" {
-		headerParts = append(headerParts, blueStyle.Render(m.t("Search ", "搜索 ")+m.resourceManageQuery))
+		headerParts = append(headerParts, blueStyle.Render(m.t("Search ", "搜索 ")+inlineCursorText(m.resourceState.ManageQuery, searchWidth, len([]rune(m.resourceState.ManageQuery)))))
+	} else if strings.TrimSpace(m.resourceState.ManageQuery) != "" {
+		headerParts = append(headerParts, blueStyle.Render(m.t("Search ", "搜索 ")+m.resourceState.ManageQuery))
 	}
 	if collected := m.resourceManageCollectedText(); collected != "" {
 		headerParts = append(headerParts, mutedStyle.Render(collected))
 	}
-	if m.resourceLoading {
+	if m.resourceState.Loading {
 		headerParts = append(headerParts, m.dashboardStatusHeaderText(m.status))
-	} else if strings.TrimSpace(m.status) != "" && m.status != m.resourceRefreshStatus {
+	} else if strings.TrimSpace(m.status) != "" && m.status != m.resourceState.RefreshStatus {
 		headerParts = append(headerParts, m.dashboardStatusHeaderText(m.status))
 	}
 	header := strings.Join(headerParts, "  ")
@@ -73,8 +73,8 @@ func (m Model) renderResourceAdd() string {
 func (m Model) resourceManageHelp() string {
 	partsEN := []string{"Move ↑↓/jk", "Pane Tab", "Type ←→/g", "Search /"}
 	partsZH := []string{"移动 ↑↓/jk", "切栏 Tab", "类型 ←→/g", "搜索 /"}
-	if m.resourceManagePane == 0 {
-		if m.resourceAddKind == resourceDatabases {
+	if m.resourceState.ManagePane == 0 {
+		if m.resourceState.AddKind == resourceDatabases {
 			partsEN = append(partsEN, "Config Enter/f")
 			partsZH = append(partsZH, "配置 Enter/f")
 			partsEN = append(partsEN, "New n")
@@ -103,14 +103,14 @@ func (m Model) renderResourceAddEdit() string {
 	}
 	lines = append(lines, m.resourceAddDatabaseInstanceLines()...)
 	lines = append(lines, "")
-	for i := 0; i < resourceAddFieldCount(m.resourceAddKind); i++ {
+	for i := 0; i < resourceAddFieldCount(m.resourceState.AddKind); i++ {
 		lines = append(lines, m.resourceAddEditFieldLine(i, bodyWidth))
 	}
 	bodyHeight := m.height - 3
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
-	start, end := visibleRange(len(lines), maxInt(0, m.resourceAddField+5), bodyHeight)
+	start, end := visibleRange(len(lines), maxInt(0, m.resourceState.AddField+5), bodyHeight)
 	body := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(softGray).
@@ -122,7 +122,7 @@ func (m Model) renderResourceAddEdit() string {
 }
 
 func (m Model) resourceAddDatabaseConfigTitle() string {
-	if strings.TrimSpace(m.resourceCommandForm.DBInstance) != "" {
+	if strings.TrimSpace(m.resourceState.CommandForm.DBInstance) != "" {
 		return m.t("Configure Database", "配置数据库")
 	}
 	return m.t("Add Database Manually", "手动新增数据库")
@@ -130,29 +130,29 @@ func (m Model) resourceAddDatabaseConfigTitle() string {
 
 func (m Model) resourceAddDatabaseInstanceLines() []string {
 	lines := []string{}
-	if strings.TrimSpace(m.resourceCommandForm.DBInstance) != "" {
+	if strings.TrimSpace(m.resourceState.CommandForm.DBInstance) != "" {
 		lines = append(lines,
 			sectionTitle(m.t("Discovered instance", "发现实例")),
-			m.detailRow(m.t("Instance", "实例"), m.resourceCommandForm.DBInstance),
-			m.detailRow(m.t("Engine", "数据库"), emptyDash(m.resourceCommandForm.DBEngine)),
+			m.detailRow(m.t("Instance", "实例"), m.resourceState.CommandForm.DBInstance),
+			m.detailRow(m.t("Engine", "数据库"), emptyDash(m.resourceState.CommandForm.DBEngine)),
 			m.detailRow(m.t("Status", "状态"), m.resourceAddDatabaseStatusLine()),
-			m.detailRow(m.t("Source", "来源"), emptyDash(m.resourceCommandForm.DBSource)),
-			m.detailRow(m.t("Endpoint", "地址"), emptyDash(m.resourceCommandForm.DBEndpoint)),
+			m.detailRow(m.t("Source", "来源"), emptyDash(m.resourceState.CommandForm.DBSource)),
+			m.detailRow(m.t("Endpoint", "地址"), emptyDash(m.resourceState.CommandForm.DBEndpoint)),
 		)
-		if strings.TrimSpace(m.resourceCommandForm.DBContainer) != "" {
-			lines = append(lines, m.detailRow(m.t("Container", "容器"), m.resourceCommandForm.DBContainer))
+		if strings.TrimSpace(m.resourceState.CommandForm.DBContainer) != "" {
+			lines = append(lines, m.detailRow(m.t("Container", "容器"), m.resourceState.CommandForm.DBContainer))
 		}
-		if strings.TrimSpace(m.resourceCommandForm.DBImage) != "" {
-			lines = append(lines, m.detailRow(m.t("Image", "镜像"), m.resourceCommandForm.DBImage))
+		if strings.TrimSpace(m.resourceState.CommandForm.DBImage) != "" {
+			lines = append(lines, m.detailRow(m.t("Image", "镜像"), m.resourceState.CommandForm.DBImage))
 		}
-		if strings.TrimSpace(m.resourceCommandForm.DBServiceUnit) != "" {
-			lines = append(lines, m.detailRow(m.t("Service", "服务"), m.resourceCommandForm.DBServiceUnit))
+		if strings.TrimSpace(m.resourceState.CommandForm.DBServiceUnit) != "" {
+			lines = append(lines, m.detailRow(m.t("Service", "服务"), m.resourceState.CommandForm.DBServiceUnit))
 		}
-		if strings.TrimSpace(m.resourceCommandForm.DBProcess) != "" {
-			lines = append(lines, m.detailRow(m.t("Process", "进程"), m.resourceCommandForm.DBProcess))
+		if strings.TrimSpace(m.resourceState.CommandForm.DBProcess) != "" {
+			lines = append(lines, m.detailRow(m.t("Process", "进程"), m.resourceState.CommandForm.DBProcess))
 		}
-		if strings.TrimSpace(m.resourceCommandForm.DBPID) != "" {
-			lines = append(lines, m.detailRow("PID", m.resourceCommandForm.DBPID))
+		if strings.TrimSpace(m.resourceState.CommandForm.DBPID) != "" {
+			lines = append(lines, m.detailRow("PID", m.resourceState.CommandForm.DBPID))
 		}
 	} else {
 		lines = append(lines,
@@ -163,7 +163,7 @@ func (m Model) resourceAddDatabaseInstanceLines() []string {
 	lines = append(lines,
 		m.detailRow(m.t("Connection", "连接方式"), m.t("Run from server", "通过服务器执行")),
 		m.detailRow(m.t("Runner", "执行位置"), m.resourceHostTitle()),
-		m.detailRow(m.t("Jump host", "跳板机"), m.resourceHostJumpText(m.resourceHostIndex)),
+		m.detailRow(m.t("Jump host", "跳板机"), m.resourceHostJumpText(m.resourceState.HostIndex)),
 		"",
 		sectionTitle(m.t("Database schema", "库配置")),
 	)
@@ -171,8 +171,8 @@ func (m Model) resourceAddDatabaseInstanceLines() []string {
 }
 
 func (m Model) resourceAddDatabaseStatusLine() string {
-	raw := strings.TrimSpace(m.resourceCommandForm.DBRawStatus)
-	item := resourceservice.DatabaseDetail{Status: m.resourceCommandForm.DBStatus, RawStatus: raw}
+	raw := strings.TrimSpace(m.resourceState.CommandForm.DBRawStatus)
+	item := resourceservice.DatabaseDetail{Status: m.resourceState.CommandForm.DBStatus, RawStatus: raw}
 	return m.databaseStatusLine(item)
 }
 
@@ -183,13 +183,13 @@ func (m Model) resourceAddEditFieldLine(field int, width int) string {
 	if inputWidth < 18 {
 		inputWidth = 18
 	}
-	display := commandInputText(value, m.resourceAddCursor, m.resourceAddField == field, inputWidth)
-	if m.resourceCommandForm.Kind == resourceDatabases && field == 0 {
+	display := commandInputText(value, m.resourceState.AddCursor, m.resourceState.AddField == field, inputWidth)
+	if m.resourceState.CommandForm.Kind == resourceDatabases && field == 0 {
 		display = m.resourceAddDatabaseEngineDisplay(inputWidth)
 	}
 	prefix := "  "
 	style := detailValueStyle
-	if m.resourceAddField == field {
+	if m.resourceState.AddField == field {
 		prefix = "▶ "
 		style = blueStyle.Bold(true)
 	}
@@ -197,19 +197,19 @@ func (m Model) resourceAddEditFieldLine(field int, width int) string {
 }
 
 func (m Model) resourceAddDatabaseEngineDisplay(width int) string {
-	value := resourceservice.NormalizeDatabaseEngine(m.resourceCommandForm.DBEngine)
+	value := resourceservice.NormalizeDatabaseEngine(m.resourceState.CommandForm.DBEngine)
 	if value == "" {
 		value = "MySQL"
 	}
 	text := value
-	if m.resourceAddField == 0 {
+	if m.resourceState.AddField == 0 {
 		text = "← " + text + " →"
 	}
 	return fitANSI(text, width)
 }
 
 func (m Model) resourceAddEditFieldName(field int) string {
-	if m.resourceAddKind == resourceDatabases {
+	if m.resourceState.AddKind == resourceDatabases {
 		return m.resourceCommandFieldName(field)
 	}
 	if field == 0 {
@@ -219,7 +219,7 @@ func (m Model) resourceAddEditFieldName(field int) string {
 }
 
 func (m Model) resourceManageTypeTabs() string {
-	return fmt.Sprintf("%s  %s  %s", m.t("Type", "类型"), lipgloss.NewStyle().Bold(true).Foreground(resourceKindColor(m.resourceAddKind)).Render(m.resourceKindName(m.resourceAddKind)), mutedStyle.Render("←→/g"))
+	return fmt.Sprintf("%s  %s  %s", m.t("Type", "类型"), lipgloss.NewStyle().Bold(true).Foreground(resourceKindColor(m.resourceState.AddKind)).Render(m.resourceKindName(m.resourceState.AddKind)), mutedStyle.Render("←→/g"))
 }
 
 func (m Model) resourceManageCollectedText() string {
@@ -243,18 +243,18 @@ func (m Model) resourceHostJumpText(index int) string {
 func (m Model) resourceManageDiscoveredLines(refs []resourceRef, width int, height int) []string {
 	lines := []string{}
 	if len(refs) == 0 {
-		if m.resourceLoading {
-			lines = append(lines, mutedStyle.Render(m.t("Loading ", "正在加载")+m.resourceKindName(m.resourceAddKind)+"..."))
-		} else if errText := m.resourceErrorTextForKind(m.resourceAddKind); errText != "" {
+		if m.resourceState.Loading {
+			lines = append(lines, mutedStyle.Render(m.t("Loading ", "正在加载")+m.resourceKindName(m.resourceState.AddKind)+"..."))
+		} else if errText := m.resourceErrorTextForKind(m.resourceState.AddKind); errText != "" {
 			lines = append(lines, redStyle.Render(fitANSI(errText, width)))
 		} else {
 			lines = append(lines, mutedStyle.Render(m.t("No discovered resources", "暂无发现资源")))
 		}
 	} else {
-		idx := clampInt(m.resourceManageDiscoveredIndex, 0, len(refs)-1)
+		idx := clampInt(m.resourceState.ManageDiscoveredIndex, 0, len(refs)-1)
 		start, end := visibleRange(len(refs), idx, maxInt(1, height-1))
 		for i := start; i < end; i++ {
-			selected := m.resourceManagePane == 0 && i == idx
+			selected := m.resourceState.ManagePane == 0 && i == idx
 			lines = append(lines, m.resourceManageRefLine(refs[i], selected, width))
 		}
 	}
@@ -269,10 +269,10 @@ func (m Model) resourceManageFavoriteLines(items []config.ManagedResource, width
 	if len(items) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No added resources", "暂无已添加资源")))
 	} else {
-		idx := clampInt(m.resourceManageFavoriteIndex, 0, len(items)-1)
+		idx := clampInt(m.resourceState.ManageFavoriteIndex, 0, len(items)-1)
 		start, end := visibleRange(len(items), idx, maxInt(1, height-1))
 		for i := start; i < end; i++ {
-			selected := m.resourceManagePane == 1 && i == idx
+			selected := m.resourceState.ManagePane == 1 && i == idx
 			lines = append(lines, m.resourceManageFavoriteLine(items[i], selected, width))
 		}
 	}

@@ -17,13 +17,13 @@ func (m Model) updateResourceLog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.mode = modeResourceList
 	case "j", "down":
-		m.resourceLogScroll = moveClampedInt(m.resourceLogScroll, 1, 0, m.resourceLogMaxScroll())
+		m.resourceState.LogScroll = moveClampedInt(m.resourceState.LogScroll, 1, 0, m.resourceLogMaxScroll())
 	case "k", "up":
-		m.resourceLogScroll = moveClampedInt(m.resourceLogScroll, -1, 0, m.resourceLogMaxScroll())
+		m.resourceState.LogScroll = moveClampedInt(m.resourceState.LogScroll, -1, 0, m.resourceLogMaxScroll())
 	case "r":
 		return m.openResourceLog()
 	}
-	m.resourceLogScroll = clampInt(m.resourceLogScroll, 0, m.resourceLogMaxScroll())
+	m.resourceState.LogScroll = clampInt(m.resourceState.LogScroll, 0, m.resourceLogMaxScroll())
 	return m, nil
 }
 
@@ -32,12 +32,12 @@ func (m Model) updateResourceConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
 		m.mode = modeResourceList
-		m.resourceAction = resourceActionNone
+		m.resourceState.Action = resourceActionNone
 	case "enter":
 		m.mode = modeResourceOutput
-		m.resourceActionRunning = true
-		m.resourceActionOutput = ""
-		m.resourceActionExitCode = 0
+		m.resourceState.ActionRunning = true
+		m.resourceState.ActionOutput = ""
+		m.resourceState.ActionExitCode = 0
 		return m, m.runResourceAction()
 	}
 	return m, nil
@@ -48,17 +48,17 @@ func (m Model) updateResourceOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
 		m.mode = modeResourceList
-		m.resourceAction = resourceActionNone
+		m.resourceState.Action = resourceActionNone
 	case "j", "down":
-		m.resourceScroll = moveClampedInt(m.resourceScroll, 1, 0, m.resourceOutputMaxScroll())
+		m.resourceState.Scroll = moveClampedInt(m.resourceState.Scroll, 1, 0, m.resourceOutputMaxScroll())
 	case "k", "up":
-		m.resourceScroll = moveClampedInt(m.resourceScroll, -1, 0, m.resourceOutputMaxScroll())
+		m.resourceState.Scroll = moveClampedInt(m.resourceState.Scroll, -1, 0, m.resourceOutputMaxScroll())
 	case "r":
-		if !m.resourceActionRunning && m.resourceAction != resourceActionNone {
+		if !m.resourceState.ActionRunning && m.resourceState.Action != resourceActionNone {
 			m.mode = modeResourceOutput
-			m.resourceActionRunning = true
-			m.resourceActionOutput = ""
-			m.resourceActionExitCode = 0
+			m.resourceState.ActionRunning = true
+			m.resourceState.ActionOutput = ""
+			m.resourceState.ActionExitCode = 0
 			return m, m.runResourceAction()
 		}
 	}
@@ -83,19 +83,19 @@ func (m Model) startResourceAction(action resourceActionKind) (tea.Model, tea.Cm
 		m.status = m.t("Add this process and configure commands first.", "请先添加该进程并配置命令。")
 		return m, clearStatusAfter(2 * time.Second)
 	}
-	m.resourceAction = action
-	m.resourceActionResource = ref.Kind
-	m.resourceActionName = name
-	m.resourceScroll = 0
+	m.resourceState.Action = action
+	m.resourceState.ActionResource = ref.Kind
+	m.resourceState.ActionName = name
+	m.resourceState.Scroll = 0
 	m.mode = modeResourceConfirm
 	return m, nil
 }
 
 func (m Model) runResourceAction() tea.Cmd {
-	index := m.resourceHostIndex
-	kind := m.resourceActionResource
-	action := m.resourceAction
-	name := m.resourceActionName
+	index := m.resourceState.HostIndex
+	kind := m.resourceState.ActionResource
+	action := m.resourceState.Action
+	name := m.resourceState.ActionName
 	if index < 0 || index >= len(m.states) || strings.TrimSpace(name) == "" {
 		return func() tea.Msg {
 			return resourceActionMsg{Index: index, Kind: kind, Action: action, Name: name, Result: commandResult{Err: fmt.Errorf("invalid resource"), ExitCode: -1}}
@@ -130,12 +130,12 @@ func (m Model) openResourceLog() (tea.Model, tea.Cmd) {
 		return m, clearStatusAfter(2 * time.Second)
 	}
 	m.mode = modeResourceLog
-	m.resourceLogName = name
-	m.resourceLogKind = ref.Kind
-	m.resourceLogOutput = m.t("Loading logs...", "正在读取日志...")
-	m.resourceLogScroll = 0
-	index := m.resourceHostIndex
-	kind := m.resourceLogKind
+	m.resourceState.LogName = name
+	m.resourceState.LogKind = ref.Kind
+	m.resourceState.LogOutput = m.t("Loading logs...", "正在读取日志...")
+	m.resourceState.LogScroll = 0
+	index := m.resourceState.HostIndex
+	kind := m.resourceState.LogKind
 	h := m.states[index].Host
 	timeout := m.appConfig.CommandDuration()
 	if timeout < 20*time.Second {

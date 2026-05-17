@@ -251,10 +251,10 @@ func (m Model) databaseCardExtra(item resourceservice.DatabaseDetail) (resources
 		}
 		return cache.Detail, cache.Err, true
 	}
-	if m.resourceDatabaseExtraName != item.Name || m.resourceDatabaseExtraLoading {
+	if m.resourceState.DatabaseExtraName != item.Name || m.resourceState.DatabaseExtraLoading {
 		return resourceservice.DatabaseExtraDetail{}, "", false
 	}
-	return m.resourceDatabaseExtra, strings.TrimSpace(m.resourceDatabaseExtraErr), true
+	return m.resourceState.DatabaseExtra, strings.TrimSpace(m.resourceState.DatabaseExtraErr), true
 }
 
 func (m Model) databaseCardErrorText(errText string) string {
@@ -282,13 +282,13 @@ func containerDetailPercentText(percentText string, extra string, warn float64, 
 }
 
 func (m Model) containerCPULimitText() string {
-	if m.resourceContainerExtraLoading {
+	if m.resourceState.ContainerExtraLoading {
 		return m.t("Loading", "加载中")
 	}
-	if strings.TrimSpace(m.resourceContainerExtraErr) != "" {
+	if strings.TrimSpace(m.resourceState.ContainerExtraErr) != "" {
 		return "-"
 	}
-	d := m.resourceContainerExtra
+	d := m.resourceState.ContainerExtra
 	return m.containerCPULimitTextFromFields(d.NanoCpus, d.CPUQuota, d.CPUPeriod, d.CpusetCpus)
 }
 
@@ -296,7 +296,7 @@ func (m Model) containerCPULimitTextForItem(item resourceservice.ContainerDetail
 	if item.CPULimitKnown {
 		return m.containerCPULimitTextFromFields(item.NanoCpus, item.CPUQuota, item.CPUPeriod, item.CpusetCpus)
 	}
-	if m.resourceContainerExtraName == item.Name && !m.resourceContainerExtraLoading && strings.TrimSpace(m.resourceContainerExtraErr) == "" {
+	if m.resourceState.ContainerExtraName == item.Name && !m.resourceState.ContainerExtraLoading && strings.TrimSpace(m.resourceState.ContainerExtraErr) == "" {
 		return m.containerCPULimitText()
 	}
 	return ""

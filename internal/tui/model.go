@@ -43,7 +43,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 		commandFile:        commandFile,
 		deploymentFile:     deploymentFile,
 		deploymentProgress: newDeploymentProgressStore(),
-		resourceFile:       resourceFile,
+		resourceState:      resourceState{File: resourceFile},
 		transferState:      transferState{History: transferHistory},
 		categories:         categories,
 		status:             "",

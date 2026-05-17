@@ -119,10 +119,10 @@ func serviceExitStyle(value string) string {
 }
 
 func (m Model) mergedServiceDetail(item resourceservice.ServiceDetail) resourceservice.ServiceDetail {
-	if m.resourceServiceExtraLoading || strings.TrimSpace(m.resourceServiceExtraErr) != "" || m.resourceServiceExtraName != item.Unit {
+	if m.resourceState.ServiceExtraLoading || strings.TrimSpace(m.resourceState.ServiceExtraErr) != "" || m.resourceState.ServiceExtraName != item.Unit {
 		return item
 	}
-	extra := m.resourceServiceExtra
+	extra := m.resourceState.ServiceExtra
 	if strings.TrimSpace(extra.Unit) == "" {
 		return item
 	}
@@ -133,11 +133,11 @@ func (m Model) mergedServiceDetail(item resourceservice.ServiceDetail) resources
 }
 
 func (m Model) serviceDetailLoadRow() string {
-	if m.resourceServiceExtraLoading {
+	if m.resourceState.ServiceExtraLoading {
 		return m.detailRow(m.t("Details", "详情"), m.t("Loading", "加载中"))
 	}
-	if strings.TrimSpace(m.resourceServiceExtraErr) != "" {
-		return m.detailRow(m.t("Details", "详情"), redStyle.Render(m.resourceServiceExtraErr))
+	if strings.TrimSpace(m.resourceState.ServiceExtraErr) != "" {
+		return m.detailRow(m.t("Details", "详情"), redStyle.Render(m.resourceState.ServiceExtraErr))
 	}
 	return ""
 }

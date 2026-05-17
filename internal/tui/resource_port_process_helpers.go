@@ -91,13 +91,13 @@ func processMemoryText(item resourceservice.ProcessExtraDetail) string {
 }
 
 func (m Model) processExtraForCard(item resourceservice.PortDetail) (resourceservice.ProcessExtraDetail, bool) {
-	if strings.TrimSpace(item.PID) == "" || m.resourceProcessExtraLoading || strings.TrimSpace(m.resourceProcessExtraErr) != "" {
+	if strings.TrimSpace(item.PID) == "" || m.resourceState.ProcessExtraLoading || strings.TrimSpace(m.resourceState.ProcessExtraErr) != "" {
 		return resourceservice.ProcessExtraDetail{}, false
 	}
-	if m.resourceProcessExtraPID != item.PID || m.resourceProcessExtra.PID != item.PID {
+	if m.resourceState.ProcessExtraPID != item.PID || m.resourceState.ProcessExtra.PID != item.PID {
 		return resourceservice.ProcessExtraDetail{}, false
 	}
-	return m.resourceProcessExtra, true
+	return m.resourceState.ProcessExtra, true
 }
 
 func (m Model) processCardMeta(extra resourceservice.ProcessExtraDetail, ok bool) string {

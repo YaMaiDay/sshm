@@ -500,7 +500,7 @@ func (m Model) createTransferJobsFromPanel() (tea.Model, tea.Cmd) {
 			TotalBytes: totalBytes,
 		})
 		if err := m.appendTransferEntry(entry); err != nil {
-			m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+			m.setPersistenceError("Save transfer job failed", "保存传输任务失败", err)
 			return m, nil
 		}
 	}
@@ -517,18 +517,6 @@ func transferKindString(mode transferMode) string {
 		return "download"
 	}
 	return "upload"
-}
-
-func (m *Model) reloadTransfers() {
-	file, _, _ := transferservice.LoadHistory(m.home)
-	m.transferState.History = file
-	if m.transferState.Index >= len(m.transferState.History.Entries) {
-		m.transferState.Index = len(m.transferState.History.Entries) - 1
-	}
-	if m.transferState.Index < 0 {
-		m.transferState.Index = 0
-	}
-	m.ensureTransferIndexVisible()
 }
 
 func (m *Model) ensureTransferIndexVisible() {
@@ -642,7 +630,7 @@ func (m Model) startTransferEntry(entry config.TransferEntry) (tea.Model, tea.Cm
 	if !ok {
 		transferservice.SetEntryStatus(&entry, config.TransferStatusFailed, m.t("Server not found: ", "找不到服务器：")+entry.HostName)
 		if err := m.updateTransferEntryAndReload(entry); err != nil {
-			m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+			m.setPersistenceError("Save transfer job failed", "保存传输任务失败", err)
 		}
 		return m, clearStatusAfter(3 * time.Second)
 	}
@@ -650,7 +638,7 @@ func (m Model) startTransferEntry(entry config.TransferEntry) (tea.Model, tea.Cm
 	transferservice.SetEntryStatus(&entry, config.TransferStatusRunning, "")
 	if err := m.updateTransferEntry(entry); err != nil {
 		cancel()
-		m.status = m.t("Save failed: ", "保存失败：") + err.Error()
+		m.setPersistenceError("Save transfer job failed", "保存传输任务失败", err)
 		return m, nil
 	}
 	m.transferState.Active = activeTransfer{

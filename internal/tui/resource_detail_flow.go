@@ -15,7 +15,7 @@ func (m Model) updateResourceDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q", " ":
 		m.mode = modeResourceList
-		m.resourceDetailName = ""
+		m.resourceState.DetailName = ""
 	case "j":
 		m = m.moveResourceDetailScroll(1)
 	case "down":
@@ -41,7 +41,7 @@ func (m Model) updateResourceDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		return m.startResourceAction(resourceActionRestart)
 	case "r":
-		m, refreshCmd := m.refreshResourceDetails(m.resourceKind)
+		m, refreshCmd := m.refreshResourceDetails(m.resourceState.Kind)
 		m, extraCmd := m.refreshSelectedResourceExtra()
 		return m, tea.Batch(refreshCmd, extraCmd)
 	}
@@ -50,7 +50,7 @@ func (m Model) updateResourceDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) moveResourceDetailScroll(delta int) Model {
 	maxScroll := m.resourceDetailMaxScroll()
-	m.resourceScroll = moveClampedInt(m.resourceScroll, delta, 0, maxScroll)
+	m.resourceState.Scroll = moveClampedInt(m.resourceState.Scroll, delta, 0, maxScroll)
 	return m
 }
 
@@ -64,12 +64,12 @@ func (m Model) resourceDetailMaxScroll() int {
 }
 
 func (m Model) refreshResourceDetails(kind resourceKind) (Model, tea.Cmd) {
-	m.resourceLoading = true
-	m.resourceLoadingKind = kind
-	m.resourceLoadingPending = resourceLoadPartCount(kind)
-	m.resourceManualRefresh = true
+	m.resourceState.Loading = true
+	m.resourceState.LoadingKind = kind
+	m.resourceState.LoadingPending = resourceLoadPartCount(kind)
+	m.resourceState.ManualRefresh = true
 	m.status = m.t("Refreshing resources...", "正在刷新资源...")
-	return m, m.fetchResourceDetails(m.resourceHostIndex, kind)
+	return m, m.fetchResourceDetails(m.resourceState.HostIndex, kind)
 }
 
 func (m Model) refreshSelectedResourceExtra() (Model, tea.Cmd) {
@@ -83,41 +83,41 @@ func (m Model) refreshSelectedResourceExtra() (Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		m.resourceContainerExtraName = item.Name
-		m.resourceContainerExtra = resourceservice.ContainerExtraDetail{}
-		m.resourceContainerExtraErr = ""
-		m.resourceContainerExtraLoading = true
-		return m, m.fetchContainerExtraDetail(m.resourceHostIndex, item.Name)
+		m.resourceState.ContainerExtraName = item.Name
+		m.resourceState.ContainerExtra = resourceservice.ContainerExtraDetail{}
+		m.resourceState.ContainerExtraErr = ""
+		m.resourceState.ContainerExtraLoading = true
+		return m, m.fetchContainerExtraDetail(m.resourceState.HostIndex, item.Name)
 	case resourceServices:
 		item, ok := m.selectedService()
 		if !ok {
 			return m, nil
 		}
-		m.resourceServiceExtraName = item.Unit
-		m.resourceServiceExtra = resourceservice.ServiceDetail{}
-		m.resourceServiceExtraErr = ""
-		m.resourceServiceExtraLoading = true
-		return m, m.fetchServiceExtraDetail(m.resourceHostIndex, item.Unit)
+		m.resourceState.ServiceExtraName = item.Unit
+		m.resourceState.ServiceExtra = resourceservice.ServiceDetail{}
+		m.resourceState.ServiceExtraErr = ""
+		m.resourceState.ServiceExtraLoading = true
+		return m, m.fetchServiceExtraDetail(m.resourceState.HostIndex, item.Unit)
 	case resourceProcesses:
 		item, ok := m.selectedProcess()
 		if !ok {
 			return m, nil
 		}
-		m.resourceProcessExtraPID = item.PID
-		m.resourceProcessExtra = resourceservice.ProcessExtraDetail{}
-		m.resourceProcessExtraErr = ""
-		m.resourceProcessExtraLoading = true
-		return m, m.fetchProcessExtraDetail(m.resourceHostIndex, item.PID)
+		m.resourceState.ProcessExtraPID = item.PID
+		m.resourceState.ProcessExtra = resourceservice.ProcessExtraDetail{}
+		m.resourceState.ProcessExtraErr = ""
+		m.resourceState.ProcessExtraLoading = true
+		return m, m.fetchProcessExtraDetail(m.resourceState.HostIndex, item.PID)
 	case resourceDatabases:
 		item, ok := m.selectedDatabase()
 		if !ok {
 			return m, nil
 		}
-		m.resourceDatabaseExtraName = item.Name
-		m.resourceDatabaseExtra = resourceservice.DatabaseExtraDetail{}
-		m.resourceDatabaseExtraErr = ""
-		m.resourceDatabaseExtraLoading = true
-		return m, m.fetchDatabaseExtraDetail(m.resourceHostIndex, item.Name)
+		m.resourceState.DatabaseExtraName = item.Name
+		m.resourceState.DatabaseExtra = resourceservice.DatabaseExtraDetail{}
+		m.resourceState.DatabaseExtraErr = ""
+		m.resourceState.DatabaseExtraLoading = true
+		return m, m.fetchDatabaseExtraDetail(m.resourceState.HostIndex, item.Name)
 	default:
 		return m, nil
 	}
@@ -241,7 +241,7 @@ func (m Model) fetchDatabaseCardExtras(index int) tea.Cmd {
 	if index < 0 || index >= len(m.states) {
 		return nil
 	}
-	if m.resourceKind != resourceDatabases && m.resourceKind != resourceAll && m.resourceAddKind != resourceDatabases {
+	if m.resourceState.Kind != resourceDatabases && m.resourceState.Kind != resourceAll && m.resourceState.AddKind != resourceDatabases {
 		return nil
 	}
 	cmds := []tea.Cmd{}
@@ -259,10 +259,10 @@ func (m Model) fetchDatabaseCardExtras(index int) tea.Cmd {
 }
 
 func (m Model) databaseExtraCache(name string) (databaseExtraCache, bool) {
-	if m.resourceDatabaseExtraCache == nil {
+	if m.resourceState.DatabaseExtraCache == nil {
 		return databaseExtraCache{}, false
 	}
-	cache, ok := m.resourceDatabaseExtraCache[name]
+	cache, ok := m.resourceState.DatabaseExtraCache[name]
 	return cache, ok
 }
 
@@ -270,10 +270,10 @@ func (m *Model) setDatabaseExtraCache(name string, detail resourceservice.Databa
 	if strings.TrimSpace(name) == "" {
 		return
 	}
-	if m.resourceDatabaseExtraCache == nil {
-		m.resourceDatabaseExtraCache = map[string]databaseExtraCache{}
+	if m.resourceState.DatabaseExtraCache == nil {
+		m.resourceState.DatabaseExtraCache = map[string]databaseExtraCache{}
 	}
-	m.resourceDatabaseExtraCache[name] = databaseExtraCache{Detail: detail, Err: strings.TrimSpace(errText), Loading: loading}
+	m.resourceState.DatabaseExtraCache[name] = databaseExtraCache{Detail: detail, Err: strings.TrimSpace(errText), Loading: loading}
 }
 
 func meaningfulResourceDetailError(value string) bool {

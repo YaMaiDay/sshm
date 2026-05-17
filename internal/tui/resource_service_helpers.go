@@ -60,10 +60,10 @@ func (m Model) serviceOwnsListeningPort(item resourceservice.ServiceDetail) bool
 	if serviceIsKnownInfrastructure(item.Unit) {
 		return false
 	}
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return false
 	}
-	for _, port := range m.states[m.resourceHostIndex].PortDetails {
+	for _, port := range m.states[m.resourceState.HostIndex].PortDetails {
 		if m.serviceMatchesPort(item, port) {
 			return true
 		}
@@ -82,7 +82,7 @@ func (m Model) portLooksStandaloneProcess(port resourceservice.PortDetail) bool 
 	if serviceIsKnownInfrastructureProcess(process) {
 		return false
 	}
-	for _, service := range m.states[m.resourceHostIndex].ServiceDetails {
+	for _, service := range m.states[m.resourceState.HostIndex].ServiceDetails {
 		if m.serviceMatchesPort(service, port) {
 			return false
 		}

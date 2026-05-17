@@ -11,27 +11,27 @@ import (
 )
 
 func (m Model) startResourceAdd() (tea.Model, tea.Cmd) {
-	kind := m.resourceKind
+	kind := m.resourceState.Kind
 	if kind == resourceAll || kind == resourceContainers {
 		kind = resourceServices
 	}
-	m.resourceAddKind = kind
-	m.resourceAddName = ""
-	m.resourceAddField = 0
-	m.resourceAddCursor = 0
-	m.resourceManagePane = 0
-	m.resourceManageDiscoveredIndex = 0
-	m.resourceManageFavoriteIndex = 0
-	m.resourceManageSearch = false
-	m.resourceManageQuery = ""
-	m.resourceCommandForm = resourceCommandForm{Server: m.resourceServerKey(m.resourceHostIndex), Kind: kind}
+	m.resourceState.AddKind = kind
+	m.resourceState.AddName = ""
+	m.resourceState.AddField = 0
+	m.resourceState.AddCursor = 0
+	m.resourceState.ManagePane = 0
+	m.resourceState.ManageDiscoveredIndex = 0
+	m.resourceState.ManageFavoriteIndex = 0
+	m.resourceState.ManageSearch = false
+	m.resourceState.ManageQuery = ""
+	m.resourceState.CommandForm = resourceCommandForm{Server: m.resourceServerKey(m.resourceState.HostIndex), Kind: kind}
 	m.mode = modeResourceAdd
 	m.status = m.t("Resource manager", "资源管理")
 	return m, nil
 }
 
 func (m Model) updateResourceAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.resourceManageSearch {
+	if m.resourceState.ManageSearch {
 		return m.updateResourceManageSearch(msg)
 	}
 	key := shortcutKey(msg)
@@ -40,7 +40,7 @@ func (m Model) updateResourceAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeResourceList
 		m.status = m.t("Canceled.", "已取消。")
 	case "tab", "ctrl+i", "shift+tab":
-		m.resourceManagePane = 1 - m.resourceManagePane
+		m.resourceState.ManagePane = 1 - m.resourceState.ManagePane
 	case "down", "j":
 		m.moveResourceManageSelection(1)
 	case "up", "k":
@@ -55,19 +55,19 @@ func (m Model) updateResourceAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cycleResourceAddKind(1)
 		m.resetResourceManageSelection()
 	case "r":
-		refreshKind := m.resourceAddKind
+		refreshKind := m.resourceState.AddKind
 		if refreshKind == resourceProcesses {
 			refreshKind = resourcePorts
 		}
-		m.resourceLoading = true
-		m.resourceLoadingKind = refreshKind
-		m.resourceLoadingPending = resourceLoadPartCount(refreshKind)
-		m.resourceManualRefresh = true
+		m.resourceState.Loading = true
+		m.resourceState.LoadingKind = refreshKind
+		m.resourceState.LoadingPending = resourceLoadPartCount(refreshKind)
+		m.resourceState.ManualRefresh = true
 		m.status = m.t("Refreshing resources...", "正在刷新资源...")
-		return m, m.fetchResourceDetails(m.resourceHostIndex, refreshKind)
+		return m, m.fetchResourceDetails(m.resourceState.HostIndex, refreshKind)
 	case "/":
-		m.resourceManageSearch = true
-		m.resourceManageQuery = ""
+		m.resourceState.ManageSearch = true
+		m.resourceState.ManageQuery = ""
 		m.resetResourceManageSelection()
 	case "enter", "f":
 		return m.toggleResourceManagerFavorite()
@@ -76,7 +76,7 @@ func (m Model) updateResourceAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "x":
 		return m.startResourceManageRemoveConfirm()
 	case "e":
-		if m.resourceManagePane == 1 {
+		if m.resourceState.ManagePane == 1 {
 			return m.startResourceManageEdit()
 		}
 	}
@@ -84,16 +84,16 @@ func (m Model) updateResourceAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) startResourceExternalDatabaseAdd() (tea.Model, tea.Cmd) {
-	if m.resourceAddKind != resourceDatabases {
+	if m.resourceState.AddKind != resourceDatabases {
 		m.status = m.t("Manual add is available for databases only.", "手动新增仅支持数据库。")
 		return m, clearStatusAfter(2 * time.Second)
 	}
-	server := m.resourceServerKey(m.resourceHostIndex)
+	server := m.resourceServerKey(m.resourceState.HostIndex)
 	item := defaultManagedResource(server, config.ResourceKindDatabase, "")
-	m.resourceAddName = ""
-	m.resourceAddField = 0
-	m.resourceAddCursor = 0
-	m.resourceCommandForm = resourceCommandForm{
+	m.resourceState.AddName = ""
+	m.resourceState.AddField = 0
+	m.resourceState.AddCursor = 0
+	m.resourceState.CommandForm = resourceCommandForm{
 		Server:     server,
 		Kind:       resourceDatabases,
 		Name:       "",
@@ -112,19 +112,19 @@ func (m Model) startResourceExternalDatabaseAdd() (tea.Model, tea.Cmd) {
 }
 
 func (m Model) startResourceDatabaseDiscoveredAdd(ref resourceRef) (tea.Model, tea.Cmd) {
-	if ref.Kind != resourceDatabases || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if ref.Kind != resourceDatabases || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return m, nil
 	}
-	items := m.states[m.resourceHostIndex].DatabaseDetails
+	items := m.states[m.resourceState.HostIndex].DatabaseDetails
 	if ref.Index < 0 || ref.Index >= len(items) {
 		return m, nil
 	}
 	db := items[ref.Index]
-	item := defaultDatabaseManagedResource(m.resourceServerKey(m.resourceHostIndex), db)
-	m.resourceAddName = ""
-	m.resourceAddField = 0
-	m.resourceAddCursor = 0
-	m.resourceCommandForm = resourceCommandForm{
+	item := defaultDatabaseManagedResource(m.resourceServerKey(m.resourceState.HostIndex), db)
+	m.resourceState.AddName = ""
+	m.resourceState.AddField = 0
+	m.resourceState.AddCursor = 0
+	m.resourceState.CommandForm = resourceCommandForm{
 		Server:        item.Server,
 		Kind:          resourceDatabases,
 		Name:          item.Name,
@@ -162,19 +162,19 @@ func (m Model) updateResourceAddEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab", "up":
 		m.moveResourceAddField(-1)
 	case "left":
-		if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+		if m.resourceState.CommandForm.Kind == resourceDatabases && m.resourceState.AddField == 0 {
 			m.cycleResourceCommandDatabaseEngine(-1)
 			return m, nil
 		}
 		m.moveResourceAddCursor(-1)
 	case "right":
-		if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+		if m.resourceState.CommandForm.Kind == resourceDatabases && m.resourceState.AddField == 0 {
 			m.cycleResourceCommandDatabaseEngine(1)
 			return m, nil
 		}
 		m.moveResourceAddCursor(1)
 	case "backspace":
-		if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+		if m.resourceState.CommandForm.Kind == resourceDatabases && m.resourceState.AddField == 0 {
 			return m, nil
 		}
 		m.resourceAddBackspace()
@@ -182,7 +182,7 @@ func (m Model) updateResourceAddEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.saveResourceAdd()
 	default:
 		if len(msg.Runes) > 0 {
-			if m.resourceCommandForm.Kind == resourceDatabases && m.resourceAddField == 0 {
+			if m.resourceState.CommandForm.Kind == resourceDatabases && m.resourceState.AddField == 0 {
 				return m, nil
 			}
 			m.resourceAddAppend(string(msg.Runes))
@@ -195,20 +195,20 @@ func (m Model) updateResourceManageSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
 	case "esc":
-		m.resourceManageSearch = false
-		m.resourceManageQuery = ""
+		m.resourceState.ManageSearch = false
+		m.resourceState.ManageQuery = ""
 		m.resetResourceManageSelection()
 	case "enter":
-		m.resourceManageSearch = false
+		m.resourceState.ManageSearch = false
 	case "backspace":
-		r := []rune(m.resourceManageQuery)
+		r := []rune(m.resourceState.ManageQuery)
 		if len(r) > 0 {
-			m.resourceManageQuery = string(r[:len(r)-1])
+			m.resourceState.ManageQuery = string(r[:len(r)-1])
 		}
 		m.resetResourceManageSelection()
 	default:
 		if len(msg.Runes) > 0 {
-			m.resourceManageQuery += string(msg.Runes)
+			m.resourceState.ManageQuery += string(msg.Runes)
 			m.resetResourceManageSelection()
 		}
 	}
@@ -216,45 +216,45 @@ func (m Model) updateResourceManageSearch(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) resetResourceManageSelection() {
-	m.resourceManageDiscoveredIndex = 0
-	m.resourceManageFavoriteIndex = 0
+	m.resourceState.ManageDiscoveredIndex = 0
+	m.resourceState.ManageFavoriteIndex = 0
 }
 
 func (m *Model) moveResourceManageSelection(delta int) {
-	if m.resourceManagePane == 1 {
+	if m.resourceState.ManagePane == 1 {
 		count := len(m.resourceManageFavorites())
 		if count == 0 {
-			m.resourceManageFavoriteIndex = 0
+			m.resourceState.ManageFavoriteIndex = 0
 			return
 		}
-		m.resourceManageFavoriteIndex = clampInt(m.resourceManageFavoriteIndex+delta, 0, count-1)
+		m.resourceState.ManageFavoriteIndex = clampInt(m.resourceState.ManageFavoriteIndex+delta, 0, count-1)
 		return
 	}
 	count := len(m.resourceManageDiscoveredRefs())
 	if count == 0 {
-		m.resourceManageDiscoveredIndex = 0
+		m.resourceState.ManageDiscoveredIndex = 0
 		return
 	}
-	m.resourceManageDiscoveredIndex = clampInt(m.resourceManageDiscoveredIndex+delta, 0, count-1)
+	m.resourceState.ManageDiscoveredIndex = clampInt(m.resourceState.ManageDiscoveredIndex+delta, 0, count-1)
 }
 
 func (m Model) toggleResourceManagerFavorite() (tea.Model, tea.Cmd) {
-	if m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return m, nil
 	}
-	server := m.resourceServerKey(m.resourceHostIndex)
-	kind := configResourceKind(m.resourceAddKind)
+	server := m.resourceServerKey(m.resourceState.HostIndex)
+	kind := configResourceKind(m.resourceState.AddKind)
 	if kind == "" {
 		return m, nil
 	}
-	if m.resourceManagePane == 1 {
+	if m.resourceState.ManagePane == 1 {
 		return m.startResourceManageRemoveConfirm()
 	}
 	refs := m.resourceManageDiscoveredRefs()
 	if len(refs) == 0 {
 		return m, nil
 	}
-	ref := refs[clampInt(m.resourceManageDiscoveredIndex, 0, len(refs)-1)]
+	ref := refs[clampInt(m.resourceState.ManageDiscoveredIndex, 0, len(refs)-1)]
 	if ref.Kind == resourceDatabases {
 		return m.startResourceDatabaseDiscoveredAdd(ref)
 	}
@@ -262,40 +262,40 @@ func (m Model) toggleResourceManagerFavorite() (tea.Model, tea.Cmd) {
 	if !ok || strings.TrimSpace(name) == "" {
 		return m, nil
 	}
-	if idx := findManagedResource(m.resourceFile.Items, server, kind, name); idx >= 0 {
-		if m.resourceFile.Items[idx].Added {
+	if idx := findManagedResource(m.resourceState.File.Items, server, kind, name); idx >= 0 {
+		if m.resourceState.File.Items[idx].Added {
 			m.status = m.t("Resource already added: ", "资源已添加：") + name
 			return m, clearStatusAfter(2 * time.Second)
 		}
-		m.resourceFile.Items[idx].Added = true
-		if err := resourceservice.SaveConfig(m.home, m.resourceFile); err != nil {
+		m.resourceState.File.Items[idx].Added = true
+		if err := resourceservice.SaveConfig(m.home, m.resourceState.File); err != nil {
 			m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
 			return m, nil
 		}
-		m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
-		m.applyManagedResources(m.resourceHostIndex)
+		m.resourceState.File.Items = config.NormalizeManagedResources(m.resourceState.File.Items)
+		m.applyManagedResources(m.resourceState.HostIndex)
 		m.status = m.t("Added to resources: ", "已添加资源：") + name
 		return m, clearStatusAfter(2 * time.Second)
 	}
 	item := defaultManagedResource(server, kind, name)
 	item.Added = true
-	m.resourceFile.Items = append(m.resourceFile.Items, item)
-	if err := resourceservice.SaveConfig(m.home, m.resourceFile); err != nil {
+	m.resourceState.File.Items = append(m.resourceState.File.Items, item)
+	if err := resourceservice.SaveConfig(m.home, m.resourceState.File); err != nil {
 		m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
 		return m, nil
 	}
-	m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
-	m.applyManagedResources(m.resourceHostIndex)
+	m.resourceState.File.Items = config.NormalizeManagedResources(m.resourceState.File.Items)
+	m.applyManagedResources(m.resourceState.HostIndex)
 	refs = m.resourceManageDiscoveredRefs()
-	if m.resourceManageDiscoveredIndex >= len(refs) && m.resourceManageDiscoveredIndex > 0 {
-		m.resourceManageDiscoveredIndex--
+	if m.resourceState.ManageDiscoveredIndex >= len(refs) && m.resourceState.ManageDiscoveredIndex > 0 {
+		m.resourceState.ManageDiscoveredIndex--
 	}
 	m.status = m.t("Added to resources: ", "已添加资源：") + name
 	return m, clearStatusAfter(2 * time.Second)
 }
 
 func (m Model) startResourceManageRemoveConfirm() (tea.Model, tea.Cmd) {
-	if m.resourceManagePane != 1 {
+	if m.resourceState.ManagePane != 1 {
 		return m, nil
 	}
 	items := m.resourceManageFavorites()
@@ -303,13 +303,13 @@ func (m Model) startResourceManageRemoveConfirm() (tea.Model, tea.Cmd) {
 		m.status = m.t("No added resource to remove.", "没有可移出的已添加资源。")
 		return m, clearStatusAfter(2 * time.Second)
 	}
-	item := items[clampInt(m.resourceManageFavoriteIndex, 0, len(items)-1)]
+	item := items[clampInt(m.resourceState.ManageFavoriteIndex, 0, len(items)-1)]
 	return m.removeManagedResource(item)
 }
 
 func (m Model) startSelectedResourceRemoveConfirm() (tea.Model, tea.Cmd) {
 	name, ok := m.selectedResourceName()
-	if !ok || m.resourceHostIndex < 0 || m.resourceHostIndex >= len(m.states) {
+	if !ok || m.resourceState.HostIndex < 0 || m.resourceState.HostIndex >= len(m.states) {
 		return m, nil
 	}
 	ref, _ := m.selectedResourceRef()
@@ -341,20 +341,20 @@ func (m Model) resourceRemoveConfirmLines(item config.ManagedResource) []string 
 }
 
 func (m Model) removeManagedResource(item config.ManagedResource) (tea.Model, tea.Cmd) {
-	real := findManagedResource(m.resourceFile.Items, item.Server, item.Kind, item.Name)
+	real := findManagedResource(m.resourceState.File.Items, item.Server, item.Kind, item.Name)
 	if real >= 0 {
-		m.resourceFile.Items = append(m.resourceFile.Items[:real], m.resourceFile.Items[real+1:]...)
+		m.resourceState.File.Items = append(m.resourceState.File.Items[:real], m.resourceState.File.Items[real+1:]...)
 	}
-	if err := resourceservice.SaveConfig(m.home, m.resourceFile); err != nil {
+	if err := resourceservice.SaveConfig(m.home, m.resourceState.File); err != nil {
 		m.status = m.t("Failed to save resource config: ", "保存资源配置失败：") + err.Error()
 		return m, nil
 	}
 	m.confirm = confirmAction{}
-	m.resourceFile.Items = config.NormalizeManagedResources(m.resourceFile.Items)
-	m.applyManagedResources(m.resourceHostIndex)
+	m.resourceState.File.Items = config.NormalizeManagedResources(m.resourceState.File.Items)
+	m.applyManagedResources(m.resourceState.HostIndex)
 	m.status = m.t("Removed from resources: ", "已移出资源：") + item.Name
-	if m.resourceManageFavoriteIndex >= len(m.resourceManageFavorites()) && m.resourceManageFavoriteIndex > 0 {
-		m.resourceManageFavoriteIndex--
+	if m.resourceState.ManageFavoriteIndex >= len(m.resourceManageFavorites()) && m.resourceState.ManageFavoriteIndex > 0 {
+		m.resourceState.ManageFavoriteIndex--
 	}
 	return m, clearStatusAfter(2 * time.Second)
 }

@@ -18,12 +18,12 @@ func (m Model) handleResourceLoad(msg resourceLoadMsg) (tea.Model, tea.Cmd) {
 	if msg.Kind == resourceServices {
 		m.states[msg.Index].ServiceDetails = msg.Services
 		m.states[msg.Index].ServiceError = msg.ServiceErr
-		m.resourceServiceAt = now
+		m.resourceState.ServiceAt = now
 	}
 	if msg.Kind == resourceContainers {
 		m.states[msg.Index].ContainerDetails = msg.Containers
 		m.states[msg.Index].ContainerError = msg.ContainerErr
-		m.resourceContainerAt = now
+		m.resourceState.ContainerAt = now
 		if msg.ContainerErr == "" {
 			_ = resourceservice.UpsertContainerCache(m.home, m.resourceServerKey(msg.Index), containerDetailsToCache(msg.Containers), now)
 		}
@@ -31,34 +31,34 @@ func (m Model) handleResourceLoad(msg resourceLoadMsg) (tea.Model, tea.Cmd) {
 	if msg.Kind == resourcePorts {
 		m.states[msg.Index].PortDetails = msg.Ports
 		m.states[msg.Index].PortDetailsError = msg.PortsErrText
-		m.resourcePortAt = now
+		m.resourceState.PortAt = now
 	}
 	if msg.Kind == resourceServices && len(msg.Ports) > 0 {
 		m.states[msg.Index].PortDetails = msg.Ports
 		m.states[msg.Index].PortDetailsError = msg.PortsErrText
-		m.resourcePortAt = now
+		m.resourceState.PortAt = now
 	}
 	if msg.Kind == resourceContainers && len(msg.Ports) > 0 {
 		m.states[msg.Index].PortDetails = msg.Ports
 		m.states[msg.Index].PortDetailsError = msg.PortsErrText
-		m.resourcePortAt = now
+		m.resourceState.PortAt = now
 	}
 	resourceservice.AssociatePortContainers(m.states[msg.Index].PortDetails, m.states[msg.Index].ContainerDetails)
 	m.states[msg.Index].DatabaseDetails, m.states[msg.Index].DatabaseError = deriveDatabaseDetails(m.states[msg.Index].ServiceDetails, m.states[msg.Index].ContainerDetails, m.states[msg.Index].PortDetails)
 	m.applyManagedResources(msg.Index)
-	m.resourceCollectedAt = now
-	if m.resourceLoadingPending > 0 {
-		m.resourceLoadingPending--
+	m.resourceState.CollectedAt = now
+	if m.resourceState.LoadingPending > 0 {
+		m.resourceState.LoadingPending--
 	}
-	if m.resourceLoadingPending <= 0 {
-		m.resourceLoading = false
-		if m.resourceManualRefresh {
-			m.resourceRefreshStatus = fmt.Sprintf("%s%s", m.t("Manual refresh done: ", "手动刷新完成："), now.Format("15:04:05"))
+	if m.resourceState.LoadingPending <= 0 {
+		m.resourceState.Loading = false
+		if m.resourceState.ManualRefresh {
+			m.resourceState.RefreshStatus = fmt.Sprintf("%s%s", m.t("Manual refresh done: ", "手动刷新完成："), now.Format("15:04:05"))
 		} else {
-			m.resourceRefreshStatus = fmt.Sprintf("%s%s", m.t("Last refresh: ", "最后刷新："), now.Format("15:04:05"))
+			m.resourceState.RefreshStatus = fmt.Sprintf("%s%s", m.t("Last refresh: ", "最后刷新："), now.Format("15:04:05"))
 		}
-		m.resourceManualRefresh = false
-		m.status = m.resourceRefreshStatus
+		m.resourceState.ManualRefresh = false
+		m.status = m.resourceState.RefreshStatus
 		return m, m.fetchDatabaseCardExtras(msg.Index)
 	}
 	m.status = m.t("Loading resources...", "正在读取资源...")
@@ -66,22 +66,22 @@ func (m Model) handleResourceLoad(msg resourceLoadMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleResourceContainerDetail(msg resourceContainerDetailMsg) (tea.Model, tea.Cmd) {
-	if msg.Index != m.resourceHostIndex || msg.Name != m.resourceContainerExtraName {
+	if msg.Index != m.resourceState.HostIndex || msg.Name != m.resourceState.ContainerExtraName {
 		return m, nil
 	}
-	m.resourceContainerExtraLoading = false
-	m.resourceContainerExtra = msg.Detail
-	m.resourceContainerExtraErr = msg.Err
+	m.resourceState.ContainerExtraLoading = false
+	m.resourceState.ContainerExtra = msg.Detail
+	m.resourceState.ContainerExtraErr = msg.Err
 	return m, nil
 }
 
 func (m Model) handleResourceServiceDetail(msg resourceServiceDetailMsg) (tea.Model, tea.Cmd) {
-	if msg.Index != m.resourceHostIndex || msg.Name != m.resourceServiceExtraName {
+	if msg.Index != m.resourceState.HostIndex || msg.Name != m.resourceState.ServiceExtraName {
 		return m, nil
 	}
-	m.resourceServiceExtraLoading = false
-	m.resourceServiceExtra = msg.Detail
-	m.resourceServiceExtraErr = msg.Err
+	m.resourceState.ServiceExtraLoading = false
+	m.resourceState.ServiceExtra = msg.Detail
+	m.resourceState.ServiceExtraErr = msg.Err
 	if strings.TrimSpace(msg.Err) == "" && strings.TrimSpace(msg.Detail.Unit) != "" {
 		for i := range m.states[msg.Index].ServiceDetails {
 			if m.states[msg.Index].ServiceDetails[i].Unit != msg.Detail.Unit {
@@ -101,35 +101,35 @@ func (m Model) handleResourceServiceDetail(msg resourceServiceDetailMsg) (tea.Mo
 }
 
 func (m Model) handleResourceProcessDetail(msg resourceProcessDetailMsg) (tea.Model, tea.Cmd) {
-	if msg.Index != m.resourceHostIndex || msg.PID != m.resourceProcessExtraPID {
+	if msg.Index != m.resourceState.HostIndex || msg.PID != m.resourceState.ProcessExtraPID {
 		return m, nil
 	}
-	m.resourceProcessExtraLoading = false
-	m.resourceProcessExtra = msg.Detail
-	m.resourceProcessExtraErr = msg.Err
+	m.resourceState.ProcessExtraLoading = false
+	m.resourceState.ProcessExtra = msg.Detail
+	m.resourceState.ProcessExtraErr = msg.Err
 	return m, nil
 }
 
 func (m Model) handleResourceDatabaseDetail(msg resourceDatabaseDetailMsg) (tea.Model, tea.Cmd) {
-	if msg.Index != m.resourceHostIndex {
+	if msg.Index != m.resourceState.HostIndex {
 		return m, nil
 	}
 	m.setDatabaseExtraCache(msg.Name, msg.Detail, msg.Err, false)
-	if msg.Name == m.resourceDatabaseExtraName {
-		m.resourceDatabaseExtraLoading = false
-		m.resourceDatabaseExtra = msg.Detail
-		m.resourceDatabaseExtraErr = msg.Err
+	if msg.Name == m.resourceState.DatabaseExtraName {
+		m.resourceState.DatabaseExtraLoading = false
+		m.resourceState.DatabaseExtra = msg.Detail
+		m.resourceState.DatabaseExtraErr = msg.Err
 	}
 	return m, nil
 }
 
 func (m Model) handleResourceLog(msg resourceLogMsg) (tea.Model, tea.Cmd) {
-	if msg.Index != m.resourceHostIndex || msg.Kind != m.resourceLogKind || msg.Name != m.resourceLogName {
+	if msg.Index != m.resourceState.HostIndex || msg.Kind != m.resourceState.LogKind || msg.Name != m.resourceState.LogName {
 		return m, nil
 	}
-	m.resourceLogOutput = strings.TrimRight(msg.Output, "\n")
-	if m.resourceLogOutput == "" {
-		m.resourceLogOutput = m.t("No log output.", "没有日志输出。")
+	m.resourceState.LogOutput = strings.TrimRight(msg.Output, "\n")
+	if m.resourceState.LogOutput == "" {
+		m.resourceState.LogOutput = m.t("No log output.", "没有日志输出。")
 	}
 	if msg.Result.Err != nil {
 		m.status = fmt.Sprintf("%s %d", m.t("Log command failed, exit", "日志命令失败，退出码"), msg.Result.ExitCode)
@@ -138,9 +138,9 @@ func (m Model) handleResourceLog(msg resourceLogMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleResourceAction(msg resourceActionMsg) (tea.Model, tea.Cmd) {
-	m.resourceActionRunning = false
-	m.resourceActionOutput = strings.TrimRight(msg.Result.Output, "\n")
-	m.resourceActionExitCode = msg.Result.ExitCode
+	m.resourceState.ActionRunning = false
+	m.resourceState.ActionOutput = strings.TrimRight(msg.Result.Output, "\n")
+	m.resourceState.ActionExitCode = msg.Result.ExitCode
 	if msg.Result.Err != nil {
 		m.status = m.resourceActionErrorText(msg.Result)
 		return m, nil
@@ -150,9 +150,9 @@ func (m Model) handleResourceAction(msg resourceActionMsg) (tea.Model, tea.Cmd) 
 	if refreshKind == resourcePorts {
 		refreshKind = resourceAll
 	}
-	m.resourceLoading = true
-	m.resourceLoadingKind = refreshKind
-	m.resourceLoadingPending = resourceLoadPartCount(refreshKind)
-	m.resourceManualRefresh = false
+	m.resourceState.Loading = true
+	m.resourceState.LoadingKind = refreshKind
+	m.resourceState.LoadingPending = resourceLoadPartCount(refreshKind)
+	m.resourceState.ManualRefresh = false
 	return m, m.fetchResourceDetails(msg.Index, refreshKind)
 }
