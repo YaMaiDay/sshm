@@ -21,7 +21,7 @@ func (m Model) renderDeploymentConfirm() string {
 	if height < 8 {
 		height = 8
 	}
-	scroll := clampInt(m.deploymentOutputScroll, 0, m.deploymentConfirmMaxScroll())
+	scroll := clampInt(m.deploymentState.OutputScroll, 0, m.deploymentConfirmMaxScroll())
 	if len(lines) > height {
 		lines = lines[scroll:minInt(len(lines), scroll+height)]
 	}
@@ -38,20 +38,20 @@ func (m Model) renderDeploymentConfirm() string {
 }
 
 func (m Model) deploymentConfirmBorderColor() lipgloss.Color {
-	if m.activeDeployment.Running {
+	if m.deploymentState.Active.Running {
 		return blue
 	}
-	if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.QueueFailed >= 0 && m.activeDeployment.ExitCode != 0 {
+	if len(m.deploymentState.Active.Queue) > 0 && m.deploymentState.Active.QueueFailed >= 0 && m.deploymentState.Active.ExitCode != 0 {
 		return red
 	}
 	return softGray
 }
 
 func (m Model) deploymentConfirmLines(hostName string, bodyWidth int) []string {
-	app := m.deploymentConfirm
-	queue := m.deploymentConfirmQueue
-	if len(m.activeDeployment.Queue) > 0 {
-		queue = m.activeDeployment.Queue
+	app := m.deploymentState.Confirm
+	queue := m.deploymentState.ConfirmQueue
+	if len(m.deploymentState.Active.Queue) > 0 {
+		queue = m.deploymentState.Active.Queue
 	}
 	if len(queue) == 0 {
 		queue = []config.DeploymentApp{app}
@@ -60,13 +60,13 @@ func (m Model) deploymentConfirmLines(hostName string, bodyWidth int) []string {
 }
 
 func (m Model) deploymentConfirmHelp() string {
-	if m.activeDeployment.Running {
+	if m.deploymentState.Active.Running {
 		return m.t("Scroll ↑↓/jk  Running", "滚动 ↑↓/jk  执行中")
 	}
-	if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.QueueFailed >= 0 && m.activeDeployment.ExitCode != 0 {
+	if len(m.deploymentState.Active.Queue) > 0 && m.deploymentState.Active.QueueFailed >= 0 && m.deploymentState.Active.ExitCode != 0 {
 		return m.t("Scroll ↑↓/jk  Retry failed r  Redeploy a  Back q/Esc", "滚动 ↑↓/jk  重试失败 r  重新部署 a  返回 q/Esc")
 	}
-	if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.Output != "" {
+	if len(m.deploymentState.Active.Queue) > 0 && m.deploymentState.Active.Output != "" {
 		return m.t("Scroll ↑↓/jk  Redeploy a  Back q/Esc", "滚动 ↑↓/jk  重新部署 a  返回 q/Esc")
 	}
 	return m.t("Scroll ↑↓/jk  Start Enter  Retry failed r  Redeploy a  Back q/Esc", "滚动 ↑↓/jk  开始 Enter  重试失败 r  重新部署 a  返回 q/Esc")
@@ -85,15 +85,15 @@ func (m Model) deploymentQueueConfirmLines(queue []config.DeploymentApp, bodyWid
 			"",
 		)
 		for i, app := range queue {
-			lines = append(lines, m.deploymentQueueLine(m.activeDeployment, i, app, bodyWidth))
+			lines = append(lines, m.deploymentQueueLine(m.deploymentState.Active, i, app, bodyWidth))
 		}
 	}
 	lines = append(lines, "", detailSubTitle(m.t("Current Flow", "当前流程")), fit(m.deploymentQueueFlowText(current), bodyWidth))
-	if len(m.activeDeployment.Queue) > 0 {
+	if len(m.deploymentState.Active.Queue) > 0 {
 		lines = append(lines, "", detailSubTitle(m.t("Output", "执行输出")))
 		lines = append(lines, m.deploymentOutputContentLines(bodyWidth)...)
-		if !m.activeDeployment.Running && m.activeDeployment.Output != "" {
-			lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.activeDeployment.ExitCode))
+		if !m.deploymentState.Active.Running && m.deploymentState.Active.Output != "" {
+			lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.deploymentState.Active.ExitCode))
 		}
 	}
 	if len(queue) == 1 {
@@ -164,9 +164,9 @@ func (m Model) deploymentInfoLines(app config.DeploymentApp, bodyWidth int) []st
 }
 
 func (m Model) deploymentQueueCurrentApp(queue []config.DeploymentApp) config.DeploymentApp {
-	if len(m.activeDeployment.Queue) > 0 {
-		index := clampInt(m.activeDeployment.QueueIndex, 0, len(m.activeDeployment.Queue)-1)
-		return m.activeDeployment.Queue[index]
+	if len(m.deploymentState.Active.Queue) > 0 {
+		index := clampInt(m.deploymentState.Active.QueueIndex, 0, len(m.deploymentState.Active.Queue)-1)
+		return m.deploymentState.Active.Queue[index]
 	}
 	if len(queue) > 0 {
 		return queue[0]
@@ -292,7 +292,7 @@ func (m Model) renderDeploymentRollbackConfirm() string {
 	if height < 8 {
 		height = 8
 	}
-	scroll := clampInt(m.deploymentOutputScroll, 0, m.deploymentRollbackConfirmMaxScroll())
+	scroll := clampInt(m.deploymentState.OutputScroll, 0, m.deploymentRollbackConfirmMaxScroll())
 	if len(lines) > height {
 		lines = lines[scroll:minInt(len(lines), scroll+height)]
 	}
@@ -309,12 +309,12 @@ func (m Model) renderDeploymentRollbackConfirm() string {
 }
 
 func (m Model) deploymentRollbackConfirmLines(bodyWidth int) []string {
-	app := m.activeDeployment.App
+	app := m.deploymentState.Active.App
 	lines := []string{
 		modalLine(m.t("Server", "服务器"), m.activeDeploymentServerName(), bodyWidth),
 		modalLine(m.t("App", "应用"), app.Name, bodyWidth),
-		modalLine(m.t("Previous version", "上一版本"), emptyDash(m.activeDeployment.PreviousVersion), bodyWidth),
-		modalLine(m.t("Current version", "当前版本"), emptyDash(m.activeDeployment.CurrentVersion), bodyWidth),
+		modalLine(m.t("Previous version", "上一版本"), emptyDash(m.deploymentState.Active.PreviousVersion), bodyWidth),
+		modalLine(m.t("Current version", "当前版本"), emptyDash(m.deploymentState.Active.CurrentVersion), bodyWidth),
 		"",
 		detailSubTitle(m.t("Rollback commands", "回滚命令")),
 	}
@@ -338,10 +338,10 @@ func (m Model) deploymentRollbackConfirmMaxScroll() int {
 }
 
 func (m Model) activeDeploymentServerName() string {
-	if m.activeDeployment.HostIndex >= 0 && m.activeDeployment.HostIndex < len(m.states) {
-		return hostDisplayName(m.states[m.activeDeployment.HostIndex].Host)
+	if m.deploymentState.Active.HostIndex >= 0 && m.deploymentState.Active.HostIndex < len(m.states) {
+		return hostDisplayName(m.states[m.deploymentState.Active.HostIndex].Host)
 	}
-	return emptyDash(m.activeDeployment.App.Server)
+	return emptyDash(m.deploymentState.Active.App.Server)
 }
 
 func (m Model) deploymentConfirmMaxScroll() int {
@@ -359,11 +359,11 @@ func (m Model) deploymentConfirmMaxScroll() int {
 }
 
 func (m Model) deploymentConfirmServerName() string {
-	index := m.deploymentServerIndex(m.deploymentConfirm.Server)
+	index := m.deploymentServerIndex(m.deploymentState.Confirm.Server)
 	if index >= 0 && index < len(m.states) {
 		return hostDisplayName(m.states[index].Host)
 	}
-	return emptyDash(m.deploymentConfirm.Server)
+	return emptyDash(m.deploymentState.Confirm.Server)
 }
 
 func (m Model) renderDeploymentOutput() string {
@@ -373,24 +373,24 @@ func (m Model) renderDeploymentOutput() string {
 		bodyWidth = 32
 	}
 	help := m.t("Scroll ↑↓/jk  Rollback r  Back q/Esc", "滚动 ↑↓/jk  回滚 r  返回 q/Esc")
-	title := m.t("Deployment Output  ", "部署输出  ") + m.activeDeployment.App.Name
+	title := m.t("Deployment Output  ", "部署输出  ") + m.deploymentState.Active.App.Name
 	lines := []string{
-		modalLine(m.t("App", "应用"), m.activeDeployment.App.Name, bodyWidth),
-		modalLine(m.t("Source", "来源"), deploySourceText(m.activeDeployment.App.Source), bodyWidth),
-		modalLine(m.t("Queue", "队列"), deploymentQueueProgressText(m.activeDeployment), bodyWidth),
-		modalLine(m.t("Previous version", "上一版本"), emptyDash(m.activeDeployment.PreviousVersion), bodyWidth),
-		modalLine(m.t("Current version", "当前版本"), emptyDash(m.activeDeployment.CurrentVersion), bodyWidth),
+		modalLine(m.t("App", "应用"), m.deploymentState.Active.App.Name, bodyWidth),
+		modalLine(m.t("Source", "来源"), deploySourceText(m.deploymentState.Active.App.Source), bodyWidth),
+		modalLine(m.t("Queue", "队列"), deploymentQueueProgressText(m.deploymentState.Active), bodyWidth),
+		modalLine(m.t("Previous version", "上一版本"), emptyDash(m.deploymentState.Active.PreviousVersion), bodyWidth),
+		modalLine(m.t("Current version", "当前版本"), emptyDash(m.deploymentState.Active.CurrentVersion), bodyWidth),
 		"",
 	}
 	lines = append(lines, m.deploymentOutputContentLines(bodyWidth)...)
-	if !m.activeDeployment.Running {
-		lines = append(lines, "", fmt.Sprintf("退出码 %d", m.activeDeployment.ExitCode))
+	if !m.deploymentState.Active.Running {
+		lines = append(lines, "", fmt.Sprintf("退出码 %d", m.deploymentState.Active.ExitCode))
 	}
 	height := m.height - 4
 	if height < 8 {
 		height = 8
 	}
-	scroll := clampInt(m.deploymentOutputScroll, 0, m.deploymentOutputMaxScroll())
+	scroll := clampInt(m.deploymentState.OutputScroll, 0, m.deploymentOutputMaxScroll())
 	if len(lines) > height {
 		lines = lines[scroll:minInt(len(lines), scroll+height)]
 	}
@@ -413,7 +413,7 @@ func (m Model) deploymentOutputMaxScroll() int {
 		bodyWidth = 32
 	}
 	lines += len(m.deploymentOutputContentLines(bodyWidth))
-	if !m.activeDeployment.Running {
+	if !m.deploymentState.Active.Running {
 		lines += 2
 	}
 	height := m.height - 4
@@ -424,8 +424,8 @@ func (m Model) deploymentOutputMaxScroll() int {
 }
 
 func (m Model) deploymentOutputContentLines(width int) []string {
-	stages := deploymentExecutionStages(m.activeDeployment.App, m.activeDeployment.Action)
-	output := strings.TrimRight(m.activeDeployment.Output, "\n")
+	stages := deploymentExecutionStages(m.deploymentState.Active.App, m.deploymentState.Active.Action)
+	output := strings.TrimRight(m.deploymentState.Active.Output, "\n")
 	sections, loose, lastStage := deploymentOutputSections(output)
 	if len(stages) == 0 {
 		if output == "" {
@@ -452,14 +452,14 @@ func (m Model) deploymentOutputContentLines(width int) []string {
 	}
 	for i, stage := range stages {
 		status := "pending"
-		if m.activeDeployment.Running {
+		if m.deploymentState.Active.Running {
 			if i < currentIndex {
 				status = "done"
 			} else if i == currentIndex {
 				status = "running"
 			}
 		} else {
-			if m.activeDeployment.ExitCode != 0 {
+			if m.deploymentState.Active.ExitCode != 0 {
 				if i < currentIndex {
 					status = "done"
 				} else if i == currentIndex {

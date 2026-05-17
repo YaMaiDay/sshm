@@ -265,15 +265,17 @@ func TestDeploymentOutputShowsInteractiveStages(t *testing.T) {
 		UpdateCommands: []string{"make build"},
 	}
 	m := Model{
+		deploymentState: deploymentState{
+			Active: activeDeployment{
+				App:      app,
+				Action:   config.DeployActionDeploy,
+				Output:   "== 更新前 ==\nok\n== 获取资源 ==\nCloning into '.'...\n",
+				Running:  true,
+				ExitCode: 0,
+			},
+		},
 		width:  100,
 		height: 30,
-		activeDeployment: activeDeployment{
-			App:      app,
-			Action:   config.DeployActionDeploy,
-			Output:   "== 更新前 ==\nok\n== 获取资源 ==\nCloning into '.'...\n",
-			Running:  true,
-			ExitCode: 0,
-		},
 	}
 	view := m.renderDeploymentOutput()
 	for _, want := range []string{"✓ Before", "▶ Fetch", "· Update", "Cloning into '.'..."} {
@@ -299,19 +301,21 @@ func TestDeploymentViewsFitWidth(t *testing.T) {
 		HealthCommands: []string{"curl -fsS http://127.0.0.1:8080/health"},
 	}
 	m := Model{
-		width:          96,
-		height:         28,
-		states:         []hostState{{Host: host.Host{Name: "web", Category: "prod", HostName: "10.0.0.10", User: "root", Port: "22"}}},
-		deploymentFile: config.DeploymentsFile{Apps: []config.DeploymentApp{app}},
-		activeDeployment: activeDeployment{
-			HostIndex: 0,
-			App:       app,
-			Output:    "ok",
+		deploymentState: deploymentState{
+			File: config.DeploymentsFile{Apps: []config.DeploymentApp{app}},
+			Active: activeDeployment{
+				HostIndex: 0,
+				App:       app,
+				Output:    "ok",
+			},
+			Confirm: app,
+			Form:    deploymentFormFromApp(app),
 		},
-		deploymentConfirm: app,
-		deploymentForm:    deploymentFormFromApp(app),
+		width:  96,
+		height: 28,
+		states: []hostState{{Host: host.Host{Name: "web", Category: "prod", HostName: "10.0.0.10", User: "root", Port: "22"}}},
 	}
-	m.deploymentItems = m.deploymentListItems()
+	m.deploymentState.Items = m.deploymentListItems()
 
 	views := []string{
 		m.renderDeploymentList(),
@@ -319,8 +323,8 @@ func TestDeploymentViewsFitWidth(t *testing.T) {
 		m.renderDeploymentConfirm(),
 		m.renderDeploymentOutput(),
 	}
-	m.deploymentField = 15
-	m.deploymentCursor = len([]rune(m.deploymentForm.UpdateCommands))
+	m.deploymentState.Field = 15
+	m.deploymentState.Cursor = len([]rune(m.deploymentState.Form.UpdateCommands))
 	views = append(views, m.renderDeploymentEdit())
 	for _, view := range views {
 		if got := blockLineCount(view); got > m.height {
@@ -344,13 +348,15 @@ func TestDeploymentListEnterOpensConfirm(t *testing.T) {
 		Path:   "/data/api",
 	}
 	m := Model{
-		home:             t.TempDir(),
-		mode:             modeDeploymentList,
-		states:           []hostState{{Host: host.Host{Name: "web", Category: "prod"}}},
-		activeDeployment: activeDeployment{HostIndex: 0},
-		deploymentFile:   config.DeploymentsFile{Apps: []config.DeploymentApp{app}},
+		deploymentState: deploymentState{
+			Active: activeDeployment{HostIndex: 0},
+			File:   config.DeploymentsFile{Apps: []config.DeploymentApp{app}},
+		},
+		home:   t.TempDir(),
+		mode:   modeDeploymentList,
+		states: []hostState{{Host: host.Host{Name: "web", Category: "prod"}}},
 	}
-	m.deploymentItems = m.deploymentListItems()
+	m.deploymentState.Items = m.deploymentListItems()
 	next, _ := m.updateDeploymentList(tea.KeyMsg{Type: tea.KeyEnter})
 	got := next.(Model)
 	if got.mode != modeDeploymentConfirm {
@@ -369,10 +375,12 @@ func TestDeploymentConfirmDoesNotShowResourceCommands(t *testing.T) {
 		ResourceCommands: []string{"git pull --ff-only"},
 	}
 	m := Model{
-		width:             96,
-		height:            24,
-		states:            []hostState{{Host: host.Host{Name: "web", Category: "prod"}}},
-		deploymentConfirm: app,
+		deploymentState: deploymentState{
+			Confirm: app,
+		},
+		width:  96,
+		height: 24,
+		states: []hostState{{Host: host.Host{Name: "web", Category: "prod"}}},
 	}
 	view := m.renderDeploymentConfirm()
 	if !strings.Contains(view, "Deployment Info") || strings.Contains(view, "Deployment Queue") || strings.Contains(view, "01") {
@@ -409,11 +417,13 @@ func TestDeploymentConfirmShowsFiftyHistoryRows(t *testing.T) {
 		})
 	}
 	m := Model{
-		width:             120,
-		height:            80,
-		states:            []hostState{{Host: host.Host{Name: "web", Category: "prod"}}},
-		deploymentFile:    config.DeploymentsFile{Apps: []config.DeploymentApp{app}, Records: records},
-		deploymentConfirm: app,
+		deploymentState: deploymentState{
+			File:    config.DeploymentsFile{Apps: []config.DeploymentApp{app}, Records: records},
+			Confirm: app,
+		},
+		width:  120,
+		height: 80,
+		states: []hostState{{Host: host.Host{Name: "web", Category: "prod"}}},
 	}
 	view := m.renderDeploymentConfirm()
 	if !strings.Contains(view, "History 50 records") {
@@ -433,28 +443,30 @@ func TestDeploymentListFiltersByCategory(t *testing.T) {
 		{Name: "worker", Server: "dev/worker", Source: config.DeploySourceGit, Repo: "git@github.com:owner/worker.git", Branch: "main", Path: "/data/worker"},
 	}
 	m := Model{
-		category:           "prod",
-		states:             []hostState{{Host: host.Host{Name: "web", Category: "prod"}}, {Host: host.Host{Name: "worker", Category: "dev"}}},
-		deploymentFile:     config.DeploymentsFile{Apps: apps},
-		deploymentCategory: "prod",
+		deploymentState: deploymentState{
+			File:     config.DeploymentsFile{Apps: apps},
+			Category: "prod",
+		},
+		category: "prod",
+		states:   []hostState{{Host: host.Host{Name: "web", Category: "prod"}}, {Host: host.Host{Name: "worker", Category: "dev"}}},
 	}
-	m.deploymentItems = m.deploymentListItems()
-	if len(m.deploymentItems) != 1 || m.deploymentItems[0].App.Name != "api" {
-		t.Fatalf("prod deployment items = %+v", m.deploymentItems)
-	}
-	m.cycleDeploymentCategory(1)
-	if m.deploymentCategory != "" {
-		t.Fatalf("category = %q, want all", m.deploymentCategory)
-	}
-	if len(m.deploymentItems) != 2 {
-		t.Fatalf("all deployment items = %+v", m.deploymentItems)
+	m.deploymentState.Items = m.deploymentListItems()
+	if len(m.deploymentState.Items) != 1 || m.deploymentState.Items[0].App.Name != "api" {
+		t.Fatalf("prod deployment items = %+v", m.deploymentState.Items)
 	}
 	m.cycleDeploymentCategory(1)
-	if m.deploymentCategory != "dev" {
-		t.Fatalf("category = %q, want dev", m.deploymentCategory)
+	if m.deploymentState.Category != "" {
+		t.Fatalf("category = %q, want all", m.deploymentState.Category)
 	}
-	if len(m.deploymentItems) != 1 || m.deploymentItems[0].App.Name != "worker" {
-		t.Fatalf("dev deployment items = %+v", m.deploymentItems)
+	if len(m.deploymentState.Items) != 2 {
+		t.Fatalf("all deployment items = %+v", m.deploymentState.Items)
+	}
+	m.cycleDeploymentCategory(1)
+	if m.deploymentState.Category != "dev" {
+		t.Fatalf("category = %q, want dev", m.deploymentState.Category)
+	}
+	if len(m.deploymentState.Items) != 1 || m.deploymentState.Items[0].App.Name != "worker" {
+		t.Fatalf("dev deployment items = %+v", m.deploymentState.Items)
 	}
 }
 
@@ -463,17 +475,19 @@ func TestDeploymentCategorySkipsEmptyServerCategories(t *testing.T) {
 		{Name: "api", Server: "prod/web", Source: config.DeploySourceGit, Repo: "git@github.com:owner/api.git", Branch: "main", Path: "/data/api"},
 	}
 	m := Model{
-		states:         []hostState{{Host: host.Host{Name: "web", Category: "prod"}}, {Host: host.Host{Name: "empty", Category: "dev"}}},
-		deploymentFile: config.DeploymentsFile{Apps: apps},
+		deploymentState: deploymentState{
+			File: config.DeploymentsFile{Apps: apps},
+		},
+		states: []hostState{{Host: host.Host{Name: "web", Category: "prod"}}, {Host: host.Host{Name: "empty", Category: "dev"}}},
 	}
-	m.deploymentItems = m.deploymentListItems()
+	m.deploymentState.Items = m.deploymentListItems()
 	m.cycleDeploymentCategory(1)
-	if m.deploymentCategory != "prod" {
-		t.Fatalf("category = %q, want prod", m.deploymentCategory)
+	if m.deploymentState.Category != "prod" {
+		t.Fatalf("category = %q, want prod", m.deploymentState.Category)
 	}
 	m.cycleDeploymentCategory(1)
-	if m.deploymentCategory != "" {
-		t.Fatalf("category = %q, want all", m.deploymentCategory)
+	if m.deploymentState.Category != "" {
+		t.Fatalf("category = %q, want all", m.deploymentState.Category)
 	}
 }
 
@@ -483,12 +497,15 @@ func TestDeploymentListSortsPinnedAndFiltersFavorites(t *testing.T) {
 		{Name: "favorite", Server: "prod/web", Source: config.DeploySourceGit, Repo: "git@github.com:owner/favorite.git", Path: "/data/favorite", Favorite: true},
 		{Name: "pinned", Server: "prod/web", Source: config.DeploySourceGit, Repo: "git@github.com:owner/pinned.git", Path: "/data/pinned", Pinned: true, PinnedOrder: 1},
 	}
-	m := Model{deploymentFile: config.DeploymentsFile{Apps: apps}}
+	m := Model{
+		deploymentState: deploymentState{
+			File: config.DeploymentsFile{Apps: apps},
+		}}
 	items := m.deploymentListItems()
 	if got := []string{items[0].App.Name, items[1].App.Name, items[2].App.Name}; !reflect.DeepEqual(got, []string{"pinned", "normal", "favorite"}) {
 		t.Fatalf("deployment order = %+v", got)
 	}
-	m.deploymentFavoriteOnly = true
+	m.deploymentState.FavoriteOnly = true
 	items = m.deploymentListItems()
 	if len(items) != 1 || items[0].App.Name != "favorite" {
 		t.Fatalf("favorite deployment items = %+v", items)
@@ -502,8 +519,10 @@ func TestDeploymentSelectionKeepsQueueOrder(t *testing.T) {
 		{Name: "worker", Server: "prod/worker", Source: config.DeploySourceGit, Repo: "git@github.com:owner/worker.git", Path: "/data/worker"},
 	}
 	m := Model{
-		deploymentFile:     config.DeploymentsFile{Apps: apps},
-		deploymentSelected: []int{1, 0},
+		deploymentState: deploymentState{
+			File:     config.DeploymentsFile{Apps: apps},
+			Selected: []int{1, 0},
+		},
 	}
 	queue := m.selectedDeploymentQueue()
 	if len(queue) != 2 || queue[0].Name != "web" || queue[1].Name != "api" {
@@ -519,17 +538,19 @@ func TestDeploymentListEnterClearsPreviousQueueState(t *testing.T) {
 		{Name: "web", Server: "prod/web", Source: config.DeploySourceGit, Repo: "git@github.com:owner/web.git", Path: "/data/web"},
 	}
 	m := Model{
-		mode:               modeDeploymentList,
-		states:             []hostState{{Host: host.Host{Name: "web", Category: "prod"}}},
-		deploymentFile:     config.DeploymentsFile{Apps: apps},
-		activeDeployment:   activeDeployment{HostIndex: 0, Queue: []config.DeploymentApp{{Name: "old"}, {Name: "stale"}}, QueueIndex: 1, QueueFailed: 1, Output: "old output", ExitCode: 1},
-		deploymentSelected: []int{0},
+		deploymentState: deploymentState{
+			File:     config.DeploymentsFile{Apps: apps},
+			Active:   activeDeployment{HostIndex: 0, Queue: []config.DeploymentApp{{Name: "old"}, {Name: "stale"}}, QueueIndex: 1, QueueFailed: 1, Output: "old output", ExitCode: 1},
+			Selected: []int{0},
+		},
+		mode:   modeDeploymentList,
+		states: []hostState{{Host: host.Host{Name: "web", Category: "prod"}}},
 	}
-	m.deploymentItems = m.deploymentListItems()
+	m.deploymentState.Items = m.deploymentListItems()
 	next, _ := m.updateDeploymentList(tea.KeyMsg{Type: tea.KeyEnter})
 	got := next.(Model)
-	if len(got.activeDeployment.Queue) != 0 || got.activeDeployment.Output != "" || got.activeDeployment.QueueFailed != 0 {
-		t.Fatalf("active deployment was not reset: %+v", got.activeDeployment)
+	if len(got.deploymentState.Active.Queue) != 0 || got.deploymentState.Active.Output != "" || got.deploymentState.Active.QueueFailed != 0 {
+		t.Fatalf("active deployment was not reset: %+v", got.deploymentState.Active)
 	}
 	view := got.renderDeploymentConfirm()
 	if strings.Contains(view, "old output") || strings.Contains(view, "stale") {
@@ -543,10 +564,12 @@ func TestDeploymentConfirmShowsQueueAndWait(t *testing.T) {
 		{Name: "api", Server: "prod/api", Source: config.DeploySourceGit, Repo: "git@github.com:owner/api.git", Branch: "main", Path: "/data/api", ResourceCommands: []string{"git pull"}, HealthCommands: []string{"curl -f localhost"}},
 	}
 	m := Model{
-		width:                  110,
-		height:                 30,
-		deploymentConfirm:      apps[0],
-		deploymentConfirmQueue: apps,
+		deploymentState: deploymentState{
+			Confirm:      apps[0],
+			ConfirmQueue: apps,
+		},
+		width:  110,
+		height: 30,
 	}
 	view := m.renderDeploymentConfirm()
 	for _, want := range []string{"Deployment Queue", "01", "web", "Wait 3s", "02", "api", "Current Flow", "Fetch 1 steps", "Update 1 steps"} {
@@ -567,19 +590,21 @@ func TestDeploymentQueueConfirmShowsCurrentFlowAndStopsOnFailure(t *testing.T) {
 		{Name: "api", Server: "prod/api", Source: config.DeploySourceGit, Repo: "git@github.com:owner/api.git", Branch: "main", Path: "/data/api", ResourceCommands: []string{"git pull"}},
 	}
 	m := Model{
-		width:                  110,
-		height:                 34,
-		deploymentConfirm:      apps[0],
-		deploymentConfirmQueue: apps,
-		activeDeployment: activeDeployment{
-			App:         apps[1],
-			Action:      config.DeployActionDeploy,
-			Output:      "== 获取资源 ==\nfatal: repository not found\n",
-			ExitCode:    128,
-			Queue:       apps,
-			QueueIndex:  1,
-			QueueFailed: 1,
+		deploymentState: deploymentState{
+			Confirm:      apps[0],
+			ConfirmQueue: apps,
+			Active: activeDeployment{
+				App:         apps[1],
+				Action:      config.DeployActionDeploy,
+				Output:      "== 获取资源 ==\nfatal: repository not found\n",
+				ExitCode:    128,
+				Queue:       apps,
+				QueueIndex:  1,
+				QueueFailed: 1,
+			},
 		},
+		width:  110,
+		height: 34,
 	}
 	view := m.renderDeploymentConfirm()
 	for _, want := range []string{"✓ 01", "✕ 02", "Current Flow", "Output", "✕ Fetch", "fatal: repository not found", "Exit code 128", "Retry failed r", "Redeploy a"} {
@@ -622,16 +647,18 @@ func TestDeploymentListShowsLastRecordActionAndTime(t *testing.T) {
 		Path:   "/data/api",
 	}
 	m := Model{
-		deploymentFile: config.DeploymentsFile{
-			Apps: []config.DeploymentApp{app},
-			Records: []config.DeploymentRecord{
-				{
-					Time:           time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
-					App:            "api",
-					ServerCategory: "prod",
-					ServerName:     "web",
-					Action:         config.DeployActionRollback,
-					Status:         config.DeployStatusFailed,
+		deploymentState: deploymentState{
+			File: config.DeploymentsFile{
+				Apps: []config.DeploymentApp{app},
+				Records: []config.DeploymentRecord{
+					{
+						Time:           time.Now().Add(-5 * time.Minute).Format(time.RFC3339),
+						App:            "api",
+						ServerCategory: "prod",
+						ServerName:     "web",
+						Action:         config.DeployActionRollback,
+						Status:         config.DeployStatusFailed,
+					},
 				},
 			},
 		},
@@ -644,13 +671,15 @@ func TestDeploymentListShowsLastRecordActionAndTime(t *testing.T) {
 
 func TestDeploymentEditShowsValidationStatus(t *testing.T) {
 	m := Model{
-		width:             96,
-		height:            28,
-		mode:              modeDeploymentEdit,
-		status:            "保存失败：应用名称不能为空",
-		deploymentForm:    deploymentFormFromApp(config.DeploymentApp{Source: config.DeploySourceGit, Credential: config.DeployCredentialNone}),
-		activeDeployment:  activeDeployment{HostIndex: 0},
-		deploymentEditing: false,
+		deploymentState: deploymentState{
+			Form:    deploymentFormFromApp(config.DeploymentApp{Source: config.DeploySourceGit, Credential: config.DeployCredentialNone}),
+			Active:  activeDeployment{HostIndex: 0},
+			Editing: false,
+		},
+		width:  96,
+		height: 28,
+		mode:   modeDeploymentEdit,
+		status: "保存失败：应用名称不能为空",
 	}
 	view := m.renderDeploymentEdit()
 	if !strings.Contains(view, "保存失败：应用名称不能为空") {
@@ -670,9 +699,11 @@ func TestDeploymentEditInputWidthsAlign(t *testing.T) {
 		CredentialName: "本地或目标服务器私钥路径",
 	}
 	m := Model{
-		width:          120,
-		height:         32,
-		deploymentForm: deploymentFormFromApp(app),
+		deploymentState: deploymentState{
+			Form: deploymentFormFromApp(app),
+		},
+		width:  120,
+		height: 32,
 	}
 	view := m.renderDeploymentEdit()
 	wantWidth := deploymentInputWidth() + 2
@@ -704,12 +735,14 @@ func TestDeploymentDeleteRequiresConfirmation(t *testing.T) {
 		t.Fatalf("save deployments: %v", err)
 	}
 	m := Model{
-		home:             home,
-		mode:             modeDeploymentList,
-		deploymentFile:   config.DeploymentsFile{Apps: apps},
-		activeDeployment: activeDeployment{HostIndex: 0},
+		deploymentState: deploymentState{
+			File:   config.DeploymentsFile{Apps: apps},
+			Active: activeDeployment{HostIndex: 0},
+		},
+		home: home,
+		mode: modeDeploymentList,
 	}
-	m.deploymentItems = m.deploymentListItems()
+	m.deploymentState.Items = m.deploymentListItems()
 
 	next, _ := m.updateDeploymentList(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
 	got := next.(Model)
@@ -748,18 +781,20 @@ func TestHandleDeploymentDoneStopsQueueOnFailure(t *testing.T) {
 		t.Fatalf("save deployments: %v", err)
 	}
 	m := Model{
+		deploymentState: deploymentState{
+			Active: activeDeployment{
+				HostIndex:       0,
+				App:             apps[0],
+				Action:          config.DeployActionDeploy,
+				Queue:           apps,
+				QueueIndex:      0,
+				Running:         true,
+				ProgressID:      "run-1",
+				PreviousVersion: "old",
+			},
+		},
 		home:   home,
 		states: []hostState{{Host: host.Host{Name: "api", Category: "prod"}}},
-		activeDeployment: activeDeployment{
-			HostIndex:       0,
-			App:             apps[0],
-			Action:          config.DeployActionDeploy,
-			Queue:           apps,
-			QueueIndex:      0,
-			Running:         true,
-			ProgressID:      "run-1",
-			PreviousVersion: "old",
-		},
 	}
 
 	next, cmd := m.handleDeploymentDone(deploymentDoneMsg{
@@ -770,8 +805,8 @@ func TestHandleDeploymentDoneStopsQueueOnFailure(t *testing.T) {
 	if cmd != nil {
 		t.Fatal("failed queue should not schedule next deployment")
 	}
-	if got.activeDeployment.QueueFailed != 0 || got.activeDeployment.Running {
-		t.Fatalf("active deployment after failure = %+v", got.activeDeployment)
+	if got.deploymentState.Active.QueueFailed != 0 || got.deploymentState.Active.Running {
+		t.Fatalf("active deployment after failure = %+v", got.deploymentState.Active)
 	}
 	if !strings.Contains(got.status, "Deployment queue stopped") {
 		t.Fatalf("status = %q, want queue stopped", got.status)
@@ -2723,20 +2758,22 @@ func TestCommandEditTextFieldsAcceptShortcutLetters(t *testing.T) {
 
 func TestDeploymentEditTextFieldsAcceptShortcutLetters(t *testing.T) {
 	m := Model{
-		mode:             modeDeploymentEdit,
-		deploymentField:  3,
-		deploymentForm:   deploymentForm{Name: "mar"},
-		deploymentCursor: 3,
+		deploymentState: deploymentState{
+			Field:  3,
+			Form:   deploymentForm{Name: "mar"},
+			Cursor: 3,
+		},
+		mode: modeDeploymentEdit,
 	}
 	next, _ := m.updateDeploymentEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	got := next.(Model)
-	if got.deploymentForm.Name != "mark" {
-		t.Fatalf("Name = %q, want mark", got.deploymentForm.Name)
+	if got.deploymentState.Form.Name != "mark" {
+		t.Fatalf("Name = %q, want mark", got.deploymentState.Form.Name)
 	}
 	next, _ = got.updateDeploymentEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	got = next.(Model)
-	if got.deploymentForm.Name != "markq" || got.mode != modeDeploymentEdit {
-		t.Fatalf("Name/mode = %q/%v, want markq/deployment-edit", got.deploymentForm.Name, got.mode)
+	if got.deploymentState.Form.Name != "markq" || got.mode != modeDeploymentEdit {
+		t.Fatalf("Name/mode = %q/%v, want markq/deployment-edit", got.deploymentState.Form.Name, got.mode)
 	}
 }
 
@@ -3125,14 +3162,16 @@ func TestDeploymentRollbackConfirmRunsOnlyRollbackFlow(t *testing.T) {
 		RollbackCommands: []string{"ln -sfn releases/old current", "systemctl restart api"},
 	}
 	m := Model{
+		deploymentState: deploymentState{
+			Active: activeDeployment{
+				App:             app,
+				Action:          config.DeployActionDeploy,
+				PreviousVersion: "old",
+				CurrentVersion:  "new",
+			},
+		},
 		width:  100,
 		height: 24,
-		activeDeployment: activeDeployment{
-			App:             app,
-			Action:          config.DeployActionDeploy,
-			PreviousVersion: "old",
-			CurrentVersion:  "new",
-		},
 	}
 	view := m.renderDeploymentRollbackConfirm()
 	for _, want := range []string{"Confirm Rollback", "Previous version", "old", "Current version", "new", "Rollback commands", "ln -sfn releases/old current"} {
@@ -3147,8 +3186,8 @@ func TestDeploymentRollbackConfirmRunsOnlyRollbackFlow(t *testing.T) {
 	}
 	next, cmd := m.updateDeploymentRollbackConfirm(tea.KeyMsg{Type: tea.KeyEnter})
 	got := next.(Model)
-	if got.mode != modeDeploymentOutput || got.activeDeployment.Action != config.DeployActionRollback || !got.activeDeployment.Running || got.activeDeployment.ProgressID == "" || cmd == nil {
-		t.Fatalf("rollback enter state = mode %v active %+v cmd %v", got.mode, got.activeDeployment, cmd)
+	if got.mode != modeDeploymentOutput || got.deploymentState.Active.Action != config.DeployActionRollback || !got.deploymentState.Active.Running || got.deploymentState.Active.ProgressID == "" || cmd == nil {
+		t.Fatalf("rollback enter state = mode %v active %+v cmd %v", got.mode, got.deploymentState.Active, cmd)
 	}
 }
 

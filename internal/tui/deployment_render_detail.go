@@ -23,7 +23,7 @@ func (m Model) renderDeploymentDetail() string {
 	if height < 8 {
 		height = 8
 	}
-	scroll := clampInt(m.deploymentOutputScroll, 0, m.deploymentDetailMaxScroll())
+	scroll := clampInt(m.deploymentState.OutputScroll, 0, m.deploymentDetailMaxScroll())
 	if len(lines) > height {
 		lines = lines[scroll:minInt(len(lines), scroll+height)]
 	}
@@ -53,7 +53,7 @@ func (m Model) deploymentDetailMaxScroll() int {
 }
 
 func (m Model) deploymentDetailLines(bodyWidth int) []string {
-	app := deploymentAppWithResourceDefaults(m.deploymentDetail)
+	app := deploymentAppWithResourceDefaults(m.deploymentState.Detail)
 	lines := []string{
 		detailSubTitle(m.t("Basic", "基础")),
 		deploymentDetailRow(m.t("App", "应用"), emptyDash(app.Name), bodyWidth),
@@ -227,7 +227,7 @@ func (m Model) latestDeploymentRecord(app config.DeploymentApp) (config.Deployme
 func (m Model) deploymentRecordsForApp(app config.DeploymentApp, limit int) []config.DeploymentRecord {
 	category, name := splitDeploymentServer(app.Server)
 	records := []config.DeploymentRecord{}
-	for _, record := range m.deploymentFile.Records {
+	for _, record := range m.deploymentState.File.Records {
 		if record.App == app.Name && record.ServerCategory == category && record.ServerName == name {
 			records = append(records, record)
 			if limit > 0 && len(records) >= limit {

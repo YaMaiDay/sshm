@@ -19,7 +19,7 @@ func (m Model) renderDeploymentEdit() string {
 	}
 	help := m.t("Switch Tab  Save Enter  Newline Ctrl+J  Server/source/credential ←→  Back Esc", "切换 Tab  保存 Enter  换行 Ctrl+J  服务器/来源/凭证 ←→  返回 Esc")
 	title := m.t("Add Deployment App", "添加部署应用")
-	if m.deploymentEditing {
+	if m.deploymentState.Editing {
 		title = m.t("Edit Deployment App", "编辑部署应用")
 	}
 	header := titleStyle.Render(title)
@@ -35,8 +35,8 @@ func (m Model) renderDeploymentEdit() string {
 		contentHeight = 8
 	}
 	lines := m.deploymentEditLines(innerWidth, contentHeight)
-	if !deploymentFieldIsCommand(m.deploymentField) && len(lines) > contentHeight {
-		selected := selectedDeploymentEditRow(m.deploymentField)
+	if !deploymentFieldIsCommand(m.deploymentState.Field) && len(lines) > contentHeight {
+		selected := selectedDeploymentEditRow(m.deploymentState.Field)
 		start := selected - contentHeight + 4
 		if start < 0 {
 			start = 0
@@ -62,36 +62,36 @@ func (m Model) renderDeploymentEdit() string {
 }
 
 func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
-	if deploymentFieldIsCommand(m.deploymentField) {
+	if deploymentFieldIsCommand(m.deploymentState.Field) {
 		lines := []string{
 			deploymentSectionTitle(m.t("Deploy Flow", "部署流程")),
-			deploymentCommandSummaryLine(m, 13, m.t("Before", "更新前"), m.deploymentForm.BeforeCommands, innerWidth),
-			deploymentCommandSummaryLine(m, 14, m.t("Fetch", "获取资源"), m.deploymentForm.ResourceCommands, innerWidth),
-			deploymentCommandSummaryLine(m, 15, m.t("Update", "更新命令"), m.deploymentForm.UpdateCommands, innerWidth),
-			deploymentCommandSummaryLine(m, 16, m.t("After", "更新后"), m.deploymentForm.AfterCommands, innerWidth),
-			deploymentCommandSummaryLine(m, 17, m.t("Health", "健康检查"), m.deploymentForm.HealthCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 13, m.t("Before", "更新前"), m.deploymentState.Form.BeforeCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 14, m.t("Fetch", "获取资源"), m.deploymentState.Form.ResourceCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 15, m.t("Update", "更新命令"), m.deploymentState.Form.UpdateCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 16, m.t("After", "更新后"), m.deploymentState.Form.AfterCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 17, m.t("Health", "健康检查"), m.deploymentState.Form.HealthCommands, innerWidth),
 			"",
 			deploymentSectionTitle(m.t("Rollback Flow", "回滚流程")),
-			deploymentCommandSummaryLine(m, 18, m.t("Rollback", "回滚命令"), m.deploymentForm.RollbackCommands, innerWidth),
+			deploymentCommandSummaryLine(m, 18, m.t("Rollback", "回滚命令"), m.deploymentState.Form.RollbackCommands, innerWidth),
 			"",
-			deploymentSectionTitle(m.deploymentFieldName(m.deploymentField)),
+			deploymentSectionTitle(m.deploymentFieldName(m.deploymentState.Field)),
 		}
 		textAreaHeight := contentHeight - len(lines) - 2
 		if textAreaHeight < 4 {
 			textAreaHeight = 4
 		}
-		lines = append(lines, commandTextArea(m.deploymentValue(), m.deploymentCursor, true, innerWidth, textAreaHeight))
+		lines = append(lines, commandTextArea(m.deploymentValue(), m.deploymentState.Cursor, true, innerWidth, textAreaHeight))
 		return lines
 	}
 	lines := []string{
 		deploymentSectionTitle(m.t("Resource Source", "资源来源")),
-		deploymentFieldLine(m, 0, m.t("Source", "来源"), deploySourceText(m.deploymentForm.Source)+"  ←/→", innerWidth),
-		deploymentFieldLine(m, 1, m.t("Fetch mode", "获取方式"), m.deployFetchModeText(m.deploymentForm.FetchMode)+"  ←/→", innerWidth),
+		deploymentFieldLine(m, 0, m.t("Source", "来源"), deploySourceText(m.deploymentState.Form.Source)+"  ←/→", innerWidth),
+		deploymentFieldLine(m, 1, m.t("Fetch mode", "获取方式"), m.deployFetchModeText(m.deploymentState.Form.FetchMode)+"  ←/→", innerWidth),
 		deploymentFieldLine(m, 2, m.t("Server", "服务器"), m.deploymentServerText(innerWidth), innerWidth),
 		deploymentFieldLine(m, 3, m.t("App name", "应用名称"), m.deploymentInputText(3, deploymentInputWidth()), innerWidth),
 		deploymentFieldLine(m, 4, m.t("Repo", "仓库"), m.deploymentInputText(4, deploymentInputWidth()), innerWidth),
 	}
-	if m.deploymentForm.Source == config.DeploySourceRelease {
+	if m.deploymentState.Form.Source == config.DeploySourceRelease {
 		lines = append(lines,
 			deploymentFieldLine(m, 6, m.t("Version", "版本"), m.deploymentInputText(6, deploymentInputWidth()), innerWidth),
 			deploymentFieldLine(m, 7, m.t("Asset/match", "资源文件/匹配"), m.deploymentInputText(7, deploymentInputWidth()), innerWidth),
@@ -100,14 +100,14 @@ func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
 		lines = append(lines, deploymentFieldLine(m, 5, m.t("Branch", "分支"), m.deploymentInputText(5, deploymentInputWidth()), innerWidth))
 	}
 	lines = append(lines, deploymentFieldLine(m, 8, m.t("App dir", "项目目录"), m.deploymentInputText(8, deploymentInputWidth()), innerWidth))
-	if m.deploymentForm.Source == config.DeploySourceRelease {
+	if m.deploymentState.Form.Source == config.DeploySourceRelease {
 		lines = append(lines, deploymentFieldLine(m, 9, m.t("Download URL", "下载地址"), m.deploymentInputText(9, deploymentInputWidth()), innerWidth))
 		lines = append(lines, m.deploymentReleaseHintLines(innerWidth)...)
 	}
 	lines = append(lines,
 		"",
 		deploymentSectionTitle(m.t("GitHub Credential", "GitHub 凭证")),
-		deploymentFieldLine(m, 10, m.t("Cred type", "凭证类型"), m.deployCredentialText(m.deploymentForm.Credential)+"  ←/→", innerWidth),
+		deploymentFieldLine(m, 10, m.t("Cred type", "凭证类型"), m.deployCredentialText(m.deploymentState.Form.Credential)+"  ←/→", innerWidth),
 		deploymentFieldLine(m, 11, m.t("Cred param", "凭证参数"), m.deploymentInputText(11, deploymentInputWidth()), innerWidth),
 		"",
 		deploymentSectionTitle(m.t("Serial Deploy", "串行部署")),
@@ -115,14 +115,14 @@ func (m Model) deploymentEditLines(innerWidth int, contentHeight int) []string {
 		mutedStyle.Render(fit(m.t("Note: during multi-app deployment, wait this many seconds after this app before starting the next one.", "说明：多选部署时，此应用完成后等待该秒数再执行下一个。"), innerWidth)),
 		"",
 		deploymentSectionTitle(m.t("Deploy Flow", "部署流程")),
-		deploymentCommandSummaryLine(m, 13, m.t("Before", "更新前"), m.deploymentForm.BeforeCommands, innerWidth),
-		deploymentCommandSummaryLine(m, 14, m.t("Fetch", "获取资源"), m.deploymentForm.ResourceCommands, innerWidth),
-		deploymentCommandSummaryLine(m, 15, m.t("Update", "更新命令"), m.deploymentForm.UpdateCommands, innerWidth),
-		deploymentCommandSummaryLine(m, 16, m.t("After", "更新后"), m.deploymentForm.AfterCommands, innerWidth),
-		deploymentCommandSummaryLine(m, 17, m.t("Health", "健康检查"), m.deploymentForm.HealthCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 13, m.t("Before", "更新前"), m.deploymentState.Form.BeforeCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 14, m.t("Fetch", "获取资源"), m.deploymentState.Form.ResourceCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 15, m.t("Update", "更新命令"), m.deploymentState.Form.UpdateCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 16, m.t("After", "更新后"), m.deploymentState.Form.AfterCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 17, m.t("Health", "健康检查"), m.deploymentState.Form.HealthCommands, innerWidth),
 		"",
 		deploymentSectionTitle(m.t("Rollback Flow", "回滚流程")),
-		deploymentCommandSummaryLine(m, 18, m.t("Rollback", "回滚命令"), m.deploymentForm.RollbackCommands, innerWidth),
+		deploymentCommandSummaryLine(m, 18, m.t("Rollback", "回滚命令"), m.deploymentState.Form.RollbackCommands, innerWidth),
 	)
 	return lines
 }
@@ -144,12 +144,12 @@ func (m Model) deploymentReleaseHintLines(width int) []string {
 }
 
 func (m Model) deploymentServerText(width int) string {
-	value := deploymentDisplayServerText(m.deploymentForm.Server)
-	index := m.deploymentServerIndex(m.deploymentForm.Server)
+	value := deploymentDisplayServerText(m.deploymentState.Form.Server)
+	index := m.deploymentServerIndex(m.deploymentState.Form.Server)
 	if index >= 0 {
 		h := m.states[index].Host
 		value = deploymentDisplayServerName(h.Category, h.Name)
-	} else if strings.TrimSpace(m.deploymentForm.Server) != "" {
+	} else if strings.TrimSpace(m.deploymentState.Form.Server) != "" {
 		value += "  " + m.t("not found", "未找到")
 	}
 	value += "  ←/→"
@@ -184,18 +184,18 @@ func deploymentDisplayServerName(category string, name string) string {
 
 func (m Model) deploymentInputText(field int, width int) string {
 	value := m.deploymentFieldValue(field)
-	if value != "" || m.deploymentField == field {
-		return commandInputText(value, m.deploymentCursor, m.deploymentField == field, width)
+	if value != "" || m.deploymentState.Field == field {
+		return commandInputText(value, m.deploymentState.Cursor, m.deploymentState.Field == field, width)
 	}
-	placeholder := m.deploymentFieldPlaceholder(field, m.deploymentForm.Source, m.deploymentForm.Credential)
+	placeholder := m.deploymentFieldPlaceholder(field, m.deploymentState.Form.Source, m.deploymentState.Form.Credential)
 	if placeholder == "" {
-		return commandInputText(value, m.deploymentCursor, m.deploymentField == field, width)
+		return commandInputText(value, m.deploymentState.Cursor, m.deploymentState.Field == field, width)
 	}
 	return "[" + fit(placeholder, width) + strings.Repeat(" ", maxInt(0, width-ansi.StringWidth(placeholder))) + "]"
 }
 
 func (m Model) deploymentFieldValue(field int) string {
-	m.deploymentField = field
+	m.deploymentState.Field = field
 	return m.deploymentValue()
 }
 
@@ -244,7 +244,7 @@ func selectedDeploymentEditRow(field int) int {
 func deploymentFieldLine(m Model, index int, label string, value string, width int) string {
 	prefix := " "
 	style := lipgloss.NewStyle()
-	if m.deploymentField == index {
+	if m.deploymentState.Field == index {
 		prefix = "▶"
 		style = blueStyle.Bold(true)
 	}

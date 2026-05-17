@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -18,12 +19,30 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	home, _ := os.UserHomeDir()
 	appConfig := config.LoadAppConfig(home)
 	appState := config.LoadState(home)
-	categories, _, _ := config.LoadCategories(home)
-	commandFile, _, _ := commandservice.LoadTemplates(home)
-	deploymentFile, _, _ := deploymentservice.LoadFile(home)
-	resourceFile, _, _ := resourceservice.LoadConfig(home)
-	_ = transferservice.MarkRunningTransfersInterrupted(home)
-	transferHistory, _, _ := transferservice.LoadHistory(home)
+	startupWarnings := []string{}
+	categories, _, err := config.LoadCategories(home)
+	if err != nil {
+		startupWarnings = append(startupWarnings, "categories: "+err.Error())
+	}
+	commandFile, _, err := commandservice.LoadTemplates(home)
+	if err != nil {
+		startupWarnings = append(startupWarnings, "commands: "+err.Error())
+	}
+	deploymentFile, _, err := deploymentservice.LoadFile(home)
+	if err != nil {
+		startupWarnings = append(startupWarnings, "deployments: "+err.Error())
+	}
+	resourceFile, _, err := resourceservice.LoadConfig(home)
+	if err != nil {
+		startupWarnings = append(startupWarnings, "resources: "+err.Error())
+	}
+	if err := transferservice.MarkRunningTransfersInterrupted(home); err != nil {
+		startupWarnings = append(startupWarnings, "transfers: "+err.Error())
+	}
+	transferHistory, _, err := transferservice.LoadHistory(home)
+	if err != nil {
+		startupWarnings = append(startupWarnings, "transfer history: "+err.Error())
+	}
 	setASCIIMode(appConfig.ASCIIMode)
 	states := make([]hostState, len(hosts))
 	for i, h := range hosts {
@@ -34,23 +53,29 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	collector.Timeout = appConfig.CommandDuration()
 	collector.ConnectTimeout = appConfig.ConnectDuration()
 	m := Model{
-		states:             states,
-		collector:          collector,
-		passwords:          passwords,
-		appConfig:          appConfig,
-		appState:           appState,
-		home:               home,
-		commandFile:        commandFile,
-		deploymentFile:     deploymentFile,
-		deploymentProgress: newDeploymentProgressStore(),
-		resourceState:      resourceState{File: resourceFile},
-		transferState:      transferState{History: transferHistory},
-		categories:         categories,
-		status:             "",
-		collectRound:       1,
-		pendingByRound:     pendingByRound,
+		states:      states,
+		collector:   collector,
+		passwords:   passwords,
+		appConfig:   appConfig,
+		appState:    appState,
+		home:        home,
+		commandFile: commandFile,
+		deploymentState: deploymentState{
+			File:     deploymentFile,
+			Progress: newDeploymentProgressStore(),
+		},
+		resourceState:  resourceState{File: resourceFile},
+		transferState:  transferState{History: transferHistory},
+		categories:     categories,
+		status:         "",
+		collectRound:   1,
+		pendingByRound: pendingByRound,
 	}
-	m.status = m.t("Collecting server status...", "正在采集服务器状态...")
+	if len(startupWarnings) > 0 {
+		m.status = m.t("Config load warnings: ", "配置读取警告：") + strings.Join(startupWarnings, "; ")
+	} else {
+		m.status = m.t("Collecting server status...", "正在采集服务器状态...")
+	}
 	return m
 }
 

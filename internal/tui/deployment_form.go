@@ -11,8 +11,8 @@ import (
 )
 
 func (m Model) defaultDeploymentServer() string {
-	if m.activeDeployment.HostIndex >= 0 && m.activeDeployment.HostIndex < len(m.states) {
-		h := m.states[m.activeDeployment.HostIndex].Host
+	if m.deploymentState.Active.HostIndex >= 0 && m.deploymentState.Active.HostIndex < len(m.states) {
+		h := m.states[m.deploymentState.Active.HostIndex].Host
 		return config.ServerCommandKey(h.Category, h.Name)
 	}
 	if len(m.states) > 0 {
@@ -34,17 +34,17 @@ func (m Model) deploymentServerIndex(server string) int {
 
 func (m *Model) cycleDeploymentServer(delta int) {
 	if len(m.states) == 0 {
-		m.deploymentForm.Server = ""
+		m.deploymentState.Form.Server = ""
 		return
 	}
-	index := m.deploymentServerIndex(m.deploymentForm.Server)
+	index := m.deploymentServerIndex(m.deploymentState.Form.Server)
 	if index < 0 {
 		index = 0
 	} else {
 		index = moveIndex(index, len(m.states), delta)
 	}
 	h := m.states[index].Host
-	m.deploymentForm.Server = config.ServerCommandKey(h.Category, h.Name)
+	m.deploymentState.Form.Server = config.ServerCommandKey(h.Category, h.Name)
 }
 
 func (m Model) startDeploymentEdit(app config.DeploymentApp, editing bool) Model {
@@ -55,14 +55,14 @@ func (m Model) startDeploymentEdit(app config.DeploymentApp, editing bool) Model
 		app.Branch = "main"
 		app.Server = m.defaultDeploymentServer()
 	}
-	m.deploymentForm = deploymentFormFromApp(app)
-	m.deploymentField = 0
-	m.deploymentCursor = len([]rune(m.deploymentForm.Name))
-	m.deploymentEditing = editing
-	m.deploymentEditIndex = -1
+	m.deploymentState.Form = deploymentFormFromApp(app)
+	m.deploymentState.Field = 0
+	m.deploymentState.Cursor = len([]rune(m.deploymentState.Form.Name))
+	m.deploymentState.Editing = editing
+	m.deploymentState.EditIndex = -1
 	if editing {
 		if item, ok := m.selectedDeploymentItem(); ok {
-			m.deploymentEditIndex = item.Index
+			m.deploymentState.EditIndex = item.Index
 		}
 	}
 	m.mode = modeDeploymentEdit
@@ -114,25 +114,25 @@ func deploymentAppWithResourceDefaults(app config.DeploymentApp) config.Deployme
 
 func (m Model) deploymentAppFromForm() config.DeploymentApp {
 	return config.DeploymentApp{
-		Name:             strings.TrimSpace(m.deploymentForm.Name),
-		Server:           strings.TrimSpace(m.deploymentForm.Server),
-		Source:           strings.TrimSpace(m.deploymentForm.Source),
-		FetchMode:        strings.TrimSpace(m.deploymentForm.FetchMode),
-		Repo:             strings.TrimSpace(m.deploymentForm.Repo),
-		Branch:           strings.TrimSpace(m.deploymentForm.Branch),
-		Version:          strings.TrimSpace(m.deploymentForm.Version),
-		Asset:            strings.TrimSpace(m.deploymentForm.Asset),
-		Path:             strings.TrimSpace(m.deploymentForm.Path),
-		ReleaseURL:       strings.TrimSpace(m.deploymentForm.ReleaseURL),
-		Credential:       strings.TrimSpace(m.deploymentForm.Credential),
-		CredentialName:   strings.TrimSpace(m.deploymentForm.CredentialName),
-		WaitSeconds:      parseNonNegativeInt(m.deploymentForm.WaitSeconds),
-		BeforeCommands:   splitCommandBlock(m.deploymentForm.BeforeCommands),
-		ResourceCommands: splitCommandBlock(m.deploymentForm.ResourceCommands),
-		UpdateCommands:   splitCommandBlock(m.deploymentForm.UpdateCommands),
-		AfterCommands:    splitCommandBlock(m.deploymentForm.AfterCommands),
-		HealthCommands:   splitCommandBlock(m.deploymentForm.HealthCommands),
-		RollbackCommands: splitCommandBlock(m.deploymentForm.RollbackCommands),
+		Name:             strings.TrimSpace(m.deploymentState.Form.Name),
+		Server:           strings.TrimSpace(m.deploymentState.Form.Server),
+		Source:           strings.TrimSpace(m.deploymentState.Form.Source),
+		FetchMode:        strings.TrimSpace(m.deploymentState.Form.FetchMode),
+		Repo:             strings.TrimSpace(m.deploymentState.Form.Repo),
+		Branch:           strings.TrimSpace(m.deploymentState.Form.Branch),
+		Version:          strings.TrimSpace(m.deploymentState.Form.Version),
+		Asset:            strings.TrimSpace(m.deploymentState.Form.Asset),
+		Path:             strings.TrimSpace(m.deploymentState.Form.Path),
+		ReleaseURL:       strings.TrimSpace(m.deploymentState.Form.ReleaseURL),
+		Credential:       strings.TrimSpace(m.deploymentState.Form.Credential),
+		CredentialName:   strings.TrimSpace(m.deploymentState.Form.CredentialName),
+		WaitSeconds:      parseNonNegativeInt(m.deploymentState.Form.WaitSeconds),
+		BeforeCommands:   splitCommandBlock(m.deploymentState.Form.BeforeCommands),
+		ResourceCommands: splitCommandBlock(m.deploymentState.Form.ResourceCommands),
+		UpdateCommands:   splitCommandBlock(m.deploymentState.Form.UpdateCommands),
+		AfterCommands:    splitCommandBlock(m.deploymentState.Form.AfterCommands),
+		HealthCommands:   splitCommandBlock(m.deploymentState.Form.HealthCommands),
+		RollbackCommands: splitCommandBlock(m.deploymentState.Form.RollbackCommands),
 	}
 }
 
@@ -159,39 +159,39 @@ func (m Model) updateDeploymentEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "ctrl+c":
-		return m.startDeploymentList(m.activeDeployment.HostIndex), nil
+		return m.startDeploymentList(m.deploymentState.Active.HostIndex), nil
 	case "tab", "down":
-		m.deploymentField = deploymentNextField(m.deploymentField, 1, m.deploymentForm.Source)
-		m.deploymentCursor = m.deploymentValueLen()
+		m.deploymentState.Field = deploymentNextField(m.deploymentState.Field, 1, m.deploymentState.Form.Source)
+		m.deploymentState.Cursor = m.deploymentValueLen()
 	case "shift+tab", "up":
-		m.deploymentField = deploymentNextField(m.deploymentField, -1, m.deploymentForm.Source)
-		m.deploymentCursor = m.deploymentValueLen()
+		m.deploymentState.Field = deploymentNextField(m.deploymentState.Field, -1, m.deploymentState.Form.Source)
+		m.deploymentState.Cursor = m.deploymentValueLen()
 	case "left":
-		if m.deploymentField == 0 {
+		if m.deploymentState.Field == 0 {
 			m.toggleDeploymentSource()
-		} else if m.deploymentField == 1 {
+		} else if m.deploymentState.Field == 1 {
 			m.toggleDeploymentFetchMode()
-		} else if m.deploymentField == 2 {
+		} else if m.deploymentState.Field == 2 {
 			m.cycleDeploymentServer(-1)
-		} else if m.deploymentField == 10 {
+		} else if m.deploymentState.Field == 10 {
 			m.toggleDeploymentCredential()
 		} else {
 			m.moveDeploymentCursor(-1)
 		}
 	case "right":
-		if m.deploymentField == 0 {
+		if m.deploymentState.Field == 0 {
 			m.toggleDeploymentSource()
-		} else if m.deploymentField == 1 {
+		} else if m.deploymentState.Field == 1 {
 			m.toggleDeploymentFetchMode()
-		} else if m.deploymentField == 2 {
+		} else if m.deploymentState.Field == 2 {
 			m.cycleDeploymentServer(1)
-		} else if m.deploymentField == 10 {
+		} else if m.deploymentState.Field == 10 {
 			m.toggleDeploymentCredential()
 		} else {
 			m.moveDeploymentCursor(1)
 		}
 	case "ctrl+j":
-		if deploymentFieldIsCommand(m.deploymentField) {
+		if deploymentFieldIsCommand(m.deploymentState.Field) {
 			m.deploymentAppend("\n")
 		}
 	case "enter":
@@ -201,22 +201,22 @@ func (m Model) updateDeploymentEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		index := -1
-		if m.deploymentEditing && m.deploymentEditIndex >= 0 && m.deploymentEditIndex < len(m.deploymentFile.Apps) {
-			index = m.deploymentEditIndex
+		if m.deploymentState.Editing && m.deploymentState.EditIndex >= 0 && m.deploymentState.EditIndex < len(m.deploymentState.File.Apps) {
+			index = m.deploymentState.EditIndex
 		}
-		file, err := deploymentservice.SaveApp(m.home, m.deploymentFile, index, app)
+		file, err := deploymentservice.SaveApp(m.home, m.deploymentState.File, index, app)
 		if err != nil {
 			m.status = "保存失败：" + err.Error()
 			return m, nil
 		}
-		m.deploymentFile = file
-		m = m.startDeploymentList(m.activeDeployment.HostIndex)
+		m.deploymentState.File = file
+		m = m.startDeploymentList(m.deploymentState.Active.HostIndex)
 		m.status = m.t("Deployment app saved.", "部署应用已保存。")
 		return m, nil
 	case "backspace":
 		m.deploymentBackspace()
 	default:
-		if len(msg.Runes) > 0 && m.deploymentField != 0 && m.deploymentField != 1 && m.deploymentField != 2 && m.deploymentField != 10 {
+		if len(msg.Runes) > 0 && m.deploymentState.Field != 0 && m.deploymentState.Field != 1 && m.deploymentState.Field != 2 && m.deploymentState.Field != 10 {
 			m.deploymentAppend(string(msg.Runes))
 		}
 	}
@@ -250,68 +250,68 @@ func deploymentNextField(current int, delta int, source string) int {
 }
 
 func (m *Model) toggleDeploymentSource() {
-	if m.deploymentForm.Source == config.DeploySourceGit {
-		m.deploymentForm.Source = config.DeploySourceRelease
+	if m.deploymentState.Form.Source == config.DeploySourceGit {
+		m.deploymentState.Form.Source = config.DeploySourceRelease
 	} else {
-		m.deploymentForm.Source = config.DeploySourceGit
+		m.deploymentState.Form.Source = config.DeploySourceGit
 	}
 }
 
 func (m *Model) toggleDeploymentFetchMode() {
-	if m.deploymentForm.FetchMode == config.DeployFetchRemote {
-		m.deploymentForm.FetchMode = config.DeployFetchLocal
+	if m.deploymentState.Form.FetchMode == config.DeployFetchRemote {
+		m.deploymentState.Form.FetchMode = config.DeployFetchLocal
 	} else {
-		m.deploymentForm.FetchMode = config.DeployFetchRemote
+		m.deploymentState.Form.FetchMode = config.DeployFetchRemote
 	}
 }
 
 func (m *Model) toggleDeploymentCredential() {
-	switch m.deploymentForm.Credential {
+	switch m.deploymentState.Form.Credential {
 	case config.DeployCredentialNone:
-		m.deploymentForm.Credential = config.DeployCredentialSSH
+		m.deploymentState.Form.Credential = config.DeployCredentialSSH
 	case config.DeployCredentialSSH:
-		m.deploymentForm.Credential = config.DeployCredentialToken
+		m.deploymentState.Form.Credential = config.DeployCredentialToken
 	default:
-		m.deploymentForm.Credential = config.DeployCredentialNone
+		m.deploymentState.Form.Credential = config.DeployCredentialNone
 	}
 }
 
 func (m Model) deploymentValue() string {
-	switch m.deploymentField {
+	switch m.deploymentState.Field {
 	case 1:
 		return ""
 	case 2:
-		return m.deploymentForm.Server
+		return m.deploymentState.Form.Server
 	case 3:
-		return m.deploymentForm.Name
+		return m.deploymentState.Form.Name
 	case 4:
-		return m.deploymentForm.Repo
+		return m.deploymentState.Form.Repo
 	case 5:
-		return m.deploymentForm.Branch
+		return m.deploymentState.Form.Branch
 	case 6:
-		return m.deploymentForm.Version
+		return m.deploymentState.Form.Version
 	case 7:
-		return m.deploymentForm.Asset
+		return m.deploymentState.Form.Asset
 	case 8:
-		return m.deploymentForm.Path
+		return m.deploymentState.Form.Path
 	case 9:
-		return m.deploymentForm.ReleaseURL
+		return m.deploymentState.Form.ReleaseURL
 	case 11:
-		return m.deploymentForm.CredentialName
+		return m.deploymentState.Form.CredentialName
 	case 12:
-		return m.deploymentForm.WaitSeconds
+		return m.deploymentState.Form.WaitSeconds
 	case 13:
-		return m.deploymentForm.BeforeCommands
+		return m.deploymentState.Form.BeforeCommands
 	case 14:
-		return m.deploymentForm.ResourceCommands
+		return m.deploymentState.Form.ResourceCommands
 	case 15:
-		return m.deploymentForm.UpdateCommands
+		return m.deploymentState.Form.UpdateCommands
 	case 16:
-		return m.deploymentForm.AfterCommands
+		return m.deploymentState.Form.AfterCommands
 	case 17:
-		return m.deploymentForm.HealthCommands
+		return m.deploymentState.Form.HealthCommands
 	case 18:
-		return m.deploymentForm.RollbackCommands
+		return m.deploymentState.Form.RollbackCommands
 	default:
 		return ""
 	}
@@ -322,68 +322,68 @@ func (m Model) deploymentValueLen() int {
 }
 
 func (m *Model) setDeploymentValue(value string) {
-	switch m.deploymentField {
+	switch m.deploymentState.Field {
 	case 2:
-		m.deploymentForm.Server = value
+		m.deploymentState.Form.Server = value
 	case 3:
-		m.deploymentForm.Name = value
+		m.deploymentState.Form.Name = value
 	case 4:
-		m.deploymentForm.Repo = value
+		m.deploymentState.Form.Repo = value
 	case 5:
-		m.deploymentForm.Branch = value
+		m.deploymentState.Form.Branch = value
 	case 6:
-		m.deploymentForm.Version = value
+		m.deploymentState.Form.Version = value
 	case 7:
-		m.deploymentForm.Asset = value
+		m.deploymentState.Form.Asset = value
 	case 8:
-		m.deploymentForm.Path = value
+		m.deploymentState.Form.Path = value
 	case 9:
-		m.deploymentForm.ReleaseURL = value
+		m.deploymentState.Form.ReleaseURL = value
 	case 11:
-		m.deploymentForm.CredentialName = value
+		m.deploymentState.Form.CredentialName = value
 	case 12:
-		m.deploymentForm.WaitSeconds = value
+		m.deploymentState.Form.WaitSeconds = value
 	case 13:
-		m.deploymentForm.BeforeCommands = value
+		m.deploymentState.Form.BeforeCommands = value
 	case 14:
-		m.deploymentForm.ResourceCommands = value
+		m.deploymentState.Form.ResourceCommands = value
 	case 15:
-		m.deploymentForm.UpdateCommands = value
+		m.deploymentState.Form.UpdateCommands = value
 	case 16:
-		m.deploymentForm.AfterCommands = value
+		m.deploymentState.Form.AfterCommands = value
 	case 17:
-		m.deploymentForm.HealthCommands = value
+		m.deploymentState.Form.HealthCommands = value
 	case 18:
-		m.deploymentForm.RollbackCommands = value
+		m.deploymentState.Form.RollbackCommands = value
 	}
 }
 
 func (m *Model) deploymentAppend(s string) {
 	value := []rune(m.deploymentValue())
-	m.deploymentCursor = clampInt(m.deploymentCursor, 0, len(value))
+	m.deploymentState.Cursor = clampInt(m.deploymentState.Cursor, 0, len(value))
 	insert := []rune(s)
-	next := append([]rune{}, value[:m.deploymentCursor]...)
+	next := append([]rune{}, value[:m.deploymentState.Cursor]...)
 	next = append(next, insert...)
-	next = append(next, value[m.deploymentCursor:]...)
+	next = append(next, value[m.deploymentState.Cursor:]...)
 	m.setDeploymentValue(string(next))
-	m.deploymentCursor += len(insert)
+	m.deploymentState.Cursor += len(insert)
 }
 
 func (m *Model) deploymentBackspace() {
-	if m.deploymentField == 0 || m.deploymentField == 1 || m.deploymentField == 2 || m.deploymentField == 10 {
+	if m.deploymentState.Field == 0 || m.deploymentState.Field == 1 || m.deploymentState.Field == 2 || m.deploymentState.Field == 10 {
 		return
 	}
 	value := []rune(m.deploymentValue())
-	if m.deploymentCursor <= 0 || len(value) == 0 {
+	if m.deploymentState.Cursor <= 0 || len(value) == 0 {
 		return
 	}
-	m.deploymentCursor = clampInt(m.deploymentCursor, 0, len(value))
-	next := append([]rune{}, value[:m.deploymentCursor-1]...)
-	next = append(next, value[m.deploymentCursor:]...)
+	m.deploymentState.Cursor = clampInt(m.deploymentState.Cursor, 0, len(value))
+	next := append([]rune{}, value[:m.deploymentState.Cursor-1]...)
+	next = append(next, value[m.deploymentState.Cursor:]...)
 	m.setDeploymentValue(string(next))
-	m.deploymentCursor--
+	m.deploymentState.Cursor--
 }
 
 func (m *Model) moveDeploymentCursor(delta int) {
-	m.deploymentCursor = clampInt(m.deploymentCursor+delta, 0, m.deploymentValueLen())
+	m.deploymentState.Cursor = clampInt(m.deploymentState.Cursor+delta, 0, m.deploymentValueLen())
 }

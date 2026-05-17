@@ -15,27 +15,27 @@ func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "q", "ctrl+c":
-		if m.activeDeployment.Running {
+		if m.deploymentState.Active.Running {
 			m.status = m.t("Deployment is running; go back after it finishes or fails.", "部署执行中，完成或失败后再返回")
 			return m, nil
 		}
 		m.mode = modeDeploymentList
 	case "j", "down":
-		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, 1, 0, m.deploymentConfirmMaxScroll())
+		m.deploymentState.OutputScroll = moveClampedInt(m.deploymentState.OutputScroll, 1, 0, m.deploymentConfirmMaxScroll())
 	case "k", "up":
-		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, -1, 0, m.deploymentConfirmMaxScroll())
+		m.deploymentState.OutputScroll = moveClampedInt(m.deploymentState.OutputScroll, -1, 0, m.deploymentConfirmMaxScroll())
 	case "enter":
-		if m.activeDeployment.Running {
+		if m.deploymentState.Active.Running {
 			m.status = m.t("Deployment is running.", "部署执行中")
 			return m, nil
 		}
-		if len(m.activeDeployment.Queue) > 0 && m.activeDeployment.Output != "" {
+		if len(m.deploymentState.Active.Queue) > 0 && m.deploymentState.Active.Output != "" {
 			m.status = m.t("This deployment has already run. Press r to retry, or a to redeploy.", "当前部署已执行，按 r 重试，或按 a 重新部署")
 			return m, nil
 		}
-		queue := m.deploymentConfirmQueue
+		queue := m.deploymentState.ConfirmQueue
 		if len(queue) == 0 {
-			queue = []config.DeploymentApp{m.deploymentConfirm}
+			queue = []config.DeploymentApp{m.deploymentState.Confirm}
 		}
 		for _, app := range queue {
 			if m.deploymentServerIndex(app.Server) < 0 {
@@ -43,76 +43,76 @@ func (m Model) updateDeploymentConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		m.activeDeployment.Queue = queue
-		m.activeDeployment.QueueIndex = 0
-		m.activeDeployment.QueueFailed = -1
+		m.deploymentState.Active.Queue = queue
+		m.deploymentState.Active.QueueIndex = 0
+		m.deploymentState.Active.QueueFailed = -1
 		return m.startQueuedDeployment(0)
 	case "r":
-		if m.activeDeployment.Running {
+		if m.deploymentState.Active.Running {
 			m.status = m.t("Deployment is running; cannot retry.", "部署执行中，不能重试")
 			return m, nil
 		}
-		if len(m.activeDeployment.Queue) == 0 || m.activeDeployment.QueueFailed < 0 || m.activeDeployment.QueueFailed >= len(m.activeDeployment.Queue) {
+		if len(m.deploymentState.Active.Queue) == 0 || m.deploymentState.Active.QueueFailed < 0 || m.deploymentState.Active.QueueFailed >= len(m.deploymentState.Active.Queue) {
 			m.status = m.t("No failed item to retry.", "没有失败项可重试")
 			return m, nil
 		}
-		return m.startQueuedDeployment(m.activeDeployment.QueueFailed)
+		return m.startQueuedDeployment(m.deploymentState.Active.QueueFailed)
 	case "a":
-		if m.activeDeployment.Running {
+		if m.deploymentState.Active.Running {
 			m.status = m.t("Deployment is running; cannot redeploy.", "部署执行中，不能重新部署")
 			return m, nil
 		}
-		queue := m.activeDeployment.Queue
+		queue := m.deploymentState.Active.Queue
 		if len(queue) == 0 {
-			queue = m.deploymentConfirmQueue
+			queue = m.deploymentState.ConfirmQueue
 		}
 		if len(queue) == 0 {
-			queue = []config.DeploymentApp{m.deploymentConfirm}
+			queue = []config.DeploymentApp{m.deploymentState.Confirm}
 		}
-		m.activeDeployment.Queue = queue
-		m.activeDeployment.QueueFailed = -1
+		m.deploymentState.Active.Queue = queue
+		m.deploymentState.Active.QueueFailed = -1
 		return m.startQueuedDeployment(0)
 	}
 	return m, nil
 }
 
 func (m Model) startQueuedDeployment(index int) (tea.Model, tea.Cmd) {
-	if index < 0 || index >= len(m.activeDeployment.Queue) {
-		m.activeDeployment.Running = false
+	if index < 0 || index >= len(m.deploymentState.Active.Queue) {
+		m.deploymentState.Active.Running = false
 		m.status = m.t("Deployment queue completed.", "部署队列完成。")
 		return m, nil
 	}
-	app := m.activeDeployment.Queue[index]
+	app := m.deploymentState.Active.Queue[index]
 	hostIndex := m.deploymentServerIndex(app.Server)
 	if hostIndex < 0 {
 		m.status = m.t("Deployment server does not exist: ", "部署服务器不存在：") + emptyDash(app.Server)
 		return m, nil
 	}
-	m.activeDeployment.HostIndex = hostIndex
-	m.activeDeployment.App = app
-	m.activeDeployment.Action = config.DeployActionDeploy
-	m.activeDeployment.ProgressID = config.NewDeploymentID(time.Now())
-	m.activeDeployment.Output = ""
-	m.activeDeployment.ExitCode = 0
-	m.activeDeployment.Running = true
-	m.activeDeployment.PreviousVersion = ""
-	m.activeDeployment.CurrentVersion = ""
-	m.activeDeployment.QueueIndex = index
-	m.activeDeployment.QueueFailed = -1
-	m.deploymentOutputScroll = 0
+	m.deploymentState.Active.HostIndex = hostIndex
+	m.deploymentState.Active.App = app
+	m.deploymentState.Active.Action = config.DeployActionDeploy
+	m.deploymentState.Active.ProgressID = config.NewDeploymentID(time.Now())
+	m.deploymentState.Active.Output = ""
+	m.deploymentState.Active.ExitCode = 0
+	m.deploymentState.Active.Running = true
+	m.deploymentState.Active.PreviousVersion = ""
+	m.deploymentState.Active.CurrentVersion = ""
+	m.deploymentState.Active.QueueIndex = index
+	m.deploymentState.Active.QueueFailed = -1
+	m.deploymentState.OutputScroll = 0
 	m.mode = modeDeploymentConfirm
-	if len(m.activeDeployment.Queue) > 1 {
-		m.status = fmt.Sprintf(m.t("Deploying %d/%d: %s", "正在部署 %d/%d：%s"), index+1, len(m.activeDeployment.Queue), app.Name)
+	if len(m.deploymentState.Active.Queue) > 1 {
+		m.status = fmt.Sprintf(m.t("Deploying %d/%d: %s", "正在部署 %d/%d：%s"), index+1, len(m.deploymentState.Active.Queue), app.Name)
 	} else {
 		m.status = m.t("Deploying...", "正在部署...")
 	}
 	progress := m.ensureDeploymentProgressStore()
-	progress.start(m.activeDeployment.ProgressID)
-	return m, tea.Batch(m.runDeployment(), deploymentProgressAfter(progress, m.activeDeployment.ProgressID, 200*time.Millisecond))
+	progress.start(m.deploymentState.Active.ProgressID)
+	return m, tea.Batch(m.runDeployment(), deploymentProgressAfter(progress, m.deploymentState.Active.ProgressID, 200*time.Millisecond))
 }
 
 func (m Model) startNextQueuedDeployment() (tea.Model, tea.Cmd) {
-	next := m.activeDeployment.QueueIndex + 1
+	next := m.deploymentState.Active.QueueIndex + 1
 	return m.startQueuedDeployment(next)
 }
 
@@ -129,25 +129,25 @@ func (m Model) updateDeploymentOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "q", "ctrl+c":
-		if m.activeDeployment.Running {
+		if m.deploymentState.Active.Running {
 			m.status = m.t("Deployment is running; go back after it finishes.", "部署执行中，完成后再返回")
 			return m, nil
 		}
 		m.mode = modeDeploymentList
 	case "j", "down":
-		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, 1, 0, m.deploymentOutputMaxScroll())
+		m.deploymentState.OutputScroll = moveClampedInt(m.deploymentState.OutputScroll, 1, 0, m.deploymentOutputMaxScroll())
 	case "k", "up":
-		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, -1, 0, m.deploymentOutputMaxScroll())
+		m.deploymentState.OutputScroll = moveClampedInt(m.deploymentState.OutputScroll, -1, 0, m.deploymentOutputMaxScroll())
 	case "r":
-		if m.activeDeployment.Running {
+		if m.deploymentState.Active.Running {
 			m.status = m.t("Deployment is running; rollback after it finishes.", "部署执行中，完成后再回滚")
 			return m, nil
 		}
-		if len(m.activeDeployment.App.RollbackCommands) == 0 {
+		if len(m.deploymentState.Active.App.RollbackCommands) == 0 {
 			m.status = m.t("No rollback commands configured.", "没有配置回滚命令")
 			return m, nil
 		}
-		m.deploymentOutputScroll = 0
+		m.deploymentState.OutputScroll = 0
 		m.mode = modeDeploymentRollbackConfirm
 		m.status = m.t("Confirm Rollback", "确认回滚")
 		return m, nil
@@ -161,37 +161,37 @@ func (m Model) updateDeploymentRollbackConfirm(msg tea.KeyMsg) (tea.Model, tea.C
 	case "esc", "q", "ctrl+c":
 		m.mode = modeDeploymentOutput
 	case "j", "down":
-		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, 1, 0, m.deploymentRollbackConfirmMaxScroll())
+		m.deploymentState.OutputScroll = moveClampedInt(m.deploymentState.OutputScroll, 1, 0, m.deploymentRollbackConfirmMaxScroll())
 	case "k", "up":
-		m.deploymentOutputScroll = moveClampedInt(m.deploymentOutputScroll, -1, 0, m.deploymentRollbackConfirmMaxScroll())
+		m.deploymentState.OutputScroll = moveClampedInt(m.deploymentState.OutputScroll, -1, 0, m.deploymentRollbackConfirmMaxScroll())
 	case "enter":
-		m.activeDeployment.Running = true
-		m.activeDeployment.Action = config.DeployActionRollback
-		m.activeDeployment.ProgressID = config.NewDeploymentID(time.Now())
-		m.activeDeployment.Output = ""
-		m.activeDeployment.ExitCode = 0
-		m.deploymentOutputScroll = 0
+		m.deploymentState.Active.Running = true
+		m.deploymentState.Active.Action = config.DeployActionRollback
+		m.deploymentState.Active.ProgressID = config.NewDeploymentID(time.Now())
+		m.deploymentState.Active.Output = ""
+		m.deploymentState.Active.ExitCode = 0
+		m.deploymentState.OutputScroll = 0
 		m.mode = modeDeploymentOutput
 		m.status = m.t("Running rollback...", "正在执行回滚...")
 		progress := m.ensureDeploymentProgressStore()
-		progress.start(m.activeDeployment.ProgressID)
-		return m, tea.Batch(m.runDeploymentRollback(), deploymentProgressAfter(progress, m.activeDeployment.ProgressID, 200*time.Millisecond))
+		progress.start(m.deploymentState.Active.ProgressID)
+		return m, tea.Batch(m.runDeploymentRollback(), deploymentProgressAfter(progress, m.deploymentState.Active.ProgressID, 200*time.Millisecond))
 	}
 	return m, nil
 }
 
 func (m *Model) ensureDeploymentProgressStore() *deploymentProgressStore {
-	if m.deploymentProgress == nil {
-		m.deploymentProgress = newDeploymentProgressStore()
+	if m.deploymentState.Progress == nil {
+		m.deploymentState.Progress = newDeploymentProgressStore()
 	}
-	return m.deploymentProgress
+	return m.deploymentState.Progress
 }
 
 func (m Model) runDeployment() tea.Cmd {
-	index := m.activeDeployment.HostIndex
-	app := m.activeDeployment.App
-	progressID := m.activeDeployment.ProgressID
-	progress := m.deploymentProgress
+	index := m.deploymentState.Active.HostIndex
+	app := m.deploymentState.Active.App
+	progressID := m.deploymentState.Active.ProgressID
+	progress := m.deploymentState.Progress
 	if progress == nil {
 		progress = newDeploymentProgressStore()
 	}
@@ -223,10 +223,10 @@ func (m Model) runDeployment() tea.Cmd {
 }
 
 func (m Model) runDeploymentRollback() tea.Cmd {
-	index := m.activeDeployment.HostIndex
-	app := m.activeDeployment.App
-	progressID := m.activeDeployment.ProgressID
-	progress := m.deploymentProgress
+	index := m.deploymentState.Active.HostIndex
+	app := m.deploymentState.Active.App
+	progressID := m.deploymentState.Active.ProgressID
+	progress := m.deploymentState.Progress
 	if progress == nil {
 		progress = newDeploymentProgressStore()
 	}
@@ -248,14 +248,14 @@ func (m Model) runDeploymentRollback() tea.Cmd {
 }
 
 func (m Model) handleDeploymentDone(msg deploymentDoneMsg) (tea.Model, tea.Cmd) {
-	if msg.ID != "" && msg.ID != m.activeDeployment.ProgressID {
+	if msg.ID != "" && msg.ID != m.deploymentState.Active.ProgressID {
 		return m, nil
 	}
-	m.activeDeployment.Running = false
-	m.activeDeployment.Output = msg.Result.Output
-	m.activeDeployment.ExitCode = msg.Result.ExitCode
-	m.activeDeployment.PreviousVersion = msg.PreviousVersion
-	m.activeDeployment.CurrentVersion = msg.CurrentVersion
+	m.deploymentState.Active.Running = false
+	m.deploymentState.Active.Output = msg.Result.Output
+	m.deploymentState.Active.ExitCode = msg.Result.ExitCode
+	m.deploymentState.Active.PreviousVersion = msg.PreviousVersion
+	m.deploymentState.Active.CurrentVersion = msg.CurrentVersion
 	failed := msg.Result.Err != nil
 	if failed {
 		m.status = fmt.Sprintf("%s %d", m.t("Deployment failed: exit", "部署失败：退出码"), msg.Result.ExitCode)
@@ -268,23 +268,23 @@ func (m Model) handleDeploymentDone(msg deploymentDoneMsg) (tea.Model, tea.Cmd) 
 	if msg.ID != "" {
 		m.ensureDeploymentProgressStore().clear(msg.ID)
 	}
-	if m.activeDeployment.Action == config.DeployActionDeploy && len(m.activeDeployment.Queue) > 0 {
+	if m.deploymentState.Active.Action == config.DeployActionDeploy && len(m.deploymentState.Active.Queue) > 0 {
 		if failed {
-			m.activeDeployment.QueueFailed = m.activeDeployment.QueueIndex
-			if len(m.activeDeployment.Queue) > 1 {
-				m.status = fmt.Sprintf(m.t("Deployment queue stopped: app %d failed. Press r to retry failed item, a to redeploy.", "部署队列停止：第 %d 个应用失败，按 r 重试失败项，按 a 重新部署"), m.activeDeployment.QueueIndex+1)
+			m.deploymentState.Active.QueueFailed = m.deploymentState.Active.QueueIndex
+			if len(m.deploymentState.Active.Queue) > 1 {
+				m.status = fmt.Sprintf(m.t("Deployment queue stopped: app %d failed. Press r to retry failed item, a to redeploy.", "部署队列停止：第 %d 个应用失败，按 r 重试失败项，按 a 重新部署"), m.deploymentState.Active.QueueIndex+1)
 			} else {
 				m.status = m.t("Deployment failed. Press r to retry, a to redeploy.", "部署失败，按 r 重试，按 a 重新部署")
 			}
 			return m, nil
 		}
-		next := m.activeDeployment.QueueIndex + 1
-		if next < len(m.activeDeployment.Queue) {
-			wait := maxInt(0, m.activeDeployment.App.WaitSeconds)
-			m.status = fmt.Sprintf(m.t("Deployment completed. Waiting %d seconds before next: %s", "部署完成，等待 %d 秒后执行下一个：%s"), wait, m.activeDeployment.Queue[next].Name)
+		next := m.deploymentState.Active.QueueIndex + 1
+		if next < len(m.deploymentState.Active.Queue) {
+			wait := maxInt(0, m.deploymentState.Active.App.WaitSeconds)
+			m.status = fmt.Sprintf(m.t("Deployment completed. Waiting %d seconds before next: %s", "部署完成，等待 %d 秒后执行下一个：%s"), wait, m.deploymentState.Active.Queue[next].Name)
 			return m, deploymentQueueNextAfter(time.Duration(wait) * time.Second)
 		}
-		if len(m.activeDeployment.Queue) > 1 {
+		if len(m.deploymentState.Active.Queue) > 1 {
 			m.status = m.t("Deployment queue completed.", "部署队列完成。")
 		}
 	}
@@ -292,10 +292,10 @@ func (m Model) handleDeploymentDone(msg deploymentDoneMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m Model) handleDeploymentProgress(msg deploymentProgressMsg) (tea.Model, tea.Cmd) {
-	if msg.ID == "" || msg.ID != m.activeDeployment.ProgressID || !m.activeDeployment.Running {
+	if msg.ID == "" || msg.ID != m.deploymentState.Active.ProgressID || !m.deploymentState.Active.Running {
 		return m, nil
 	}
-	m.activeDeployment.Output = msg.Output
+	m.deploymentState.Active.Output = msg.Output
 	if msg.Done {
 		return m, nil
 	}
@@ -303,10 +303,10 @@ func (m Model) handleDeploymentProgress(msg deploymentProgressMsg) (tea.Model, t
 }
 
 func (m *Model) recordDeployment(result commandResult) error {
-	if m.activeDeployment.HostIndex < 0 || m.activeDeployment.HostIndex >= len(m.states) {
+	if m.deploymentState.Active.HostIndex < 0 || m.deploymentState.Active.HostIndex >= len(m.states) {
 		return nil
 	}
-	h := m.states[m.activeDeployment.HostIndex].Host
+	h := m.states[m.deploymentState.Active.HostIndex].Host
 	status := config.DeployStatusSuccess
 	errText := ""
 	if result.Err != nil {
@@ -316,14 +316,14 @@ func (m *Model) recordDeployment(result commandResult) error {
 	record := config.DeploymentRecord{
 		ID:              config.NewDeploymentID(time.Now()),
 		Time:            time.Now().Format(time.RFC3339),
-		App:             m.activeDeployment.App.Name,
+		App:             m.deploymentState.Active.App.Name,
 		ServerCategory:  h.Category,
 		ServerName:      h.Name,
-		Action:          emptyChoice(m.activeDeployment.Action, config.DeployActionDeploy),
-		Source:          m.activeDeployment.App.Source,
+		Action:          emptyChoice(m.deploymentState.Active.Action, config.DeployActionDeploy),
+		Source:          m.deploymentState.Active.App.Source,
 		Status:          status,
-		PreviousVersion: m.activeDeployment.PreviousVersion,
-		CurrentVersion:  m.activeDeployment.CurrentVersion,
+		PreviousVersion: m.deploymentState.Active.PreviousVersion,
+		CurrentVersion:  m.deploymentState.Active.CurrentVersion,
 		ExitCode:        result.ExitCode,
 		Output:          result.Output,
 		Error:           errText,
@@ -332,6 +332,6 @@ func (m *Model) recordDeployment(result commandResult) error {
 	if err != nil {
 		return err
 	}
-	m.deploymentFile = file
+	m.deploymentState.File = file
 	return nil
 }

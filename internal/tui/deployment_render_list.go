@@ -25,7 +25,7 @@ func (m Model) renderDeploymentList() string {
 	}
 	help := m.t("Move ↑↓←→/hjkl  Detail Space  Select s  Category Tab  View z  Pin t  Favorite f  Favorites v  Deploy Enter  Add a  Edit e  Delete x  Back Esc", "移动 ↑↓←→/hjkl  详情 Space  选择 s  分类 Tab  视图 z  置顶 t  收藏 f  只看收藏 v  部署 Enter  新增 a  编辑 e  删除 x  返回 Esc")
 	header := titleStyle.Render(fit(strings.Join(m.deploymentHeaderParts(), "  "), pageWidth))
-	if m.deploymentView == deploymentViewCards {
+	if m.deploymentState.View == deploymentViewCards {
 		bodyHeight := deploymentCardsHeight(m.height, false)
 		pageDots := m.deploymentPageDots(pageWidth, bodyHeight)
 		if pageDots != "" {
@@ -44,13 +44,13 @@ func (m Model) renderDeploymentList() string {
 		contentHeight = 1
 	}
 	lines := []string{}
-	if len(m.deploymentItems) == 0 {
+	if len(m.deploymentState.Items) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No deployment apps. Press a to add one.", "没有部署应用。按 a 添加。")))
 	} else {
-		start, end := visibleRange(len(m.deploymentItems), m.deploymentIndex, contentHeight)
+		start, end := visibleRange(len(m.deploymentState.Items), m.deploymentState.Index, contentHeight)
 		for i := start; i < end; i++ {
-			item := m.deploymentItems[i]
-			lines = append(lines, m.deploymentAppListLine(item, bodyWidth, i == m.deploymentIndex))
+			item := m.deploymentState.Items[i]
+			lines = append(lines, m.deploymentAppListLine(item, bodyWidth, i == m.deploymentState.Index))
 		}
 	}
 	for len(lines) < contentHeight {
@@ -66,14 +66,14 @@ func (m Model) renderDeploymentList() string {
 }
 
 func (m Model) deploymentHeaderParts() []string {
-	parts := []string{m.t("Deployments", "应用部署"), fmt.Sprintf("%s %d", m.t("Apps", "应用"), len(m.deploymentItems)), m.t("View: ", "视图：") + m.deploymentViewName(m.deploymentView)}
-	if m.deploymentCategory != "" {
-		parts = append(parts, m.t("Category: ", "分类：")+m.deploymentCategory)
+	parts := []string{m.t("Deployments", "应用部署"), fmt.Sprintf("%s %d", m.t("Apps", "应用"), len(m.deploymentState.Items)), m.t("View: ", "视图：") + m.deploymentViewName(m.deploymentState.View)}
+	if m.deploymentState.Category != "" {
+		parts = append(parts, m.t("Category: ", "分类：")+m.deploymentState.Category)
 	}
-	if len(m.deploymentSelected) > 0 {
-		parts = append(parts, fmt.Sprintf("%s %d", m.t("Selected", "已选"), len(m.deploymentSelected)))
+	if len(m.deploymentState.Selected) > 0 {
+		parts = append(parts, fmt.Sprintf("%s %d", m.t("Selected", "已选"), len(m.deploymentState.Selected)))
 	}
-	if m.deploymentFavoriteOnly {
+	if m.deploymentState.FavoriteOnly {
 		parts = append(parts, m.t("Favorites only", "只看收藏"))
 	}
 	if m.status != "" && m.status != m.t("Deployments", "应用部署") && !strings.HasPrefix(m.status, "部署视图：") {
@@ -102,7 +102,7 @@ func deploymentCardsHeight(totalHeight int, withDots bool) int {
 
 func (m Model) renderDeploymentCards(width int, bodyHeight int) string {
 	lines := []string{}
-	if len(m.deploymentItems) == 0 {
+	if len(m.deploymentState.Items) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No deployment apps. Press a to add one.", "没有部署应用。按 a 添加。")))
 		for len(lines) < bodyHeight {
 			lines = append(lines, "")
@@ -123,7 +123,7 @@ func (m Model) renderDeploymentCards(width int, bodyHeight int) string {
 }
 
 func (m Model) deploymentPageDots(width int, bodyHeight int) string {
-	if len(m.deploymentItems) == 0 || bodyHeight <= 0 {
+	if len(m.deploymentState.Items) == 0 || bodyHeight <= 0 {
 		return ""
 	}
 	lines, selectedTop, selectedBottom := m.deploymentCardLines(width)
@@ -136,8 +136,8 @@ func (m Model) deploymentCardLines(width int) ([]string, int, int) {
 	lines := []string{}
 	selectedTop := 0
 	selectedBottom := 0
-	for i := 0; i < len(m.deploymentItems); i += cols {
-		rowEnd := minInt(i+cols, len(m.deploymentItems))
+	for i := 0; i < len(m.deploymentState.Items); i += cols {
+		rowEnd := minInt(i+cols, len(m.deploymentState.Items))
 		row := []string{}
 		for col := 0; col < cols; col++ {
 			cardWidth := cardWidths[col]
@@ -146,14 +146,14 @@ func (m Model) deploymentCardLines(width int) ([]string, int, int) {
 				continue
 			}
 			itemIndex := i + col
-			if itemIndex == m.deploymentIndex {
+			if itemIndex == m.deploymentState.Index {
 				selectedTop = len(lines)
 			}
-			row = append(row, padBlock(m.renderDeploymentAppCard(m.deploymentItems[itemIndex], cardWidth, itemIndex == m.deploymentIndex), cardWidth))
+			row = append(row, padBlock(m.renderDeploymentAppCard(m.deploymentState.Items[itemIndex], cardWidth, itemIndex == m.deploymentState.Index), cardWidth))
 		}
 		rowLines := strings.Split(lipgloss.JoinHorizontal(lipgloss.Top, row...), "\n")
 		lines = append(lines, rowLines...)
-		if m.deploymentIndex >= i && m.deploymentIndex < rowEnd {
+		if m.deploymentState.Index >= i && m.deploymentState.Index < rowEnd {
 			selectedBottom = len(lines)
 		}
 	}
