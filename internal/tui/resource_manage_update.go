@@ -63,6 +63,7 @@ func (m Model) updateResourceAdd(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.resourceState.LoadingKind = refreshKind
 		m.resourceState.LoadingPending = resourceLoadPartCount(refreshKind)
 		m.resourceState.ManualRefresh = true
+		m.resourceState.CacheWarning = ""
 		m.status = m.t("Refreshing resources...", "正在刷新资源...")
 		return m, m.fetchResourceDetails(m.resourceState.HostIndex, refreshKind)
 	case "/":

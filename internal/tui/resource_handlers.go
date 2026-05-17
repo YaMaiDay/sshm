@@ -25,7 +25,9 @@ func (m Model) handleResourceLoad(msg resourceLoadMsg) (tea.Model, tea.Cmd) {
 		m.states[msg.Index].ContainerError = msg.ContainerErr
 		m.resourceState.ContainerAt = now
 		if msg.ContainerErr == "" {
-			_ = resourceservice.UpsertContainerCache(m.home, m.resourceServerKey(msg.Index), containerDetailsToCache(msg.Containers), now)
+			if err := resourceservice.UpsertContainerCache(m.home, m.resourceServerKey(msg.Index), containerDetailsToCache(msg.Containers), now); err != nil {
+				m.resourceState.CacheWarning = m.t("Resource cache save failed: ", "资源缓存保存失败：") + err.Error()
+			}
 		}
 	}
 	if msg.Kind == resourcePorts {
@@ -56,6 +58,9 @@ func (m Model) handleResourceLoad(msg resourceLoadMsg) (tea.Model, tea.Cmd) {
 			m.resourceState.RefreshStatus = fmt.Sprintf("%s%s", m.t("Manual refresh done: ", "手动刷新完成："), now.Format("15:04:05"))
 		} else {
 			m.resourceState.RefreshStatus = fmt.Sprintf("%s%s", m.t("Last refresh: ", "最后刷新："), now.Format("15:04:05"))
+		}
+		if strings.TrimSpace(m.resourceState.CacheWarning) != "" {
+			m.resourceState.RefreshStatus += " · " + m.resourceState.CacheWarning
 		}
 		m.resourceState.ManualRefresh = false
 		m.status = m.resourceState.RefreshStatus
@@ -154,5 +159,6 @@ func (m Model) handleResourceAction(msg resourceActionMsg) (tea.Model, tea.Cmd) 
 	m.resourceState.LoadingKind = refreshKind
 	m.resourceState.LoadingPending = resourceLoadPartCount(refreshKind)
 	m.resourceState.ManualRefresh = false
+	m.resourceState.CacheWarning = ""
 	return m, m.fetchResourceDetails(msg.Index, refreshKind)
 }

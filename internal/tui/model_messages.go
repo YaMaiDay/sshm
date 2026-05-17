@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -44,24 +45,30 @@ func (m Model) updateTransferDone(msg transferDoneMsg) (tea.Model, tea.Cmd) {
 	m.transferState.Active.Cancel = nil
 	m.updateTransferEntryDone(msg)
 	m.reloadTransfers()
+	withPersistenceWarning := func(status string) string {
+		if strings.TrimSpace(msg.PersistenceErr) == "" {
+			return status
+		}
+		return status + " · " + m.t("Progress save failed: ", "进度保存失败：") + msg.PersistenceErr
+	}
 	if status, ok := m.transferEntryStatus(msg.ID); ok {
 		if status == config.TransferStatusInterrupted {
-			m.status = fmt.Sprintf(m.t("%s interrupted.", "%s已中断。"), msg.Kind)
+			m.status = withPersistenceWarning(fmt.Sprintf(m.t("%s interrupted.", "%s已中断。"), msg.Kind))
 			return m, clearStatusAfter(3 * time.Second)
 		}
 		if status == config.TransferStatusCanceled {
-			m.status = fmt.Sprintf(m.t("%s canceled.", "%s已取消。"), msg.Kind)
+			m.status = withPersistenceWarning(fmt.Sprintf(m.t("%s canceled.", "%s已取消。"), msg.Kind))
 			return m, clearStatusAfter(3 * time.Second)
 		}
 	}
 	if msg.Err != nil {
-		m.status = fmt.Sprintf(m.t("%s failed: %s", "%s失败：%s"), msg.Kind, transferErrorText(msg.Err, msg.Output))
+		m.status = withPersistenceWarning(fmt.Sprintf(m.t("%s failed: %s", "%s失败：%s"), msg.Kind, transferErrorText(msg.Err, msg.Output)))
 		if m.transferState.RunAll {
 			return m.startNextQueuedTransfer()
 		}
 		return m, clearStatusAfter(3 * time.Second)
 	}
-	m.status = fmt.Sprintf(m.t("%s complete: %s -> %s", "%s完成：%s -> %s"), msg.Kind, filepath.Base(msg.Source), msg.Target)
+	m.status = withPersistenceWarning(fmt.Sprintf(m.t("%s complete: %s -> %s", "%s完成：%s -> %s"), msg.Kind, filepath.Base(msg.Source), msg.Target))
 	if m.transferState.RunAll {
 		return m.startNextQueuedTransfer()
 	}

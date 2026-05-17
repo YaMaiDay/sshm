@@ -233,12 +233,13 @@ type collectMsg struct {
 type tickMsg time.Time
 
 type transferDoneMsg struct {
-	ID     string
-	Kind   string
-	Source string
-	Target string
-	Err    error
-	Output string
+	ID             string
+	Kind           string
+	Source         string
+	Target         string
+	Err            error
+	Output         string
+	PersistenceErr string
 }
 
 type rsyncCheckMsg struct {
@@ -419,6 +420,7 @@ type resourceState struct {
 	LoadingPending        int
 	ManualRefresh         bool
 	RefreshStatus         string
+	CacheWarning          string
 	CollectedAt           time.Time
 	ContainerAt           time.Time
 	ServiceAt             time.Time

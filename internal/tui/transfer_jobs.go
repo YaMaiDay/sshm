@@ -172,6 +172,6 @@ func (m *Model) updateTransferEntryDone(msg transferDoneMsg) {
 	m.completeTransferEntry(completion)
 }
 
-func updateTransferProgress(home string, id string, progress string) {
-	_ = transferservice.UpdateProgress(home, id, progress)
+func updateTransferProgress(home string, id string, progress string) error {
+	return transferservice.UpdateProgress(home, id, progress)
 }

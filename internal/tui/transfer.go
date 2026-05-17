@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -653,11 +654,25 @@ func (m Model) startTransferEntry(entry config.TransferEntry) (tea.Model, tea.Cm
 	m.reloadTransfers()
 	m.status = m.transferProgressText(m.transferState.Active)
 	cmd := func() tea.Msg {
+		var progressMu sync.Mutex
+		var progressErr error
 		result := (transferservice.Service{}).RunJob(ctx, h, entry, func(progress string) {
-			updateTransferProgress(m.home, entry.ID, progress)
+			if err := updateTransferProgress(m.home, entry.ID, progress); err != nil {
+				progressMu.Lock()
+				if progressErr == nil {
+					progressErr = err
+				}
+				progressMu.Unlock()
+			}
 		})
+		progressMu.Lock()
+		persistenceErr := ""
+		if progressErr != nil {
+			persistenceErr = progressErr.Error()
+		}
+		progressMu.Unlock()
 		cancel()
-		return transferDoneMsg{ID: entry.ID, Kind: m.transferEntryKindText(entry), Source: entry.Source, Target: entry.TargetDir, Err: result.Err, Output: result.Output}
+		return transferDoneMsg{ID: entry.ID, Kind: m.transferEntryKindText(entry), Source: entry.Source, Target: entry.TargetDir, Err: result.Err, Output: result.Output, PersistenceErr: persistenceErr}
 	}
 	return m, tea.Batch(cmd, transferProgressAfter(500*time.Millisecond))
 }

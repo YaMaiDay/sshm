@@ -36,6 +36,7 @@ func (m Model) startResourceList(index int, kind resourceKind, back viewMode) (t
 	m.resourceState.LoadingPending = resourceLoadPartCount(kind)
 	m.resourceState.ManualRefresh = false
 	m.resourceState.RefreshStatus = ""
+	m.resourceState.CacheWarning = ""
 	m.status = m.t("Loading resources...", "正在读取资源...")
 	return m, m.fetchResourceDetails(index, kind)
 }
