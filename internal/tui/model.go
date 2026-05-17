@@ -66,7 +66,7 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 		},
 		resourceState:  resourceState{File: resourceFile},
 		transferState:  transferState{History: transferHistory},
-		categories:     categories,
+		serverForm:     serverFormState{Categories: categories},
 		status:         "",
 		collectRound:   1,
 		pendingByRound: pendingByRound,

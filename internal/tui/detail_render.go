@@ -9,10 +9,10 @@ import (
 )
 
 func (m Model) renderDeleteConfirm() string {
-	if m.deleteIndex < 0 || m.deleteIndex >= len(m.states) {
+	if m.serverForm.DeleteIndex < 0 || m.serverForm.DeleteIndex >= len(m.states) {
 		return m.t("No selected server", "没有选中的服务器")
 	}
-	h := m.states[m.deleteIndex].Host
+	h := m.states[m.serverForm.DeleteIndex].Host
 	width := detailFrameWidth(m.width)
 	bodyWidth := width - 4
 	if bodyWidth < 32 {

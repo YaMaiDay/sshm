@@ -221,7 +221,7 @@ func (m Model) updateDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "x":
 		if idx, ok := m.selectedRealIndex(); ok {
-			m.deleteIndex = idx
+			m.serverForm.DeleteIndex = idx
 			m.mode = modeDeleteConfirm
 		}
 	case "u":

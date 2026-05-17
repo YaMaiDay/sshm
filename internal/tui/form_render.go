@@ -14,7 +14,7 @@ func (m Model) useSingleFormPane(width int) bool {
 }
 
 func (m Model) renderServerFormPane(title string, width int, height int) string {
-	fields := m.form.fields()
+	fields := m.serverForm.Form.fields()
 	for i := range fields {
 		fields[i].Label = m.formLabel(fields[i].Label)
 		if fields[i].ID == jumpHostRefFormIndex && strings.TrimSpace(fields[i].Value) == "无" {
@@ -31,14 +31,14 @@ func (m Model) renderServerFormPane(title string, width int, height int) string 
 	if contentHeight < 4 {
 		contentHeight = 4
 	}
-	if m.formIndex == jumpHostRefFormIndex || strings.TrimSpace(m.form.JumpHostRef) != "" {
+	if m.serverForm.Index == jumpHostRefFormIndex || strings.TrimSpace(m.serverForm.Form.JumpHostRef) != "" {
 		lines = append(lines, mutedStyle.Render(m.t("The bastion only forwards connections. Private keys stay local.", "跳板机只转发连接，密钥文件都在本地。")))
 	}
 	fieldHeight := contentHeight - len(lines)
 	if fieldHeight < 1 {
 		fieldHeight = 1
 	}
-	selectedRow := selectedFieldRow(fields, m.formIndex)
+	selectedRow := selectedFieldRow(fields, m.serverForm.Index)
 	start, end := visibleRange(len(fields), selectedRow, fieldHeight)
 	for i := start; i < end; i++ {
 		field := fields[i]
@@ -53,25 +53,25 @@ func (m Model) renderServerFormPane(title string, width int, height int) string 
 		style := lipgloss.NewStyle()
 		value := field.Value
 		if field.ID == categoryFormIndex {
-			value = m.form.Category
-			if value == "" && len(m.categories) > 0 {
-				value = m.categories[m.categoryIndex]
+			value = m.serverForm.Form.Category
+			if value == "" && len(m.serverForm.Categories) > 0 {
+				value = m.serverForm.Categories[m.serverForm.CategoryIndex]
 			}
 			value = m.displayCategoryName(value)
 			value += mutedStyle.Render("  ←/→")
 		} else if field.ID == expireAtFormIndex {
-			value = dateInputText(m.form.ExpireAt, m.formCursor, m.formPane == 0 && field.ID == m.formIndex)
+			value = dateInputText(m.serverForm.Form.ExpireAt, m.serverForm.Cursor, m.serverForm.Pane == 0 && field.ID == m.serverForm.Index)
 		} else if field.ID == jumpHostRefFormIndex {
 			value += mutedStyle.Render("  ←/→")
 		}
-		if m.formPane == 0 && field.ID == m.formIndex {
+		if m.serverForm.Pane == 0 && field.ID == m.serverForm.Index {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
 		if field.ID == expireAtFormIndex || field.ID == jumpHostRefFormIndex {
-			lines = append(lines, style.Render(formFieldLine(prefix, field.Label, value, innerWidth, false, false, m.formCursor)))
+			lines = append(lines, style.Render(formFieldLine(prefix, field.Label, value, innerWidth, false, false, m.serverForm.Cursor)))
 		} else {
-			lines = append(lines, style.Render(formFieldLine(prefix, field.Label, value, innerWidth, field.ID != categoryFormIndex, m.formPane == 0 && field.ID == m.formIndex, m.formCursor)))
+			lines = append(lines, style.Render(formFieldLine(prefix, field.Label, value, innerWidth, field.ID != categoryFormIndex, m.serverForm.Pane == 0 && field.ID == m.serverForm.Index, m.serverForm.Cursor)))
 		}
 	}
 	for len(lines) < contentHeight {
@@ -82,7 +82,7 @@ func (m Model) renderServerFormPane(title string, width int, height int) string 
 		BorderForeground(softGray).
 		Padding(0, 1).
 		Width(width)
-	if m.formPane == 0 {
+	if m.serverForm.Pane == 0 {
 		style = style.BorderForeground(blue)
 	}
 	return style.Render(strings.Join(lines, "\n"))
@@ -103,17 +103,17 @@ func (m Model) renderCategoryPane(width int, height int) string {
 	if listHeight < 1 {
 		listHeight = 1
 	}
-	if len(m.categories) == 0 {
+	if len(m.serverForm.Categories) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No categories", "没有分类")))
 	} else {
-		start, end := visibleRange(len(m.categories), m.categoryIndex, listHeight)
+		start, end := visibleRange(len(m.serverForm.Categories), m.serverForm.CategoryIndex, listHeight)
 		for i := start; i < end; i++ {
-			category := m.categories[i]
+			category := m.serverForm.Categories[i]
 			prefix := " "
 			style := lipgloss.NewStyle()
-			if i == m.categoryIndex {
+			if i == m.serverForm.CategoryIndex {
 				prefix = "▶"
-				if m.formPane == 1 && !m.addingCategory {
+				if m.serverForm.Pane == 1 && !m.serverForm.AddingCategory {
 					style = blueStyle.Bold(true)
 				}
 			}
@@ -124,18 +124,18 @@ func (m Model) renderCategoryPane(width int, height int) string {
 	for len(lines) < 1+listHeight {
 		lines = append(lines, "")
 	}
-	if m.addingCategory || m.renamingCategory {
+	if m.serverForm.AddingCategory || m.serverForm.RenamingCategory {
 		label := "新分类 "
-		if m.renamingCategory {
+		if m.serverForm.RenamingCategory {
 			label = "重命名 "
 		}
 		if !m.isChineseUI() {
 			label = "New "
-			if m.renamingCategory {
+			if m.serverForm.RenamingCategory {
 				label = "Rename "
 			}
 		}
-		lines = append(lines, blueStyle.Bold(true).Render(prefixedCursorText(label, m.categoryDraft, innerWidth)))
+		lines = append(lines, blueStyle.Bold(true).Render(prefixedCursorText(label, m.serverForm.CategoryDraft, innerWidth)))
 	}
 	for len(lines) < contentHeight {
 		lines = append(lines, "")
@@ -145,7 +145,7 @@ func (m Model) renderCategoryPane(width int, height int) string {
 		BorderForeground(softGray).
 		Padding(0, 1).
 		Width(width)
-	if m.formPane == 1 {
+	if m.serverForm.Pane == 1 {
 		style = style.BorderForeground(blue)
 	}
 	return style.Render(strings.Join(lines, "\n"))

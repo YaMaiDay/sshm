@@ -520,6 +520,22 @@ type batchState struct {
 	OutputBack   viewMode
 }
 
+type serverFormState struct {
+	Form             addForm
+	Index            int
+	Cursor           int
+	Pane             int
+	Categories       []string
+	CategoryIndex    int
+	AddingCategory   bool
+	RenamingCategory bool
+	CategoryDraft    string
+	Editing          bool
+	Copying          bool
+	EditIndex        int
+	DeleteIndex      int
+}
+
 type Model struct {
 	states             []hostState
 	selected           int
@@ -536,19 +552,7 @@ type Model struct {
 	home               string
 	mode               viewMode
 	transferState      transferState
-	form               addForm
-	formIndex          int
-	formCursor         int
-	formPane           int
-	categories         []string
-	categoryIndex      int
-	addingCategory     bool
-	renamingCategory   bool
-	categoryDraft      string
-	editing            bool
-	copying            bool
-	editIndex          int
-	deleteIndex        int
+	serverForm         serverFormState
 	confirm            confirmAction
 	filter             filterMode
 	sortBy             sortMode

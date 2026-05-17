@@ -39,43 +39,43 @@ func (f addForm) fields() []formField {
 }
 
 func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.formPane == 1 {
+	if m.serverForm.Pane == 1 {
 		return m.updateCategoryPane(msg)
 	}
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "ctrl+c":
 		m.mode = modeDashboard
-		m.copying = false
+		m.serverForm.Copying = false
 		m.status = m.t("Canceled.", "已取消。")
 	case "tab":
-		m.formPane = 1
+		m.serverForm.Pane = 1
 	case "down":
-		m.formIndex = m.nextFormIndex()
-		m.formCursor = m.formValueLen()
+		m.serverForm.Index = m.nextFormIndex()
+		m.serverForm.Cursor = m.formValueLen()
 	case "shift+tab":
-		m.formPane = 1
+		m.serverForm.Pane = 1
 	case "up":
-		m.formIndex = m.prevFormIndex()
-		m.formCursor = m.formValueLen()
+		m.serverForm.Index = m.prevFormIndex()
+		m.serverForm.Cursor = m.formValueLen()
 	case "left":
-		if m.formIndex == 0 {
+		if m.serverForm.Index == 0 {
 			m.moveCategory(-1)
-		} else if m.formIndex == jumpHostRefFormIndex {
+		} else if m.serverForm.Index == jumpHostRefFormIndex {
 			m.moveJumpHostRef(-1)
 		} else {
 			m.moveFormCursor(-1)
 		}
 	case "right":
-		if m.formIndex == 0 {
+		if m.serverForm.Index == 0 {
 			m.moveCategory(1)
-		} else if m.formIndex == jumpHostRefFormIndex {
+		} else if m.serverForm.Index == jumpHostRefFormIndex {
 			m.moveJumpHostRef(1)
 		} else {
 			m.moveFormCursor(1)
 		}
 	case "enter":
-		expireAt, err := normalizeExpireAtForSave(m.form.ExpireAt)
+		expireAt, err := normalizeExpireAtForSave(m.serverForm.Form.ExpireAt)
 		if err != nil {
 			m.status = "保存失败：" + err.Error()
 			return m, nil
@@ -83,32 +83,32 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		favorite := false
 		pinned := false
 		pinnedOrder := int64(0)
-		if m.editing {
-			if m.editIndex < 0 || m.editIndex >= len(m.states) {
+		if m.serverForm.Editing {
+			if m.serverForm.EditIndex < 0 || m.serverForm.EditIndex >= len(m.states) {
 				m.status = "编辑失败：没有选中的服务器"
 				return m, nil
 			}
-			favorite = m.states[m.editIndex].Host.Favorite
-			pinned = m.states[m.editIndex].Host.Pinned
-			pinnedOrder = m.states[m.editIndex].Host.PinnedOrder
+			favorite = m.states[m.serverForm.EditIndex].Host.Favorite
+			pinned = m.states[m.serverForm.EditIndex].Host.Pinned
+			pinnedOrder = m.states[m.serverForm.EditIndex].Host.PinnedOrder
 		}
 		input := config.HostInput{
-			Category:     m.form.Category,
-			Name:         m.form.Name,
-			HostName:     m.form.HostName,
-			User:         m.form.User,
-			Port:         m.form.Port,
-			IdentityFile: m.form.IdentityFile,
-			Password:     m.form.Password,
-			JumpHostRef:  m.form.JumpHostRef,
-			Note:         m.form.Note,
+			Category:     m.serverForm.Form.Category,
+			Name:         m.serverForm.Form.Name,
+			HostName:     m.serverForm.Form.HostName,
+			User:         m.serverForm.Form.User,
+			Port:         m.serverForm.Form.Port,
+			IdentityFile: m.serverForm.Form.IdentityFile,
+			Password:     m.serverForm.Form.Password,
+			JumpHostRef:  m.serverForm.Form.JumpHostRef,
+			Note:         m.serverForm.Form.Note,
 			ExpireAt:     expireAt,
 			Favorite:     favorite,
 			Pinned:       pinned,
 			PinnedOrder:  pinnedOrder,
 		}
-		if m.editing {
-			if err := config.EditHost(m.home, m.states[m.editIndex].Host, input); err != nil {
+		if m.serverForm.Editing {
+			if err := config.EditHost(m.home, m.states[m.serverForm.EditIndex].Host, input); err != nil {
 				m.status = "编辑失败：" + err.Error()
 				return m, nil
 			}
@@ -125,26 +125,26 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.reloadHosts(hosts)
 		m.mode = modeDashboard
-		if m.editing {
+		if m.serverForm.Editing {
 			m.status = "服务器已更新。"
-		} else if m.copying {
+		} else if m.serverForm.Copying {
 			m.status = "服务器已复制。"
 		} else {
 			m.status = "服务器已添加。"
 		}
-		m.copying = false
+		m.serverForm.Copying = false
 		m.collectRound++
 		m.pendingByRound[m.collectRound] = len(m.states)
 		return m, m.collectAll(m.collectRound, false)
 	case "backspace":
-		if m.formIndex == expireAtFormIndex {
+		if m.serverForm.Index == expireAtFormIndex {
 			m.formExpireBackspace()
 		} else {
 			m.formBackspace()
 		}
 	default:
-		if len(msg.Runes) > 0 && m.formIndex != 0 {
-			if m.formIndex == expireAtFormIndex {
+		if len(msg.Runes) > 0 && m.serverForm.Index != 0 {
+			if m.serverForm.Index == expireAtFormIndex {
 				m.formExpireAppend(msg.Runes)
 			} else {
 				m.formAppend(string(msg.Runes))
@@ -155,23 +155,23 @@ func (m Model) updateAddForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.addingCategory || m.renamingCategory {
+	if m.serverForm.AddingCategory || m.serverForm.RenamingCategory {
 		key := shortcutKey(msg)
 		switch key {
 		case "esc", "ctrl+c":
-			m.addingCategory = false
-			m.renamingCategory = false
-			m.categoryDraft = ""
+			m.serverForm.AddingCategory = false
+			m.serverForm.RenamingCategory = false
+			m.serverForm.CategoryDraft = ""
 		case "enter":
-			if m.renamingCategory {
+			if m.serverForm.RenamingCategory {
 				oldName := ""
-				if len(m.categories) > 0 {
-					oldName = m.categories[m.categoryIndex]
+				if len(m.serverForm.Categories) > 0 {
+					oldName = m.serverForm.Categories[m.serverForm.CategoryIndex]
 				}
-				if err := config.RenameCategory(m.home, oldName, m.categoryDraft); err != nil {
+				if err := config.RenameCategory(m.home, oldName, m.serverForm.CategoryDraft); err != nil {
 					m.status = m.t("Rename category failed: ", "重命名分类失败：") + m.categoryErrorText(err)
 				} else {
-					newName := strings.TrimSpace(m.categoryDraft)
+					newName := strings.TrimSpace(m.serverForm.CategoryDraft)
 					hosts, err := config.LoadHosts(m.home)
 					if err != nil {
 						m.status = m.t("Reload after rename failed: ", "重命名后重新读取失败：") + err.Error()
@@ -179,29 +179,29 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						m.reloadHosts(hosts)
 					}
 					m.reloadCategories(newName)
-					m.form.Category = m.categories[m.categoryIndex]
+					m.serverForm.Form.Category = m.serverForm.Categories[m.serverForm.CategoryIndex]
 					if m.category == oldName {
 						m.category = newName
 					}
 					m.status = m.t("Category renamed.", "分类已重命名。")
 				}
 			} else {
-				if err := config.AddCategory(m.home, m.categoryDraft); err != nil {
+				if err := config.AddCategory(m.home, m.serverForm.CategoryDraft); err != nil {
 					m.status = m.t("Add category failed: ", "添加分类失败：") + m.categoryErrorText(err)
 				} else {
-					m.reloadCategories(m.categoryDraft)
-					m.form.Category = m.categories[m.categoryIndex]
+					m.reloadCategories(m.serverForm.CategoryDraft)
+					m.serverForm.Form.Category = m.serverForm.Categories[m.serverForm.CategoryIndex]
 					m.status = m.t("Category added.", "分类已添加。")
 				}
 			}
-			m.addingCategory = false
-			m.renamingCategory = false
-			m.categoryDraft = ""
+			m.serverForm.AddingCategory = false
+			m.serverForm.RenamingCategory = false
+			m.serverForm.CategoryDraft = ""
 		case "backspace":
-			m.categoryDraft = removeLastRune(m.categoryDraft)
+			m.serverForm.CategoryDraft = removeLastRune(m.serverForm.CategoryDraft)
 		default:
 			if len(msg.Runes) > 0 {
-				m.categoryDraft += string(msg.Runes)
+				m.serverForm.CategoryDraft += string(msg.Runes)
 			}
 		}
 		return m, nil
@@ -212,34 +212,34 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeDashboard
 		m.status = m.t("Canceled.", "已取消。")
 	case "tab", "shift+tab":
-		m.formPane = 0
+		m.serverForm.Pane = 0
 	case "j", "down":
 		m.moveCategory(1)
 	case "k", "up":
 		m.moveCategory(-1)
 	case "n", "a":
-		m.addingCategory = true
-		m.renamingCategory = false
-		m.categoryDraft = ""
+		m.serverForm.AddingCategory = true
+		m.serverForm.RenamingCategory = false
+		m.serverForm.CategoryDraft = ""
 		m.status = m.t("Enter new category name.", "输入新分类名称。")
 	case "r":
-		if len(m.categories) == 0 {
+		if len(m.serverForm.Categories) == 0 {
 			return m, nil
 		}
-		name := m.categories[m.categoryIndex]
+		name := m.serverForm.Categories[m.serverForm.CategoryIndex]
 		if name == config.BastionCategory {
 			m.status = m.t("The bastion category cannot be renamed.", "跳板机分类不能重命名。")
 			return m, nil
 		}
-		m.renamingCategory = true
-		m.addingCategory = false
-		m.categoryDraft = name
+		m.serverForm.RenamingCategory = true
+		m.serverForm.AddingCategory = false
+		m.serverForm.CategoryDraft = name
 		m.status = m.t("Enter the new category name.", "输入新的分类名称。")
 	case "x":
-		if len(m.categories) == 0 {
+		if len(m.serverForm.Categories) == 0 {
 			return m, nil
 		}
-		name := m.categories[m.categoryIndex]
+		name := m.serverForm.Categories[m.serverForm.CategoryIndex]
 		m.confirm = confirmAction{
 			Kind:  confirmDeleteCategory,
 			Title: m.t("Delete Category", "确认删除分类"),
@@ -256,29 +256,29 @@ func (m Model) updateCategoryPane(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) moveCategory(delta int) {
-	if len(m.categories) == 0 {
-		m.categories = []string{"default"}
-		m.categoryIndex = 0
-		m.form.Category = "default"
+	if len(m.serverForm.Categories) == 0 {
+		m.serverForm.Categories = []string{"default"}
+		m.serverForm.CategoryIndex = 0
+		m.serverForm.Form.Category = "default"
 		return
 	}
-	m.categoryIndex += delta
-	if m.categoryIndex < 0 {
-		m.categoryIndex = len(m.categories) - 1
+	m.serverForm.CategoryIndex += delta
+	if m.serverForm.CategoryIndex < 0 {
+		m.serverForm.CategoryIndex = len(m.serverForm.Categories) - 1
 	}
-	if m.categoryIndex >= len(m.categories) {
-		m.categoryIndex = 0
+	if m.serverForm.CategoryIndex >= len(m.serverForm.Categories) {
+		m.serverForm.CategoryIndex = 0
 	}
-	m.form.Category = m.categories[m.categoryIndex]
+	m.serverForm.Form.Category = m.serverForm.Categories[m.serverForm.CategoryIndex]
 }
 
 func (m *Model) moveJumpHostRef(delta int) {
 	choices := append([]string{""}, m.bastionNames()...)
 	if len(choices) == 0 {
-		m.form.JumpHostRef = ""
+		m.serverForm.Form.JumpHostRef = ""
 		return
 	}
-	current := strings.TrimSpace(m.form.JumpHostRef)
+	current := strings.TrimSpace(m.serverForm.Form.JumpHostRef)
 	index := 0
 	for i, choice := range choices {
 		if choice == current {
@@ -290,7 +290,7 @@ func (m *Model) moveJumpHostRef(delta int) {
 	if index < 0 {
 		index += len(choices)
 	}
-	m.form.JumpHostRef = choices[index]
+	m.serverForm.Form.JumpHostRef = choices[index]
 }
 
 func (m Model) bastionNames() []string {
@@ -300,8 +300,8 @@ func (m Model) bastionNames() []string {
 		if h.Category != config.BastionCategory {
 			continue
 		}
-		if m.editing && m.editIndex >= 0 && m.editIndex < len(m.states) {
-			current := m.states[m.editIndex].Host
+		if m.serverForm.Editing && m.serverForm.EditIndex >= 0 && m.serverForm.EditIndex < len(m.states) {
+			current := m.states[m.serverForm.EditIndex].Host
 			if current.Category == h.Category && current.Name == h.Name {
 				continue
 			}
@@ -317,14 +317,14 @@ func (m *Model) reloadCategories(prefer string) {
 	if err != nil || len(categories) == 0 {
 		categories = []string{"default"}
 	}
-	m.categories = categories
-	m.categoryIndex = 0
+	m.serverForm.Categories = categories
+	m.serverForm.CategoryIndex = 0
 	if strings.TrimSpace(prefer) == "" {
 		prefer = "default"
 	}
 	for i, category := range categories {
 		if category == prefer {
-			m.categoryIndex = i
+			m.serverForm.CategoryIndex = i
 			break
 		}
 	}
@@ -352,12 +352,12 @@ func (m Model) updateDeleteConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeDashboard
 		m.status = "已取消删除。"
 	case "y", "enter":
-		if m.deleteIndex < 0 || m.deleteIndex >= len(m.states) {
+		if m.serverForm.DeleteIndex < 0 || m.serverForm.DeleteIndex >= len(m.states) {
 			m.mode = modeDashboard
 			m.status = "没有选中的服务器。"
 			return m, nil
 		}
-		h := m.states[m.deleteIndex].Host
+		h := m.states[m.serverForm.DeleteIndex].Host
 		if err := config.DeleteHost(m.home, h, true); err != nil {
 			m.mode = modeDashboard
 			m.status = "删除失败：" + err.Error()
@@ -399,7 +399,7 @@ func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.reloadCategories("")
-			m.form.Category = m.categories[m.categoryIndex]
+			m.serverForm.Form.Category = m.serverForm.Categories[m.serverForm.CategoryIndex]
 			m.mode = modeAddForm
 			m.status = m.t("Category deleted.", "分类已删除。")
 		case confirmDeleteCommand:
@@ -427,16 +427,16 @@ func (m Model) updateConfirmAction(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) startAddForm() Model {
 	m.reloadCategories("")
 	m.mode = modeAddForm
-	m.formIndex = 0
-	m.formCursor = 0
-	m.formPane = 0
-	m.editing = false
-	m.copying = false
-	m.editIndex = -1
-	m.addingCategory = false
-	m.renamingCategory = false
-	m.categoryDraft = ""
-	m.form = addForm{Category: m.categories[m.categoryIndex], User: "root", Port: "22"}
+	m.serverForm.Index = 0
+	m.serverForm.Cursor = 0
+	m.serverForm.Pane = 0
+	m.serverForm.Editing = false
+	m.serverForm.Copying = false
+	m.serverForm.EditIndex = -1
+	m.serverForm.AddingCategory = false
+	m.serverForm.RenamingCategory = false
+	m.serverForm.CategoryDraft = ""
+	m.serverForm.Form = addForm{Category: m.serverForm.Categories[m.serverForm.CategoryIndex], User: "root", Port: "22"}
 	m.status = m.t("Add Server", "添加服务器")
 	return m
 }
@@ -476,18 +476,18 @@ func (m Model) startCopyForm(idx int) Model {
 	input := config.InputFromHost(h, password)
 	m.reloadCategories(input.Category)
 	m.mode = modeAddForm
-	m.formIndex = 1
-	m.formCursor = 0
-	m.formPane = 0
-	m.editing = false
-	m.copying = true
-	m.editIndex = -1
-	m.addingCategory = false
-	m.renamingCategory = false
-	m.categoryDraft = ""
+	m.serverForm.Index = 1
+	m.serverForm.Cursor = 0
+	m.serverForm.Pane = 0
+	m.serverForm.Editing = false
+	m.serverForm.Copying = true
+	m.serverForm.EditIndex = -1
+	m.serverForm.AddingCategory = false
+	m.serverForm.RenamingCategory = false
+	m.serverForm.CategoryDraft = ""
 	name := m.copyHostName(input.Category, input.Name)
-	m.form = addForm{
-		Category:     m.categories[m.categoryIndex],
+	m.serverForm.Form = addForm{
+		Category:     m.serverForm.Categories[m.serverForm.CategoryIndex],
 		Name:         name,
 		HostName:     input.HostName,
 		User:         input.User,
@@ -498,7 +498,7 @@ func (m Model) startCopyForm(idx int) Model {
 		ExpireAt:     input.ExpireAt,
 		Note:         input.Note,
 	}
-	m.formCursor = len([]rune(name))
+	m.serverForm.Cursor = len([]rune(name))
 	m.status = m.t("Copy Server", "复制服务器")
 	return m
 }
@@ -509,17 +509,17 @@ func (m Model) startEditForm(idx int) Model {
 	input := config.InputFromHost(h, password)
 	m.reloadCategories(input.Category)
 	m.mode = modeAddForm
-	m.formIndex = 0
-	m.formCursor = 0
-	m.formPane = 0
-	m.editing = true
-	m.copying = false
-	m.editIndex = idx
-	m.addingCategory = false
-	m.renamingCategory = false
-	m.categoryDraft = ""
-	m.form = addForm{
-		Category:     m.categories[m.categoryIndex],
+	m.serverForm.Index = 0
+	m.serverForm.Cursor = 0
+	m.serverForm.Pane = 0
+	m.serverForm.Editing = true
+	m.serverForm.Copying = false
+	m.serverForm.EditIndex = idx
+	m.serverForm.AddingCategory = false
+	m.serverForm.RenamingCategory = false
+	m.serverForm.CategoryDraft = ""
+	m.serverForm.Form = addForm{
+		Category:     m.serverForm.Categories[m.serverForm.CategoryIndex],
 		Name:         input.Name,
 		HostName:     input.HostName,
 		User:         input.User,
@@ -535,45 +535,45 @@ func (m Model) startEditForm(idx int) Model {
 }
 
 func (m *Model) formAppend(s string) {
-	if m.formIndex == 0 {
+	if m.serverForm.Index == 0 {
 		return
 	}
 	value := []rune(m.formValue())
-	if m.formCursor < 0 {
-		m.formCursor = 0
+	if m.serverForm.Cursor < 0 {
+		m.serverForm.Cursor = 0
 	}
-	if m.formCursor > len(value) {
-		m.formCursor = len(value)
+	if m.serverForm.Cursor > len(value) {
+		m.serverForm.Cursor = len(value)
 	}
 	insert := []rune(s)
-	next := append([]rune{}, value[:m.formCursor]...)
+	next := append([]rune{}, value[:m.serverForm.Cursor]...)
 	next = append(next, insert...)
-	next = append(next, value[m.formCursor:]...)
+	next = append(next, value[m.serverForm.Cursor:]...)
 	m.setFormValue(string(next))
-	m.formCursor += len(insert)
+	m.serverForm.Cursor += len(insert)
 }
 
 func (m *Model) formBackspace() {
-	if m.formIndex == 0 {
+	if m.serverForm.Index == 0 {
 		return
 	}
 	value := []rune(m.formValue())
-	if m.formCursor <= 0 || len(value) == 0 {
+	if m.serverForm.Cursor <= 0 || len(value) == 0 {
 		return
 	}
-	if m.formCursor > len(value) {
-		m.formCursor = len(value)
+	if m.serverForm.Cursor > len(value) {
+		m.serverForm.Cursor = len(value)
 	}
-	next := append([]rune{}, value[:m.formCursor-1]...)
-	next = append(next, value[m.formCursor:]...)
+	next := append([]rune{}, value[:m.serverForm.Cursor-1]...)
+	next = append(next, value[m.serverForm.Cursor:]...)
 	m.setFormValue(string(next))
-	m.formCursor--
+	m.serverForm.Cursor--
 }
 
 func (m *Model) formExpireAppend(runes []rune) {
-	mask := []rune(dateMask(m.form.ExpireAt))
+	mask := []rune(dateMask(m.serverForm.Form.ExpireAt))
 	positions := dateInputPositions()
-	cursor := clampInt(m.formCursor, 0, len(positions))
+	cursor := clampInt(m.serverForm.Cursor, 0, len(positions))
 	for _, r := range runes {
 		if r >= '０' && r <= '９' {
 			r = r - '０' + '0'
@@ -584,21 +584,21 @@ func (m *Model) formExpireAppend(runes []rune) {
 		mask[positions[cursor]] = r
 		cursor++
 	}
-	m.form.ExpireAt = string(mask)
-	m.formCursor = cursor
+	m.serverForm.Form.ExpireAt = string(mask)
+	m.serverForm.Cursor = cursor
 }
 
 func (m *Model) formExpireBackspace() {
-	if m.formCursor <= 0 {
+	if m.serverForm.Cursor <= 0 {
 		return
 	}
-	mask := []rune(dateMask(m.form.ExpireAt))
+	mask := []rune(dateMask(m.serverForm.Form.ExpireAt))
 	positions := dateInputPositions()
-	cursor := clampInt(m.formCursor, 0, len(positions))
+	cursor := clampInt(m.serverForm.Cursor, 0, len(positions))
 	pos := positions[cursor-1]
 	mask[pos] = datePlaceholderForPosition(pos)
-	m.form.ExpireAt = string(mask)
-	m.formCursor = cursor - 1
+	m.serverForm.Form.ExpireAt = string(mask)
+	m.serverForm.Cursor = cursor - 1
 }
 
 func dateMask(value string) string {
@@ -668,27 +668,27 @@ func dateInputPositions() []int {
 }
 
 func (m *Model) moveFormCursor(delta int) {
-	m.formCursor += delta
-	if m.formCursor < 0 {
-		m.formCursor = 0
+	m.serverForm.Cursor += delta
+	if m.serverForm.Cursor < 0 {
+		m.serverForm.Cursor = 0
 	}
 	maxCursor := m.formValueLen()
-	if m.formCursor > maxCursor {
-		m.formCursor = maxCursor
+	if m.serverForm.Cursor > maxCursor {
+		m.serverForm.Cursor = maxCursor
 	}
 }
 
 func (m Model) formValueLen() int {
-	if m.formIndex == expireAtFormIndex {
-		return dateCursorEnd(m.form.ExpireAt)
+	if m.serverForm.Index == expireAtFormIndex {
+		return dateCursorEnd(m.serverForm.Form.ExpireAt)
 	}
 	return len([]rune(m.formValue()))
 }
 
 func (m Model) nextFormIndex() int {
-	ids := editableFormIDs(m.form.fields())
+	ids := editableFormIDs(m.serverForm.Form.fields())
 	for i, id := range ids {
-		if id == m.formIndex {
+		if id == m.serverForm.Index {
 			return ids[(i+1)%len(ids)]
 		}
 	}
@@ -696,9 +696,9 @@ func (m Model) nextFormIndex() int {
 }
 
 func (m Model) prevFormIndex() int {
-	ids := editableFormIDs(m.form.fields())
+	ids := editableFormIDs(m.serverForm.Form.fields())
 	for i, id := range ids {
-		if id == m.formIndex {
+		if id == m.serverForm.Index {
 			if i == 0 {
 				return ids[len(ids)-1]
 			}
@@ -743,50 +743,50 @@ func dateCursorEnd(value string) int {
 }
 
 func (m Model) formValue() string {
-	switch m.formIndex {
+	switch m.serverForm.Index {
 	case 1:
-		return m.form.Name
+		return m.serverForm.Form.Name
 	case 2:
-		return m.form.HostName
+		return m.serverForm.Form.HostName
 	case 3:
-		return m.form.User
+		return m.serverForm.Form.User
 	case 4:
-		return m.form.Port
+		return m.serverForm.Form.Port
 	case 5:
-		return m.form.IdentityFile
+		return m.serverForm.Form.IdentityFile
 	case 6:
-		return m.form.Password
+		return m.serverForm.Form.Password
 	case 7:
-		return emptyChoice(m.form.JumpHostRef, "无")
+		return emptyChoice(m.serverForm.Form.JumpHostRef, "无")
 	case 8:
-		return m.form.Note
+		return m.serverForm.Form.Note
 	case 9:
-		return m.form.ExpireAt
+		return m.serverForm.Form.ExpireAt
 	default:
 		return ""
 	}
 }
 
 func (m *Model) setFormValue(value string) {
-	switch m.formIndex {
+	switch m.serverForm.Index {
 	case 1:
-		m.form.Name = value
+		m.serverForm.Form.Name = value
 	case 2:
-		m.form.HostName = value
+		m.serverForm.Form.HostName = value
 	case 3:
-		m.form.User = value
+		m.serverForm.Form.User = value
 	case 4:
-		m.form.Port = value
+		m.serverForm.Form.Port = value
 	case 5:
-		m.form.IdentityFile = value
+		m.serverForm.Form.IdentityFile = value
 	case 6:
-		m.form.Password = value
+		m.serverForm.Form.Password = value
 	case 7:
-		m.form.JumpHostRef = strings.TrimSpace(value)
+		m.serverForm.Form.JumpHostRef = strings.TrimSpace(value)
 	case 8:
-		m.form.Note = value
+		m.serverForm.Form.Note = value
 	case 9:
-		m.form.ExpireAt = value
+		m.serverForm.Form.ExpireAt = value
 	}
 }
 

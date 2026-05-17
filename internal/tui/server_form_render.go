@@ -9,9 +9,9 @@ import (
 
 func (m Model) renderAddForm() string {
 	title := m.t("Add Server", "添加服务器")
-	if m.editing {
+	if m.serverForm.Editing {
 		title = m.t("Edit Server", "编辑服务器")
-	} else if m.copying {
+	} else if m.serverForm.Copying {
 		title = m.t("Copy Server", "复制服务器")
 	}
 	width := formContentWidth(m.width)
@@ -19,11 +19,11 @@ func (m Model) renderAddForm() string {
 		width = detailFrameWidth(m.width)
 	}
 	help := m.t("Switch Tab  Move ↑↓  Category ←→  Save Enter  Back Esc", "切换 Tab  选择 ↑↓  分类 ←→  保存 Enter  返回 Esc")
-	if m.formPane == 1 {
+	if m.serverForm.Pane == 1 {
 		help = m.t("Back Tab  Move ↑↓  New n  Rename r  Delete x  Back Esc", "切回 Tab  选择 ↑↓  新增 n  重命名 r  删除 x  返回 Esc")
-		if m.addingCategory {
+		if m.serverForm.AddingCategory {
 			help = m.t("Add Enter  Back Esc", "添加 Enter  返回 Esc")
-		} else if m.renamingCategory {
+		} else if m.serverForm.RenamingCategory {
 			help = m.t("Rename Enter  Back Esc", "重命名 Enter  返回 Esc")
 		}
 	}
@@ -41,7 +41,7 @@ func (m Model) renderAddForm() string {
 	}
 	body := ""
 	if m.useSingleFormPane(width) {
-		if m.formPane == 1 {
+		if m.serverForm.Pane == 1 {
 			body = m.renderCategoryPane(width, bodyHeight)
 		} else {
 			body = m.renderServerFormPane(title, width, bodyHeight)
