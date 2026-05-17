@@ -112,7 +112,7 @@ func (m Model) renderDashboardCategoryServers(indexes []int, width int, height i
 }
 
 func (m Model) dashboardCategoryShowsGroupedServers() bool {
-	return m.dashboardMode == dashboardCategory && m.filter == filterAll && !m.favoriteOnly && strings.TrimSpace(m.query) == ""
+	return m.dashboard.Mode == dashboardCategory && m.filter == filterAll && !m.favoriteOnly && strings.TrimSpace(m.query) == ""
 }
 
 func (m Model) renderDashboardCategoryGroupedServers(indexes []int, width int, height int) string {
@@ -326,7 +326,7 @@ func (m Model) dashboardCategoryServerLineWithOptions(index int, selected bool, 
 
 func (m Model) renderDashboardCategoryPane(width int, height int) string {
 	items := m.dashboardCategoryItems()
-	active := m.dashboardMode == dashboardCategory && m.dashboardFocus == 0
+	active := m.dashboard.Mode == dashboardCategory && m.dashboard.Focus == 0
 	selected := m.dashboardCategorySelectedIndex(items)
 	contentWidth := width - 4
 	if contentWidth < 10 {

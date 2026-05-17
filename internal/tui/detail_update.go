@@ -77,42 +77,42 @@ func (m Model) updateAnomalyOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q", "ctrl+c":
 		m.mode = modeDashboard
 	case "j", "down":
-		m.anomalyIndex = clampInt(m.anomalyIndex+1, 0, maxInt(0, len(items)-1))
+		m.anomaly.Index = clampInt(m.anomaly.Index+1, 0, maxInt(0, len(items)-1))
 	case "k", "up":
-		m.anomalyIndex = clampInt(m.anomalyIndex-1, 0, maxInt(0, len(items)-1))
+		m.anomaly.Index = clampInt(m.anomaly.Index-1, 0, maxInt(0, len(items)-1))
 	case "f", "tab":
-		m.anomalyFilter = (m.anomalyFilter + 1) % 8
-		m.anomalyIndex = 0
+		m.anomaly.Filter = (m.anomaly.Filter + 1) % 8
+		m.anomaly.Index = 0
 	case "0":
-		m.anomalyFilter = anomalyAll
-		m.anomalyIndex = 0
+		m.anomaly.Filter = anomalyAll
+		m.anomaly.Index = 0
 	case "1":
-		m.anomalyFilter = anomalySevere
-		m.anomalyIndex = 0
+		m.anomaly.Filter = anomalySevere
+		m.anomaly.Index = 0
 	case "2":
-		m.anomalyFilter = anomalyWarn
-		m.anomalyIndex = 0
+		m.anomaly.Filter = anomalyWarn
+		m.anomaly.Index = 0
 	case "3":
-		m.anomalyFilter = anomalyOffline
-		m.anomalyIndex = 0
+		m.anomaly.Filter = anomalyOffline
+		m.anomaly.Index = 0
 	case "4":
-		m.anomalyFilter = anomalyResource
-		m.anomalyIndex = 0
+		m.anomaly.Filter = anomalyResource
+		m.anomaly.Index = 0
 	case "5":
-		m.anomalyFilter = anomalyContainer
-		m.anomalyIndex = 0
+		m.anomaly.Filter = anomalyContainer
+		m.anomaly.Index = 0
 	case "6":
-		m.anomalyFilter = anomalyService
-		m.anomalyIndex = 0
+		m.anomaly.Filter = anomalyService
+		m.anomaly.Index = 0
 	case "7":
-		m.anomalyFilter = anomalySecurity
-		m.anomalyIndex = 0
+		m.anomaly.Filter = anomalySecurity
+		m.anomaly.Index = 0
 	case "enter", " ":
 		if len(items) == 0 {
 			return m, nil
 		}
-		m.anomalyIndex = clampInt(m.anomalyIndex, 0, len(items)-1)
-		item := items[m.anomalyIndex]
+		m.anomaly.Index = clampInt(m.anomaly.Index, 0, len(items)-1)
+		item := items[m.anomaly.Index]
 		m.selected = m.visibleIndexForRealIndex(item.Index)
 		return m.openDetailSection(item.Index, anomalyDetailSection(item.Checks))
 	case "r":

@@ -91,7 +91,7 @@ func (m Model) renderDashboardView() string {
 
 	var lines []string
 	lines = append(lines, header)
-	if m.dashboardMode != dashboardCategory {
+	if m.dashboard.Mode != dashboardCategory {
 		lines = append(lines, "")
 	}
 
@@ -109,9 +109,9 @@ func (m Model) renderDashboardView() string {
 	}
 	helpBlock := m.renderDashboardHelp(helpWidth)
 	pageDots := ""
-	if m.dashboardMode == dashboardCards {
+	if m.dashboard.Mode == dashboardCards {
 		pageDots = m.dashboardPageDots(indexes)
-	} else if m.dashboardMode == dashboardGrouped {
+	} else if m.dashboard.Mode == dashboardGrouped {
 		pageDots = m.dashboardGroupedDots(indexes)
 	}
 	reservedBottomLines := strings.Count(helpBlock, "\n") + 1

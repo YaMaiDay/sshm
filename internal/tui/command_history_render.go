@@ -334,7 +334,7 @@ func (m Model) anomalyItems() []anomalyItem {
 }
 
 func (m Model) anomalyMatchesFilter(checks []checkItem) bool {
-	switch m.anomalyFilter {
+	switch m.anomaly.Filter {
 	case anomalySevere:
 		for _, check := range checks {
 			if check.Level == "严重" {

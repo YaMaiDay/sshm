@@ -9,10 +9,10 @@ import (
 )
 
 func (m Model) renderDashboard(indexes []int) string {
-	if m.dashboardMode == dashboardCategory {
+	if m.dashboard.Mode == dashboardCategory {
 		return m.renderDashboardCategory(indexes)
 	}
-	if m.dashboardMode == dashboardGrouped {
+	if m.dashboard.Mode == dashboardGrouped {
 		return m.renderDashboardGrouped(indexes)
 	}
 	return m.renderDashboardGrid(indexes)

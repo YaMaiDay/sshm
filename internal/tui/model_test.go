@@ -118,7 +118,7 @@ func TestDashboardCategoryItemsOnlyIncludesRealCategories(t *testing.T) {
 
 func TestFilteredIndexesPinnedFirstInCardAll(t *testing.T) {
 	m := Model{
-		dashboardMode: dashboardCards,
+		dashboard: dashboardState{Mode: dashboardCards},
 		states: []hostState{
 			{Host: host.Host{Name: "a", Category: "aws"}},
 			{Host: host.Host{Name: "z", Category: "local", Pinned: true, PinnedOrder: 1}},
@@ -137,7 +137,7 @@ func TestFilteredIndexesPinnedFirstInCardAll(t *testing.T) {
 
 func TestFilteredIndexesPinnedFirstInCategoryAll(t *testing.T) {
 	m := Model{
-		dashboardMode: dashboardCategory,
+		dashboard: dashboardState{Mode: dashboardCategory},
 		states: []hostState{
 			{Host: host.Host{Name: "a", Category: "aws"}},
 			{Host: host.Host{Name: "z", Category: "local", Pinned: true, PinnedOrder: 1}},
@@ -156,7 +156,7 @@ func TestFilteredIndexesPinnedFirstInCategoryAll(t *testing.T) {
 
 func TestFilteredIndexesGroupedAllKeepsCategoriesBeforePinned(t *testing.T) {
 	m := Model{
-		dashboardMode: dashboardGrouped,
+		dashboard: dashboardState{Mode: dashboardGrouped},
 		states: []hostState{
 			{Host: host.Host{Name: "z", Category: "local", Pinned: true, PinnedOrder: 1}},
 			{Host: host.Host{Name: "a", Category: "aws"}},
@@ -175,7 +175,7 @@ func TestFilteredIndexesGroupedAllKeepsCategoriesBeforePinned(t *testing.T) {
 
 func TestFilteredIndexesPinnedOrderNewestFirst(t *testing.T) {
 	m := Model{
-		dashboardMode: dashboardCards,
+		dashboard: dashboardState{Mode: dashboardCards},
 		states: []hostState{
 			{Host: host.Host{Name: "old", Category: "aws", Pinned: true, PinnedOrder: 1}},
 			{Host: host.Host{Name: "new", Category: "aws", Pinned: true, PinnedOrder: 2}},

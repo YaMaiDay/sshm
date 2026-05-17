@@ -372,6 +372,16 @@ type settingsState struct {
 	Cursor int
 }
 
+type dashboardState struct {
+	Mode  dashboardMode
+	Focus int
+}
+
+type anomalyState struct {
+	Index  int
+	Filter anomalyFilterMode
+}
+
 type Model struct {
 	states                        []hostState
 	selected                      int
@@ -410,8 +420,7 @@ type Model struct {
 	confirm                       confirmAction
 	filter                        filterMode
 	sortBy                        sortMode
-	dashboardMode                 dashboardMode
-	dashboardFocus                int
+	dashboard                     dashboardState
 	category                      string
 	favoriteOnly                  bool
 	detailScroll                  int
@@ -468,8 +477,7 @@ type Model struct {
 	activeDeployment              activeDeployment
 	deploymentOutputScroll        int
 	settings                      settingsState
-	anomalyIndex                  int
-	anomalyFilter                 anomalyFilterMode
+	anomaly                       anomalyState
 	transferJobsBack              viewMode
 	helpBackMode                  viewMode
 	collectRound                  int

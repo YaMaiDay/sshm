@@ -24,15 +24,15 @@ func (m *Model) move(delta int) {
 }
 
 func (m *Model) moveDashboardDown() {
-	if m.dashboardMode == dashboardCategory && m.dashboardFocus == 0 {
+	if m.dashboard.Mode == dashboardCategory && m.dashboard.Focus == 0 {
 		m.moveDashboardCategory(1)
 		return
 	}
-	if m.dashboardMode == dashboardCategory {
+	if m.dashboard.Mode == dashboardCategory {
 		m.move(1)
 		return
 	}
-	if m.dashboardMode == dashboardCards {
+	if m.dashboard.Mode == dashboardCards {
 		m.move(m.dashboardColumns())
 		return
 	}
@@ -40,15 +40,15 @@ func (m *Model) moveDashboardDown() {
 }
 
 func (m *Model) moveDashboardUp() {
-	if m.dashboardMode == dashboardCategory && m.dashboardFocus == 0 {
+	if m.dashboard.Mode == dashboardCategory && m.dashboard.Focus == 0 {
 		m.moveDashboardCategory(-1)
 		return
 	}
-	if m.dashboardMode == dashboardCategory {
+	if m.dashboard.Mode == dashboardCategory {
 		m.move(-1)
 		return
 	}
-	if m.dashboardMode == dashboardCards {
+	if m.dashboard.Mode == dashboardCards {
 		m.move(-m.dashboardColumns())
 		return
 	}
@@ -56,17 +56,17 @@ func (m *Model) moveDashboardUp() {
 }
 
 func (m *Model) moveDashboardLeft() {
-	if m.dashboardMode == dashboardCategory {
-		m.dashboardFocus = 0
+	if m.dashboard.Mode == dashboardCategory {
+		m.dashboard.Focus = 0
 		return
 	}
 	m.move(-1)
 }
 
 func (m *Model) moveDashboardRight() {
-	if m.dashboardMode == dashboardCategory {
-		if m.dashboardFocus == 0 {
-			m.dashboardFocus = 1
+	if m.dashboard.Mode == dashboardCategory {
+		if m.dashboard.Focus == 0 {
+			m.dashboard.Focus = 1
 		}
 		return
 	}
@@ -203,7 +203,7 @@ func (m Model) filteredIndexes() []int {
 }
 
 func (m Model) sortCategoryBeforePinned() bool {
-	return m.dashboardMode == dashboardGrouped || m.category != ""
+	return m.dashboard.Mode == dashboardGrouped || m.category != ""
 }
 
 func (m Model) isProblem(state hostState) bool {
@@ -233,7 +233,7 @@ func (m Model) dashboardHeaderText(indexes []int) string {
 	parts := []string{
 		titleStyle.Render("sshm"),
 		mutedStyle.Render(m.dashboardServerCountText(len(indexes))),
-		blueStyle.Render(m.dashboardModeName(m.dashboardMode)),
+		blueStyle.Render(m.dashboardModeName(m.dashboard.Mode)),
 		m.dashboardCategoryHeaderText(),
 	}
 	if m.searching {
@@ -275,7 +275,7 @@ func (m Model) dashboardServerCountText(count int) string {
 
 func (m Model) dashboardCategoryHeaderText() string {
 	category := m.category
-	if m.dashboardMode == dashboardCategory {
+	if m.dashboard.Mode == dashboardCategory {
 		category = m.dashboardCategoryActiveLabel()
 	}
 	if strings.TrimSpace(category) == "" {

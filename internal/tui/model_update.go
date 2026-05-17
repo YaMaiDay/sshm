@@ -202,8 +202,8 @@ func (m Model) updateDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cycleCategory()
 		m.selected = 0
 	case " ":
-		if m.dashboardMode == dashboardCategory && m.dashboardFocus == 0 {
-			m.dashboardFocus = 1
+		if m.dashboard.Mode == dashboardCategory && m.dashboard.Focus == 0 {
+			m.dashboard.Focus = 1
 			return m, nil
 		}
 		if idx, ok := m.selectedRealIndex(); ok {
@@ -242,20 +242,20 @@ func (m Model) updateDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startCommandHistory()
 	case "w":
 		m.mode = modeAnomalyOverview
-		m.anomalyIndex = 0
+		m.anomaly.Index = 0
 	case "n":
 		if idx, ok := m.selectedRealIndex(); ok {
 			return m.startResourceList(idx, resourceAll, modeDashboard)
 		}
 	case "z":
-		switch m.dashboardMode {
+		switch m.dashboard.Mode {
 		case dashboardCards:
-			m.dashboardMode = dashboardGrouped
+			m.dashboard.Mode = dashboardGrouped
 		case dashboardGrouped:
-			m.dashboardMode = dashboardCategory
-			m.dashboardFocus = 1
+			m.dashboard.Mode = dashboardCategory
+			m.dashboard.Focus = 1
 		default:
-			m.dashboardMode = dashboardCards
+			m.dashboard.Mode = dashboardCards
 		}
 		m.status = ""
 	case "r":
@@ -265,8 +265,8 @@ func (m Model) updateDashboardKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pendingByRound[m.collectRound] = len(m.states)
 		return m, m.collectAll(m.collectRound, true)
 	case "enter":
-		if m.dashboardMode == dashboardCategory && m.dashboardFocus == 0 {
-			m.dashboardFocus = 1
+		if m.dashboard.Mode == dashboardCategory && m.dashboard.Focus == 0 {
+			m.dashboard.Focus = 1
 			return m, nil
 		}
 		if idx, ok := m.selectedRealIndex(); ok {

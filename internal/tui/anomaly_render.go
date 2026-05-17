@@ -14,14 +14,14 @@ func (m Model) renderAnomalyOverview() string {
 		bodyWidth = 42
 	}
 	items := m.anomalyItems()
-	m.anomalyIndex = clampInt(m.anomalyIndex, 0, maxInt(0, len(items)-1))
+	m.anomaly.Index = clampInt(m.anomaly.Index, 0, maxInt(0, len(items)-1))
 	totalSevere, totalWarn := 0, 0
 	for _, item := range items {
 		severe, warn, _ := checkCounts(item.Checks)
 		totalSevere += severe
 		totalWarn += warn
 	}
-	title := fmt.Sprintf("%s  %d%s  %s", m.t("Anomaly Overview", "异常总览"), len(items), m.t(" servers", "台"), m.anomalyFilterName(m.anomalyFilter))
+	title := fmt.Sprintf("%s  %d%s  %s", m.t("Anomaly Overview", "异常总览"), len(items), m.t(" servers", "台"), m.anomalyFilterName(m.anomaly.Filter))
 	if totalSevere > 0 {
 		title += "  " + redStyle.Render(fmt.Sprintf("%s%d", m.t("Critical", "严重"), totalSevere))
 	}
@@ -45,7 +45,7 @@ func (m Model) renderAnomalyOverview() string {
 		if rowsVisible < 1 {
 			rowsVisible = 1
 		}
-		start, end := visibleRange(len(items), m.anomalyIndex, rowsVisible)
+		start, end := visibleRange(len(items), m.anomaly.Index, rowsVisible)
 		if end <= start {
 			end = minInt(len(items), start+1)
 		}
@@ -62,7 +62,7 @@ func (m Model) renderAnomalyOverview() string {
 			if len(lines)+itemHeight > contentHeight {
 				break
 			}
-			lines = append(lines, m.anomalyItemLines(items[i], i == m.anomalyIndex, bodyWidth)...)
+			lines = append(lines, m.anomalyItemLines(items[i], i == m.anomaly.Index, bodyWidth)...)
 			lines = append(lines, "")
 		}
 	}
