@@ -27,12 +27,12 @@ func (m Model) renderCommandHistory() string {
 	if len(entries) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No command history", "暂无命令历史")))
 	} else {
-		start, end := visibleRange(len(entries), m.historyIndex, height)
+		start, end := visibleRange(len(entries), m.commandState.HistoryIndex, height)
 		for i := start; i < end; i++ {
 			entry := entries[i]
 			prefix := " "
 			style := lipgloss.NewStyle()
-			if i == m.historyIndex {
+			if i == m.commandState.HistoryIndex {
 				prefix = "▶"
 				style = blueStyle.Bold(true)
 			}
@@ -46,10 +46,10 @@ func (m Model) renderCommandHistory() string {
 	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(softGray).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
 	title := fmt.Sprintf("%s  %d%s", m.t("Command History", "命令历史"), len(entries), m.t(" records", "条"))
-	if m.historySearch {
-		title += "  " + m.t("Search: ", "搜索：") + inlineCursorText(m.historyQuery, width/3, len([]rune(m.historyQuery)))
-	} else if strings.TrimSpace(m.historyQuery) != "" {
-		title += "  " + m.t("Search: ", "搜索：") + m.historyQuery
+	if m.commandState.HistorySearch {
+		title += "  " + m.t("Search: ", "搜索：") + inlineCursorText(m.commandState.HistoryQuery, width/3, len([]rune(m.commandState.HistoryQuery)))
+	} else if strings.TrimSpace(m.commandState.HistoryQuery) != "" {
+		title += "  " + m.t("Search: ", "搜索：") + m.commandState.HistoryQuery
 	}
 	return strings.Join([]string{titleStyle.Render(fit(title, width)), box, renderHelp(width, help)}, "\n")
 }
@@ -93,7 +93,7 @@ func (m Model) renderCommandHistoryDetail() string {
 	if height < 8 {
 		height = 8
 	}
-	scroll := clampInt(m.historyScroll, 0, m.commandHistoryDetailMaxScroll())
+	scroll := clampInt(m.commandState.HistoryScroll, 0, m.commandHistoryDetailMaxScroll())
 	viewLines := lines
 	if len(lines) > height {
 		viewLines = lines[scroll:minInt(len(lines), scroll+height)]

@@ -16,29 +16,29 @@ func (m Model) renderCommandEdit() string {
 		innerWidth = 36
 	}
 	title := m.t("Add Command Template", "添加命令模板")
-	if m.commandEditing {
+	if m.commandState.Editing {
 		title = m.t("Edit Command Template", "编辑命令模板")
 	}
 	scope := m.t("Global", "全局") + "  ←/→"
 	server := "-"
-	if m.activeCommand.HostIndex >= 0 && m.activeCommand.HostIndex < len(m.states) {
-		h := m.states[m.activeCommand.HostIndex].Host
+	if m.commandState.Active.HostIndex >= 0 && m.commandState.Active.HostIndex < len(m.states) {
+		h := m.states[m.commandState.Active.HostIndex].Host
 		server = config.ServerCommandKey(h.Category, h.Name)
 	}
-	if m.commandForm.Scope == commandScopeServer {
+	if m.commandState.Form.Scope == commandScopeServer {
 		scope = server + "  ←/→"
 	}
 	header := title
-	if m.commandForm.Scope == commandScopeServer && server != "-" {
+	if m.commandState.Form.Scope == commandScopeServer && server != "-" {
 		header += "  " + server
 	}
 	lines := []string{}
 	lines = append(lines, commandFieldLine(m, 0, m.t("Scope", "范围"), scope, innerWidth))
-	lines = append(lines, commandFieldLine(m, 1, m.t("Template name", "模板名称"), commandInputText(m.commandForm.Name, m.commandCursor, m.commandField == 1, 28), innerWidth))
+	lines = append(lines, commandFieldLine(m, 1, m.t("Template name", "模板名称"), commandInputText(m.commandState.Form.Name, m.commandState.Cursor, m.commandState.Field == 1, 28), innerWidth))
 	lines = append(lines, "")
 	help := m.t("Switch Tab  Save Enter  New line Ctrl+J  Back Esc", "切换 Tab  保存 Enter  换行 Ctrl+J  返回 Esc")
 	lines = append(lines, detailSubTitle(m.t("Command", "命令内容")))
-	lines = append(lines, commandTextArea(m.commandForm.Command, m.commandCursor, m.commandField == 2, innerWidth, m.commandTextAreaHeight(help)))
+	lines = append(lines, commandTextArea(m.commandState.Form.Command, m.commandState.Cursor, m.commandState.Field == 2, innerWidth, m.commandTextAreaHeight(help)))
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(blue).
@@ -55,7 +55,7 @@ func (m Model) renderCommandEdit() string {
 func commandFieldLine(m Model, index int, label string, value string, width int) string {
 	prefix := " "
 	style := lipgloss.NewStyle()
-	if m.commandField == index {
+	if m.commandState.Field == index {
 		prefix = "▶"
 		style = blueStyle.Bold(true)
 	}

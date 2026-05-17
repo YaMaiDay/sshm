@@ -53,13 +53,13 @@ func New(hosts []host.Host, passwords config.PasswordStore) Model {
 	collector.Timeout = appConfig.CommandDuration()
 	collector.ConnectTimeout = appConfig.ConnectDuration()
 	m := Model{
-		states:      states,
-		collector:   collector,
-		passwords:   passwords,
-		appConfig:   appConfig,
-		appState:    appState,
-		home:        home,
-		commandFile: commandFile,
+		states:       states,
+		collector:    collector,
+		passwords:    passwords,
+		appConfig:    appConfig,
+		appState:     appState,
+		home:         home,
+		commandState: commandState{File: commandFile},
 		deploymentState: deploymentState{
 			File:     deploymentFile,
 			Progress: newDeploymentProgressStore(),

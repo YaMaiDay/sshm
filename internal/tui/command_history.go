@@ -15,9 +15,9 @@ func (m Model) startCommandHistory() (tea.Model, tea.Cmd) {
 		m.status = m.t("Failed to read command history: ", "读取命令历史失败：") + err.Error()
 		return m, nil
 	}
-	m.commandHistory = file
-	m.historyIndex = clampInt(m.historyIndex, 0, maxInt(0, len(file.Entries)-1))
-	m.historyScroll = 0
+	m.commandState.History = file
+	m.commandState.HistoryIndex = clampInt(m.commandState.HistoryIndex, 0, maxInt(0, len(file.Entries)-1))
+	m.commandState.HistoryScroll = 0
 	m.mode = modeCommandHistory
 	m.status = ""
 	return m, nil
@@ -28,29 +28,29 @@ func (m *Model) reloadCommandHistory() {
 	if err != nil {
 		return
 	}
-	m.commandHistory = file
-	m.historyIndex = clampInt(m.historyIndex, 0, maxInt(0, len(file.Entries)-1))
+	m.commandState.History = file
+	m.commandState.HistoryIndex = clampInt(m.commandState.HistoryIndex, 0, maxInt(0, len(file.Entries)-1))
 }
 
 func (m Model) updateCommandHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.historySearch {
+	if m.commandState.HistorySearch {
 		switch msg.String() {
 		case "esc":
-			m.historySearch = false
-			m.historyQuery = ""
-			m.historyIndex = 0
+			m.commandState.HistorySearch = false
+			m.commandState.HistoryQuery = ""
+			m.commandState.HistoryIndex = 0
 		case "enter":
-			m.historySearch = false
+			m.commandState.HistorySearch = false
 		case "backspace":
-			runes := []rune(m.historyQuery)
+			runes := []rune(m.commandState.HistoryQuery)
 			if len(runes) > 0 {
-				m.historyQuery = string(runes[:len(runes)-1])
-				m.historyIndex = 0
+				m.commandState.HistoryQuery = string(runes[:len(runes)-1])
+				m.commandState.HistoryIndex = 0
 			}
 		default:
 			if len(msg.Runes) > 0 {
-				m.historyQuery += string(msg.Runes)
-				m.historyIndex = 0
+				m.commandState.HistoryQuery += string(msg.Runes)
+				m.commandState.HistoryIndex = 0
 			}
 		}
 		return m, nil
@@ -61,16 +61,16 @@ func (m Model) updateCommandHistory(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeDashboard
 		m.status = ""
 	case "/":
-		m.historySearch = true
-		m.historyQuery = ""
-		m.historyIndex = 0
+		m.commandState.HistorySearch = true
+		m.commandState.HistoryQuery = ""
+		m.commandState.HistoryIndex = 0
 	case "j", "down":
-		m.historyIndex = clampInt(m.historyIndex+1, 0, maxInt(0, len(m.filteredHistoryEntries())-1))
+		m.commandState.HistoryIndex = clampInt(m.commandState.HistoryIndex+1, 0, maxInt(0, len(m.filteredHistoryEntries())-1))
 	case "k", "up":
-		m.historyIndex = clampInt(m.historyIndex-1, 0, maxInt(0, len(m.filteredHistoryEntries())-1))
+		m.commandState.HistoryIndex = clampInt(m.commandState.HistoryIndex-1, 0, maxInt(0, len(m.filteredHistoryEntries())-1))
 	case "enter":
 		if _, ok := m.selectedHistoryEntry(); ok {
-			m.historyScroll = 0
+			m.commandState.HistoryScroll = 0
 			m.mode = modeCommandHistoryDetail
 		}
 	case "r":
@@ -98,9 +98,9 @@ func (m Model) updateCommandHistoryDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q", "ctrl+c":
 		m.mode = modeCommandHistory
 	case "j", "down":
-		m.historyScroll = moveClampedInt(m.historyScroll, 1, 0, m.commandHistoryDetailMaxScroll())
+		m.commandState.HistoryScroll = moveClampedInt(m.commandState.HistoryScroll, 1, 0, m.commandHistoryDetailMaxScroll())
 	case "k", "up":
-		m.historyScroll = moveClampedInt(m.historyScroll, -1, 0, m.commandHistoryDetailMaxScroll())
+		m.commandState.HistoryScroll = moveClampedInt(m.commandState.HistoryScroll, -1, 0, m.commandHistoryDetailMaxScroll())
 	case "r":
 		if entry, ok := m.selectedHistoryEntry(); ok {
 			return m.rerunHistoryEntry(entry)
@@ -122,19 +122,19 @@ func (m Model) updateCommandHistoryDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) selectedHistoryEntry() (config.CommandHistoryEntry, bool) {
 	entries := m.filteredHistoryEntries()
-	if m.historyIndex < 0 || m.historyIndex >= len(entries) {
+	if m.commandState.HistoryIndex < 0 || m.commandState.HistoryIndex >= len(entries) {
 		return config.CommandHistoryEntry{}, false
 	}
-	return entries[m.historyIndex], true
+	return entries[m.commandState.HistoryIndex], true
 }
 
 func (m Model) filteredHistoryEntries() []config.CommandHistoryEntry {
-	query := strings.ToLower(strings.TrimSpace(m.historyQuery))
+	query := strings.ToLower(strings.TrimSpace(m.commandState.HistoryQuery))
 	if query == "" {
-		return m.commandHistory.Entries
+		return m.commandState.History.Entries
 	}
-	out := make([]config.CommandHistoryEntry, 0, len(m.commandHistory.Entries))
-	for _, entry := range m.commandHistory.Entries {
+	out := make([]config.CommandHistoryEntry, 0, len(m.commandState.History.Entries))
+	for _, entry := range m.commandState.History.Entries {
 		if historyEntryMatches(entry, query) {
 			out = append(out, entry)
 		}
@@ -161,9 +161,9 @@ func (m Model) deleteCommandHistoryEntry(entry config.CommandHistoryEntry) (tea.
 		return m, nil
 	}
 	m.reloadCommandHistory()
-	m.historyIndex = clampInt(m.historyIndex, 0, maxInt(0, len(m.commandHistory.Entries)-1))
+	m.commandState.HistoryIndex = clampInt(m.commandState.HistoryIndex, 0, maxInt(0, len(m.commandState.History.Entries)-1))
 	m.status = m.t("Command history deleted.", "命令历史已删除。")
-	if len(m.commandHistory.Entries) == 0 {
+	if len(m.commandState.History.Entries) == 0 {
 		m.mode = modeCommandHistory
 	}
 	return m, nil
@@ -181,36 +181,36 @@ func (m Model) rerunHistoryEntry(entry config.CommandHistoryEntry) (tea.Model, t
 	}
 	if len(indexes) == 1 {
 		backMode := m.mode
-		m.activeCommand = activeCommand{
+		m.commandState.Active = activeCommand{
 			HostIndex: indexes[0],
 			Name:      historyCommandName(entry),
 			Command:   entry.Command,
 			Running:   true,
 		}
-		m.commandOutputScroll = 0
-		m.commandOutputBack = backMode
+		m.commandState.OutputScroll = 0
+		m.commandState.OutputBack = backMode
 		m.mode = modeCommandOutput
 		m.status = m.t("Rerunning command...", "正在重新执行命令...")
 		return m, m.runCommand(indexes[0], entry.Command)
 	}
 	backMode := m.mode
-	m.batchSelected = map[int]bool{}
+	m.batchState.Selected = map[int]bool{}
 	for _, index := range indexes {
-		m.batchSelected[index] = true
+		m.batchState.Selected[index] = true
 	}
-	m.batchIndexes = indexes
-	m.batchCommand = commandItem{Name: historyCommandName(entry), Command: entry.Command}
+	m.batchState.Indexes = indexes
+	m.batchState.Command = commandItem{Name: historyCommandName(entry), Command: entry.Command}
 	m.prepareBatchJobs()
-	if len(m.batchJobs) == 0 {
+	if len(m.batchState.Jobs) == 0 {
 		m.status = m.t("No runnable servers.", "没有可执行的服务器")
 		return m, nil
 	}
 	m.mode = modeBatchOutput
-	m.batchCurrent = 0
-	m.batchJobs[0].Running = true
-	m.batchOutputIndex = 0
-	m.batchOutputScroll = 0
-	m.batchOutputBack = backMode
+	m.batchState.Current = 0
+	m.batchState.Jobs[0].Running = true
+	m.batchState.OutputIndex = 0
+	m.batchState.OutputScroll = 0
+	m.batchState.OutputBack = backMode
 	m.status = m.t("Rerunning batch command...", "正在重新批量执行...")
 	return m, m.runBatchJob(0)
 }

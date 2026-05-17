@@ -15,10 +15,10 @@ func (m Model) startCommandList(index int) Model {
 		m.status = "读取命令模板失败：" + err.Error()
 		return m
 	}
-	m.commandFile = file
-	m.commandItems = m.commandListItems(index)
-	m.commandIndex = firstCommandItem(m.commandItems)
-	m.activeCommand = activeCommand{HostIndex: index}
+	m.commandState.File = file
+	m.commandState.Items = m.commandListItems(index)
+	m.commandState.Index = firstCommandItem(m.commandState.Items)
+	m.commandState.Active = activeCommand{HostIndex: index}
 	m.mode = modeCommandList
 	m.status = "命令模板"
 	return m
@@ -31,7 +31,7 @@ func (m Model) commandListItems(index int) []commandItem {
 	h := m.states[index].Host
 	serverKey := config.ServerCommandKey(h.Category, h.Name)
 	items := []commandItem{{Name: "当前服务器", Header: true}}
-	for i, command := range m.commandFile.Server {
+	for i, command := range m.commandState.File.Server {
 		if command.Server == serverKey {
 			items = append(items, commandItem{
 				Scope:   commandScopeServer,
@@ -43,7 +43,7 @@ func (m Model) commandListItems(index int) []commandItem {
 		}
 	}
 	items = append(items, commandItem{Name: "全局", Header: true})
-	for i, command := range m.commandFile.Global {
+	for i, command := range m.commandState.File.Global {
 		items = append(items, commandItem{
 			Scope:   commandScopeGlobal,
 			Index:   i,
@@ -104,8 +104,8 @@ func (m Model) updateCommandList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if item.Temporary {
 			return m.startCommandEdit(item, false), nil
 		}
-		m.commandConfirm = item
-		m.commandOutputScroll = 0
+		m.commandState.Confirm = item
+		m.commandState.OutputScroll = 0
 		m.mode = modeCommandConfirm
 		m.status = "确认执行命令"
 	}
@@ -113,13 +113,13 @@ func (m Model) updateCommandList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) moveCommandIndex(delta int) {
-	if len(m.commandItems) == 0 {
-		m.commandIndex = 0
+	if len(m.commandState.Items) == 0 {
+		m.commandState.Index = 0
 		return
 	}
-	for i := 0; i < len(m.commandItems); i++ {
-		m.commandIndex = moveIndex(m.commandIndex, len(m.commandItems), delta)
-		item := m.commandItems[m.commandIndex]
+	for i := 0; i < len(m.commandState.Items); i++ {
+		m.commandState.Index = moveIndex(m.commandState.Index, len(m.commandState.Items), delta)
+		item := m.commandState.Items[m.commandState.Index]
 		if !item.Header && !item.Spacer {
 			return
 		}
@@ -127,10 +127,10 @@ func (m *Model) moveCommandIndex(delta int) {
 }
 
 func (m Model) selectedCommandItem() (commandItem, bool) {
-	if m.commandIndex < 0 || m.commandIndex >= len(m.commandItems) {
+	if m.commandState.Index < 0 || m.commandState.Index >= len(m.commandState.Items) {
 		return commandItem{}, false
 	}
-	item := m.commandItems[m.commandIndex]
+	item := m.commandState.Items[m.commandState.Index]
 	if item.Header || item.Spacer {
 		return commandItem{}, false
 	}
@@ -151,16 +151,16 @@ func (m Model) startCommandEdit(item commandItem, editing bool) Model {
 		name = item.Name
 		body = item.Command
 	}
-	m.commandForm = commandEditForm{Scope: scope, Name: name, Command: body}
-	m.commandField = 0
-	m.commandCursor = len([]rune(name))
-	m.commandEditing = editing
-	m.commandEditItem = item
+	m.commandState.Form = commandEditForm{Scope: scope, Name: name, Command: body}
+	m.commandState.Field = 0
+	m.commandState.Cursor = len([]rune(name))
+	m.commandState.Editing = editing
+	m.commandState.EditItem = item
 	m.mode = modeCommandEdit
 	if item.Temporary {
-		m.commandForm.Name = "临时命令"
-		m.commandField = 2
-		m.commandCursor = 0
+		m.commandState.Form.Name = "临时命令"
+		m.commandState.Field = 2
+		m.commandState.Cursor = 0
 	}
 	m.status = "编辑命令模板"
 	if !editing {
@@ -175,60 +175,60 @@ func (m Model) updateCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "ctrl+c":
 		return m.backToCommandList("已取消。"), nil
 	case "tab":
-		m.commandField = (m.commandField + 1) % 3
-		m.commandCursor = m.commandValueLen()
+		m.commandState.Field = (m.commandState.Field + 1) % 3
+		m.commandState.Cursor = m.commandValueLen()
 	case "shift+tab":
-		m.commandField--
-		if m.commandField < 0 {
-			m.commandField = 2
+		m.commandState.Field--
+		if m.commandState.Field < 0 {
+			m.commandState.Field = 2
 		}
-		m.commandCursor = m.commandValueLen()
+		m.commandState.Cursor = m.commandValueLen()
 	case "up":
-		if m.commandField == 2 {
+		if m.commandState.Field == 2 {
 			m.moveCommandBodyLine(-1)
 		} else {
-			m.commandField--
-			if m.commandField < 0 {
-				m.commandField = 2
+			m.commandState.Field--
+			if m.commandState.Field < 0 {
+				m.commandState.Field = 2
 			}
-			m.commandCursor = m.commandValueLen()
+			m.commandState.Cursor = m.commandValueLen()
 		}
 	case "down":
-		if m.commandField == 2 {
+		if m.commandState.Field == 2 {
 			m.moveCommandBodyLine(1)
 		} else {
-			m.commandField = (m.commandField + 1) % 3
-			m.commandCursor = m.commandValueLen()
+			m.commandState.Field = (m.commandState.Field + 1) % 3
+			m.commandState.Cursor = m.commandValueLen()
 		}
 	case "left":
-		if m.commandField == 0 {
+		if m.commandState.Field == 0 {
 			m.toggleCommandScope()
 		} else {
 			m.moveCommandCursor(-1)
 		}
 	case "right":
-		if m.commandField == 0 {
+		if m.commandState.Field == 0 {
 			m.toggleCommandScope()
 		} else {
 			m.moveCommandCursor(1)
 		}
 	case "ctrl+j":
-		if m.commandField == 2 {
+		if m.commandState.Field == 2 {
 			m.commandAppend("\n")
 		}
 	case "enter":
-		if strings.TrimSpace(m.commandForm.Command) == "" {
+		if strings.TrimSpace(m.commandState.Form.Command) == "" {
 			m.status = "保存失败：命令内容不能为空"
 			return m, nil
 		}
-		if m.commandEditItem.Temporary {
-			m.commandConfirm = commandItem{Name: "临时命令", Command: m.commandForm.Command, Temporary: true}
-			m.commandOutputScroll = 0
+		if m.commandState.EditItem.Temporary {
+			m.commandState.Confirm = commandItem{Name: "临时命令", Command: m.commandState.Form.Command, Temporary: true}
+			m.commandState.OutputScroll = 0
 			m.mode = modeCommandConfirm
 			m.status = "确认执行命令"
 			return m, nil
 		}
-		if err := config.ValidateCommandTemplate(m.commandForm.Name, m.commandForm.Command); err != nil {
+		if err := config.ValidateCommandTemplate(m.commandState.Form.Name, m.commandState.Form.Command); err != nil {
 			m.status = "保存失败：" + err.Error()
 			return m, nil
 		}
@@ -240,7 +240,7 @@ func (m Model) updateCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "backspace":
 		m.commandBackspace()
 	default:
-		if len(msg.Runes) > 0 && m.commandField != 0 {
+		if len(msg.Runes) > 0 && m.commandState.Field != 0 {
 			m.commandAppend(string(msg.Runes))
 		}
 	}
@@ -248,7 +248,7 @@ func (m Model) updateCommandEdit(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) backToCommandList(status string) Model {
-	index := m.activeCommand.HostIndex
+	index := m.commandState.Active.HostIndex
 	if index < 0 {
 		if selected, ok := m.selectedRealIndex(); ok {
 			index = selected
@@ -260,19 +260,19 @@ func (m Model) backToCommandList(status string) Model {
 }
 
 func (m *Model) toggleCommandScope() {
-	if m.commandForm.Scope == commandScopeGlobal {
-		m.commandForm.Scope = commandScopeServer
+	if m.commandState.Form.Scope == commandScopeGlobal {
+		m.commandState.Form.Scope = commandScopeServer
 	} else {
-		m.commandForm.Scope = commandScopeGlobal
+		m.commandState.Form.Scope = commandScopeGlobal
 	}
 }
 
 func (m Model) commandValue() string {
-	switch m.commandField {
+	switch m.commandState.Field {
 	case 1:
-		return m.commandForm.Name
+		return m.commandState.Form.Name
 	case 2:
-		return m.commandForm.Command
+		return m.commandState.Form.Command
 	default:
 		return ""
 	}
@@ -283,73 +283,73 @@ func (m Model) commandValueLen() int {
 }
 
 func (m *Model) setCommandValue(value string) {
-	switch m.commandField {
+	switch m.commandState.Field {
 	case 1:
-		m.commandForm.Name = value
+		m.commandState.Form.Name = value
 	case 2:
-		m.commandForm.Command = value
+		m.commandState.Form.Command = value
 	}
 }
 
 func (m *Model) commandAppend(s string) {
 	value := []rune(m.commandValue())
-	if m.commandCursor < 0 {
-		m.commandCursor = 0
+	if m.commandState.Cursor < 0 {
+		m.commandState.Cursor = 0
 	}
-	if m.commandCursor > len(value) {
-		m.commandCursor = len(value)
+	if m.commandState.Cursor > len(value) {
+		m.commandState.Cursor = len(value)
 	}
 	insert := []rune(s)
-	next := append([]rune{}, value[:m.commandCursor]...)
+	next := append([]rune{}, value[:m.commandState.Cursor]...)
 	next = append(next, insert...)
-	next = append(next, value[m.commandCursor:]...)
+	next = append(next, value[m.commandState.Cursor:]...)
 	m.setCommandValue(string(next))
-	m.commandCursor += len(insert)
+	m.commandState.Cursor += len(insert)
 }
 
 func (m *Model) commandBackspace() {
-	if m.commandField == 0 {
+	if m.commandState.Field == 0 {
 		return
 	}
 	value := []rune(m.commandValue())
-	if m.commandCursor <= 0 || len(value) == 0 {
+	if m.commandState.Cursor <= 0 || len(value) == 0 {
 		return
 	}
-	if m.commandCursor > len(value) {
-		m.commandCursor = len(value)
+	if m.commandState.Cursor > len(value) {
+		m.commandState.Cursor = len(value)
 	}
-	next := append([]rune{}, value[:m.commandCursor-1]...)
-	next = append(next, value[m.commandCursor:]...)
+	next := append([]rune{}, value[:m.commandState.Cursor-1]...)
+	next = append(next, value[m.commandState.Cursor:]...)
 	m.setCommandValue(string(next))
-	m.commandCursor--
+	m.commandState.Cursor--
 }
 
 func (m *Model) moveCommandCursor(delta int) {
-	m.commandCursor += delta
-	if m.commandCursor < 0 {
-		m.commandCursor = 0
+	m.commandState.Cursor += delta
+	if m.commandState.Cursor < 0 {
+		m.commandState.Cursor = 0
 	}
-	if maxCursor := m.commandValueLen(); m.commandCursor > maxCursor {
-		m.commandCursor = maxCursor
+	if maxCursor := m.commandValueLen(); m.commandState.Cursor > maxCursor {
+		m.commandState.Cursor = maxCursor
 	}
 }
 
 func (m *Model) moveCommandBodyLine(delta int) {
-	if m.commandField != 2 {
+	if m.commandState.Field != 2 {
 		return
 	}
-	runes := []rune(m.commandForm.Command)
+	runes := []rune(m.commandState.Form.Command)
 	if len(runes) == 0 {
 		return
 	}
 	lineStart := 0
-	for i := m.commandCursor - 1; i >= 0 && i < len(runes); i-- {
+	for i := m.commandState.Cursor - 1; i >= 0 && i < len(runes); i-- {
 		if runes[i] == '\n' {
 			lineStart = i + 1
 			break
 		}
 	}
-	col := m.commandCursor - lineStart
+	col := m.commandState.Cursor - lineStart
 	if delta < 0 {
 		if lineStart == 0 {
 			return
@@ -362,11 +362,11 @@ func (m *Model) moveCommandBodyLine(delta int) {
 				break
 			}
 		}
-		m.commandCursor = prevStart + minInt(col, prevEnd-prevStart)
+		m.commandState.Cursor = prevStart + minInt(col, prevEnd-prevStart)
 		return
 	}
 	lineEnd := len(runes)
-	for i := m.commandCursor; i < len(runes); i++ {
+	for i := m.commandState.Cursor; i < len(runes); i++ {
 		if runes[i] == '\n' {
 			lineEnd = i
 			break
@@ -383,20 +383,20 @@ func (m *Model) moveCommandBodyLine(delta int) {
 			break
 		}
 	}
-	m.commandCursor = nextStart + minInt(col, nextEnd-nextStart)
+	m.commandState.Cursor = nextStart + minInt(col, nextEnd-nextStart)
 }
 
 func (m Model) saveCommandTemplate() error {
-	file := m.commandFile
-	name := strings.TrimSpace(m.commandForm.Name)
-	body := strings.TrimSpace(m.commandForm.Command)
+	file := m.commandState.File
+	name := strings.TrimSpace(m.commandState.Form.Name)
+	body := strings.TrimSpace(m.commandState.Form.Command)
 	serverKey := ""
-	if m.activeCommand.HostIndex >= 0 && m.activeCommand.HostIndex < len(m.states) {
-		h := m.states[m.activeCommand.HostIndex].Host
+	if m.commandState.Active.HostIndex >= 0 && m.commandState.Active.HostIndex < len(m.states) {
+		h := m.states[m.commandState.Active.HostIndex].Host
 		serverKey = config.ServerCommandKey(h.Category, h.Name)
 	}
-	if m.commandEditing {
-		item := m.commandEditItem
+	if m.commandState.Editing {
+		item := m.commandState.EditItem
 		if item.Scope == commandScopeGlobal && item.Index >= 0 && item.Index < len(file.Global) {
 			file.Global = append(file.Global[:item.Index], file.Global[item.Index+1:]...)
 		}
@@ -404,7 +404,7 @@ func (m Model) saveCommandTemplate() error {
 			file.Server = append(file.Server[:item.Index], file.Server[item.Index+1:]...)
 		}
 	}
-	if m.commandForm.Scope == commandScopeGlobal {
+	if m.commandState.Form.Scope == commandScopeGlobal {
 		file.Global = append(file.Global, config.CommandTemplate{Name: name, Command: body})
 	} else {
 		file.Server = append(file.Server, config.ServerCommandTemplate{Server: serverKey, Name: name, Command: body})
@@ -412,12 +412,12 @@ func (m Model) saveCommandTemplate() error {
 	if err := commandservice.SaveTemplates(m.home, file); err != nil {
 		return err
 	}
-	m.commandFile = file
+	m.commandState.File = file
 	return nil
 }
 
 func (m Model) deleteCommandTemplate(item commandItem) (tea.Model, tea.Cmd) {
-	file := m.commandFile
+	file := m.commandState.File
 	if item.Scope == commandScopeGlobal && item.Index >= 0 && item.Index < len(file.Global) {
 		file.Global = append(file.Global[:item.Index], file.Global[item.Index+1:]...)
 	}
@@ -428,9 +428,9 @@ func (m Model) deleteCommandTemplate(item commandItem) (tea.Model, tea.Cmd) {
 		m.status = "删除失败：" + err.Error()
 		return m, nil
 	}
-	m.commandFile = file
-	m.commandItems = m.commandListItems(m.activeCommand.HostIndex)
-	m.commandIndex = firstCommandItem(m.commandItems)
+	m.commandState.File = file
+	m.commandState.Items = m.commandListItems(m.commandState.Active.HostIndex)
+	m.commandState.Index = firstCommandItem(m.commandState.Items)
 	m.status = "命令模板已删除。"
 	return m, nil
 }
@@ -442,24 +442,24 @@ func (m Model) updateCommandConfirm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeCommandList
 		m.status = "已取消。"
 	case "j", "down":
-		m.commandOutputScroll = moveClampedInt(m.commandOutputScroll, 1, 0, m.commandConfirmMaxScroll())
+		m.commandState.OutputScroll = moveClampedInt(m.commandState.OutputScroll, 1, 0, m.commandConfirmMaxScroll())
 	case "k", "up":
-		m.commandOutputScroll = moveClampedInt(m.commandOutputScroll, -1, 0, m.commandConfirmMaxScroll())
+		m.commandState.OutputScroll = moveClampedInt(m.commandState.OutputScroll, -1, 0, m.commandConfirmMaxScroll())
 	case "enter":
-		if m.activeCommand.HostIndex < 0 || m.activeCommand.HostIndex >= len(m.states) {
+		if m.commandState.Active.HostIndex < 0 || m.commandState.Active.HostIndex >= len(m.states) {
 			m.status = "没有选中的服务器。"
 			return m, nil
 		}
-		m.activeCommand.Name = m.commandConfirm.Name
-		m.activeCommand.Command = m.commandConfirm.Command
-		m.activeCommand.Output = ""
-		m.activeCommand.ExitCode = 0
-		m.activeCommand.Running = true
-		m.commandOutputScroll = 0
-		m.commandOutputBack = modeDashboard
+		m.commandState.Active.Name = m.commandState.Confirm.Name
+		m.commandState.Active.Command = m.commandState.Confirm.Command
+		m.commandState.Active.Output = ""
+		m.commandState.Active.ExitCode = 0
+		m.commandState.Active.Running = true
+		m.commandState.OutputScroll = 0
+		m.commandState.OutputBack = modeDashboard
 		m.mode = modeCommandOutput
 		m.status = "正在执行命令..."
-		return m, m.runCommand(m.activeCommand.HostIndex, m.commandConfirm.Command)
+		return m, m.runCommand(m.commandState.Active.HostIndex, m.commandState.Confirm.Command)
 	}
 	return m, nil
 }
@@ -468,18 +468,18 @@ func (m Model) updateCommandOutput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := shortcutKey(msg)
 	switch key {
 	case "esc", "q", "ctrl+c":
-		m.mode = m.commandOutputBack
+		m.mode = m.commandState.OutputBack
 		m.status = ""
 	case "j", "down":
-		m.commandOutputScroll = moveClampedInt(m.commandOutputScroll, 1, 0, m.commandOutputMaxScroll())
+		m.commandState.OutputScroll = moveClampedInt(m.commandState.OutputScroll, 1, 0, m.commandOutputMaxScroll())
 	case "k", "up":
-		m.commandOutputScroll = moveClampedInt(m.commandOutputScroll, -1, 0, m.commandOutputMaxScroll())
+		m.commandState.OutputScroll = moveClampedInt(m.commandState.OutputScroll, -1, 0, m.commandOutputMaxScroll())
 	}
 	return m, nil
 }
 
 func (m Model) batchRunning() bool {
-	for _, job := range m.batchJobs {
+	for _, job := range m.batchState.Jobs {
 		if job.Running {
 			return true
 		}

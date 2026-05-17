@@ -9,8 +9,8 @@ import (
 func (m Model) renderCommandList() string {
 	width := detailFrameWidth(m.width)
 	hostName := "-"
-	if m.activeCommand.HostIndex >= 0 && m.activeCommand.HostIndex < len(m.states) {
-		hostName = hostDisplayName(m.states[m.activeCommand.HostIndex].Host)
+	if m.commandState.Active.HostIndex >= 0 && m.commandState.Active.HostIndex < len(m.states) {
+		hostName = hostDisplayName(m.states[m.commandState.Active.HostIndex].Host)
 	}
 	title := m.t("Command Templates  ", "命令模板  ") + hostName
 	bodyWidth := width - 4
@@ -31,12 +31,12 @@ func (m Model) renderCommandList() string {
 	if listHeight < 1 {
 		listHeight = 1
 	}
-	if len(m.commandItems) == 0 {
+	if len(m.commandState.Items) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No command templates", "没有命令模板")))
 	} else {
-		start, end := visibleRange(len(m.commandItems), m.commandIndex, listHeight)
+		start, end := visibleRange(len(m.commandState.Items), m.commandState.Index, listHeight)
 		for i := start; i < end; i++ {
-			item := m.commandItems[i]
+			item := m.commandState.Items[i]
 			if item.Header {
 				if len(lines) > 0 {
 					lines = append(lines, "")
@@ -50,7 +50,7 @@ func (m Model) renderCommandList() string {
 			}
 			prefix := " "
 			style := lipgloss.NewStyle()
-			if i == m.commandIndex {
+			if i == m.commandState.Index {
 				prefix = "▶"
 				style = blueStyle.Bold(true)
 			}

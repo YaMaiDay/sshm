@@ -17,10 +17,10 @@ func (m Model) commandOutputMaxScroll() int {
 		height = 6
 	}
 	lines := 2
-	if m.activeCommand.Running {
+	if m.commandState.Active.Running {
 		lines++
 	} else {
-		output := strings.TrimRight(m.activeCommand.Output, "\n")
+		output := strings.TrimRight(m.commandState.Active.Output, "\n")
 		if output == "" {
 			lines++
 		} else {
@@ -45,11 +45,11 @@ func (m Model) runCommand(index int, script string) tea.Cmd {
 }
 
 func (m *Model) recordCommandHistory(result commandResult) error {
-	if m.activeCommand.HostIndex < 0 || m.activeCommand.HostIndex >= len(m.states) {
+	if m.commandState.Active.HostIndex < 0 || m.commandState.Active.HostIndex >= len(m.states) {
 		return nil
 	}
-	h := m.states[m.activeCommand.HostIndex].Host
-	entry := commandservice.SingleHistoryEntry(h, m.activeCommand.Name, m.activeCommand.Command, commandservice.Result{Output: result.Output, Err: result.Err, ExitCode: result.ExitCode}, time.Now())
+	h := m.states[m.commandState.Active.HostIndex].Host
+	entry := commandservice.SingleHistoryEntry(h, m.commandState.Active.Name, m.commandState.Active.Command, commandservice.Result{Output: result.Output, Err: result.Err, ExitCode: result.ExitCode}, time.Now())
 	if err := commandservice.AppendHistory(m.home, entry); err != nil {
 		return err
 	}
@@ -58,8 +58,8 @@ func (m *Model) recordCommandHistory(result commandResult) error {
 }
 
 func (m *Model) recordBatchCommandHistory() error {
-	targets := make([]commandservice.BatchTarget, 0, len(m.batchJobs))
-	for _, job := range m.batchJobs {
+	targets := make([]commandservice.BatchTarget, 0, len(m.batchState.Jobs))
+	for _, job := range m.batchState.Jobs {
 		if job.HostIndex < 0 || job.HostIndex >= len(m.states) {
 			continue
 		}
@@ -68,7 +68,7 @@ func (m *Model) recordBatchCommandHistory() error {
 	if len(targets) == 0 {
 		return nil
 	}
-	entry := commandservice.BatchHistoryEntry(m.batchCommand.Name, m.batchCommand.Command, targets, time.Now())
+	entry := commandservice.BatchHistoryEntry(m.batchState.Command.Name, m.batchState.Command.Command, targets, time.Now())
 	if err := commandservice.AppendHistory(m.home, entry); err != nil {
 		return err
 	}

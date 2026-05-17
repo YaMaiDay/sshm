@@ -134,9 +134,9 @@ func (m Model) updateLoginRecords(msg loginRecordsMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateCommandDone(msg commandDoneMsg) (tea.Model, tea.Cmd) {
-	m.activeCommand.Running = false
-	m.activeCommand.Output = msg.Result.Output
-	m.activeCommand.ExitCode = msg.Result.ExitCode
+	m.commandState.Active.Running = false
+	m.commandState.Active.Output = msg.Result.Output
+	m.commandState.Active.ExitCode = msg.Result.ExitCode
 	historyErr := m.recordCommandHistory(msg.Result)
 	if msg.Result.Err != nil {
 		m.status = fmt.Sprintf("命令执行失败：退出码 %d", msg.Result.ExitCode)

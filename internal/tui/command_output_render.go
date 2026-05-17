@@ -15,16 +15,16 @@ func (m Model) renderCommandConfirm() string {
 	if height < 6 {
 		height = 6
 	}
-	h := m.states[m.activeCommand.HostIndex].Host
+	h := m.states[m.commandState.Active.HostIndex].Host
 	lines := []string{
 		modalLine(m.t("Server", "服务器"), hostDisplayName(h), width-4),
-		modalLine(m.t("Template", "模板"), m.commandConfirm.Name, width-4),
+		modalLine(m.t("Template", "模板"), m.commandState.Confirm.Name, width-4),
 		"",
 		detailSubTitle(m.t("Command", "命令")),
 	}
-	lines = append(lines, strings.Split(wrapPlainLine(m.commandConfirm.Command, width-4), "\n")...)
+	lines = append(lines, strings.Split(wrapPlainLine(m.commandState.Confirm.Command, width-4), "\n")...)
 	maxScroll := m.commandConfirmMaxScroll()
-	scroll := clampInt(m.commandOutputScroll, 0, maxScroll)
+	scroll := clampInt(m.commandState.OutputScroll, 0, maxScroll)
 	viewLines := lines
 	if len(lines) > height {
 		viewLines = lines[scroll:minInt(len(lines), scroll+height)]
@@ -56,7 +56,7 @@ func (m Model) commandConfirmMaxScroll() int {
 		"",
 		m.t("Command", "命令"),
 	}
-	lines = append(lines, strings.Split(wrapPlainLine(m.commandConfirm.Command, detailFrameWidth(m.width)-4), "\n")...)
+	lines = append(lines, strings.Split(wrapPlainLine(m.commandState.Confirm.Command, detailFrameWidth(m.width)-4), "\n")...)
 	maxScroll := len(lines) - height
 	if maxScroll < 0 {
 		return 0
@@ -80,21 +80,21 @@ func (m Model) renderCommandOutput() string {
 	if height < 6 {
 		height = 6
 	}
-	title := m.t("Command Output  ", "命令输出  ") + m.activeCommand.Name
-	lines := []string{"$ " + m.activeCommand.Command, ""}
-	if m.activeCommand.Running {
+	title := m.t("Command Output  ", "命令输出  ") + m.commandState.Active.Name
+	lines := []string{"$ " + m.commandState.Active.Command, ""}
+	if m.commandState.Active.Running {
 		lines = append(lines, m.t("Running...", "正在执行..."))
 	} else {
-		output := strings.TrimRight(m.activeCommand.Output, "\n")
+		output := strings.TrimRight(m.commandState.Active.Output, "\n")
 		if output == "" {
 			output = m.t("(no output)", "(无输出)")
 		}
 		lines = append(lines, strings.Split(output, "\n")...)
-		lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.activeCommand.ExitCode))
+		lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), m.commandState.Active.ExitCode))
 	}
 	viewLines := lines
 	maxScroll := m.commandOutputMaxScroll()
-	scroll := clampInt(m.commandOutputScroll, 0, maxScroll)
+	scroll := clampInt(m.commandState.OutputScroll, 0, maxScroll)
 	if len(lines) > height {
 		viewLines = lines[scroll:minInt(len(lines), scroll+height)]
 	}

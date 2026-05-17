@@ -2739,20 +2739,22 @@ func TestResourceDatabaseConfigNoteField(t *testing.T) {
 
 func TestCommandEditTextFieldsAcceptShortcutLetters(t *testing.T) {
 	m := Model{
-		mode:          modeCommandEdit,
-		commandField:  1,
-		commandForm:   commandEditForm{Name: "bac"},
-		commandCursor: 3,
+		mode: modeCommandEdit,
+		commandState: commandState{
+			Field:  1,
+			Form:   commandEditForm{Name: "bac"},
+			Cursor: 3,
+		},
 	}
 	next, _ := m.updateCommandEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	got := next.(Model)
-	if got.commandForm.Name != "back" {
-		t.Fatalf("Name = %q, want back", got.commandForm.Name)
+	if got.commandState.Form.Name != "back" {
+		t.Fatalf("Name = %q, want back", got.commandState.Form.Name)
 	}
 	next, _ = got.updateCommandEdit(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	got = next.(Model)
-	if got.commandForm.Name != "backq" || got.mode != modeCommandEdit {
-		t.Fatalf("Name/mode = %q/%v, want backq/command-edit", got.commandForm.Name, got.mode)
+	if got.commandState.Form.Name != "backq" || got.mode != modeCommandEdit {
+		t.Fatalf("Name/mode = %q/%v, want backq/command-edit", got.commandState.Form.Name, got.mode)
 	}
 }
 
@@ -3227,14 +3229,16 @@ func TestTransferStatusFilterKeepsSelectionVisible(t *testing.T) {
 
 func TestBatchCommandDoneAdvancesAndSummarizesResults(t *testing.T) {
 	m := Model{
-		home:             t.TempDir(),
-		mode:             modeBatchOutput,
-		batchCommand:     commandItem{Name: "uptime", Command: "uptime"},
-		batchCurrent:     0,
-		batchOutputIndex: 0,
-		batchJobs: []batchJob{
-			{HostIndex: 0, Running: true},
-			{HostIndex: 1},
+		home: t.TempDir(),
+		mode: modeBatchOutput,
+		batchState: batchState{
+			Command:     commandItem{Name: "uptime", Command: "uptime"},
+			Current:     0,
+			OutputIndex: 0,
+			Jobs: []batchJob{
+				{HostIndex: 0, Running: true},
+				{HostIndex: 1},
+			},
 		},
 		states: []hostState{
 			{Host: host.Host{Name: "api", Category: "prod"}},
@@ -3243,7 +3247,7 @@ func TestBatchCommandDoneAdvancesAndSummarizesResults(t *testing.T) {
 	}
 	next, cmd := m.handleBatchCommandDone(batchCommandDoneMsg{Job: 0, Result: commandResult{Output: "ok", ExitCode: 0}})
 	got := next.(Model)
-	if cmd == nil || got.batchCurrent != 1 || !got.batchJobs[0].Done || got.batchJobs[0].Running || !got.batchJobs[1].Running || got.batchOutputIndex != 1 {
+	if cmd == nil || got.batchState.Current != 1 || !got.batchState.Jobs[0].Done || got.batchState.Jobs[0].Running || !got.batchState.Jobs[1].Running || got.batchState.OutputIndex != 1 {
 		t.Fatalf("after first batch result active=%+v cmd=%v", got, cmd)
 	}
 	next, cmd = got.handleBatchCommandDone(batchCommandDoneMsg{Job: 1, Result: commandResult{Err: errors.New("denied"), ExitCode: 255, Output: "permission denied"}})
@@ -3251,7 +3255,7 @@ func TestBatchCommandDoneAdvancesAndSummarizesResults(t *testing.T) {
 	if cmd != nil {
 		t.Fatalf("final batch result scheduled unexpected command")
 	}
-	if got.batchCurrent != 2 || got.batchJobs[1].Running || !got.batchJobs[1].Done || got.batchSuccessCount() != 1 || got.batchFailCount() != 1 {
+	if got.batchState.Current != 2 || got.batchState.Jobs[1].Running || !got.batchState.Jobs[1].Done || got.batchSuccessCount() != 1 || got.batchFailCount() != 1 {
 		t.Fatalf("after final batch result active=%+v", got)
 	}
 	if !strings.Contains(got.status, "成功1") || !strings.Contains(got.status, "失败1") {

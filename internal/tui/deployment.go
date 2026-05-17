@@ -442,7 +442,7 @@ func (m Model) selectedDeploymentItem() (deploymentItem, bool) {
 
 func (m Model) batchSuccessCount() int {
 	count := 0
-	for _, job := range m.batchJobs {
+	for _, job := range m.batchState.Jobs {
 		if job.Done && job.Err == nil {
 			count++
 		}
@@ -452,7 +452,7 @@ func (m Model) batchSuccessCount() int {
 
 func (m Model) batchFailCount() int {
 	count := 0
-	for _, job := range m.batchJobs {
+	for _, job := range m.batchState.Jobs {
 		if job.Done && job.Err != nil {
 			count++
 		}

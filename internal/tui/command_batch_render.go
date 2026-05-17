@@ -23,21 +23,21 @@ func (m Model) renderBatchSelect() string {
 		contentHeight = 3
 	}
 	lines := []string{}
-	if len(m.batchIndexes) == 0 {
+	if len(m.batchState.Indexes) == 0 {
 		lines = append(lines, mutedStyle.Render(m.t("No selectable servers", "没有可选择的服务器")))
 	} else {
-		start, end := visibleRange(len(m.batchIndexes), m.batchCursor, contentHeight)
+		start, end := visibleRange(len(m.batchState.Indexes), m.batchState.Cursor, contentHeight)
 		for i := start; i < end; i++ {
-			index := m.batchIndexes[i]
+			index := m.batchState.Indexes[i]
 			h := m.states[index].Host
 			prefix := " "
 			style := lipgloss.NewStyle()
-			if i == m.batchCursor {
+			if i == m.batchState.Cursor {
 				prefix = "▶"
 				style = blueStyle.Bold(true)
 			}
 			mark := "[ ]"
-			if m.batchSelected[index] {
+			if m.batchState.Selected[index] {
 				mark = "[x]"
 			}
 			lines = append(lines, style.Render(fit(fmt.Sprintf("%s %s %s", prefix, mark, hostDisplayName(h)), bodyWidth)))
@@ -69,9 +69,9 @@ func (m Model) renderBatchCommandList() string {
 		contentHeight = 3
 	}
 	lines := []string{}
-	start, end := visibleRange(len(m.batchCommandItems), m.batchCommandIndex, contentHeight)
+	start, end := visibleRange(len(m.batchState.CommandItems), m.batchState.CommandIndex, contentHeight)
 	for i := start; i < end; i++ {
-		item := m.batchCommandItems[i]
+		item := m.batchState.CommandItems[i]
 		if item.Header {
 			lines = append(lines, detailSubTitle(m.commandDisplayName(item.Name)))
 			continue
@@ -82,7 +82,7 @@ func (m Model) renderBatchCommandList() string {
 		}
 		prefix := " "
 		style := lipgloss.NewStyle()
-		if i == m.batchCommandIndex {
+		if i == m.batchState.CommandIndex {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
@@ -110,7 +110,7 @@ func (m Model) renderBatchCommandEdit() string {
 	targets := m.batchTargetsHeader(width)
 	targetLines := strings.Count(targets, "\n") + 1
 	lines := []string{detailSubTitle(m.t("Command", "命令内容"))}
-	lines = append(lines, commandTextArea(m.commandForm.Command, m.commandCursor, true, innerWidth, m.batchCommandTextAreaHeight(targetLines)))
+	lines = append(lines, commandTextArea(m.commandState.Form.Command, m.commandState.Cursor, true, innerWidth, m.batchCommandTextAreaHeight(targetLines)))
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(blue).Padding(0, 1).Width(width).Render(strings.Join(lines, "\n"))
 	return strings.Join([]string{titleStyle.Render(fit(m.t("Batch Temporary Command", "批量临时命令"), width)), targets, box, renderHelp(width, help)}, "\n")
 }
@@ -148,7 +148,7 @@ func (m Model) renderBatchConfirm() string {
 	}
 	lines := []string{
 		modalLine(m.t("Servers", "服务器"), fmt.Sprintf("%d%s", m.batchSelectedCount(), m.t(" servers", "台")), bodyWidth),
-		modalLine(m.t("Template", "模板"), m.batchCommand.Name, bodyWidth),
+		modalLine(m.t("Template", "模板"), m.batchState.Command.Name, bodyWidth),
 		"",
 		detailSubTitle(m.t("Targets", "目标")),
 	}
@@ -156,8 +156,8 @@ func (m Model) renderBatchConfirm() string {
 		lines = append(lines, fit("- "+hostDisplayName(m.states[index].Host), bodyWidth))
 	}
 	lines = append(lines, "", detailSubTitle(m.t("Command", "命令")))
-	lines = append(lines, strings.Split(wrapPlainLine(m.batchCommand.Command, bodyWidth), "\n")...)
-	scroll := clampInt(m.batchOutputScroll, 0, m.batchConfirmMaxScroll())
+	lines = append(lines, strings.Split(wrapPlainLine(m.batchState.Command.Command, bodyWidth), "\n")...)
+	scroll := clampInt(m.batchState.OutputScroll, 0, m.batchConfirmMaxScroll())
 	height := m.height - 4
 	if height < 8 {
 		height = 8
@@ -170,7 +170,7 @@ func (m Model) renderBatchConfirm() string {
 }
 
 func (m Model) batchConfirmMaxScroll() int {
-	lines := 5 + len(m.selectedBatchHostIndexes()) + len(wrapDetailValue(m.batchCommand.Command, detailFrameWidth(m.width)-4))
+	lines := 5 + len(m.selectedBatchHostIndexes()) + len(wrapDetailValue(m.batchState.Command.Command, detailFrameWidth(m.width)-4))
 	height := m.height - 4
 	if height < 8 {
 		height = 8
@@ -205,14 +205,14 @@ func (m Model) renderBatchOutput() string {
 }
 
 func (m Model) batchResultList(width int) string {
-	lines := make([]string, 0, len(m.batchJobs)+4)
+	lines := make([]string, 0, len(m.batchState.Jobs)+4)
 	displayIndexes := m.batchResultDisplayIndexes()
 	lastGroup := ""
 	for _, i := range displayIndexes {
-		if i < 0 || i >= len(m.batchJobs) {
+		if i < 0 || i >= len(m.batchState.Jobs) {
 			continue
 		}
-		job := m.batchJobs[i]
+		job := m.batchState.Jobs[i]
 		group := batchJobGroup(job)
 		if group != lastGroup {
 			if len(lines) > 0 {
@@ -223,7 +223,7 @@ func (m Model) batchResultList(width int) string {
 		}
 		prefix := " "
 		style := lipgloss.NewStyle()
-		if i == m.batchOutputIndex {
+		if i == m.batchState.OutputIndex {
 			prefix = "▶"
 			style = blueStyle.Bold(true)
 		}
@@ -246,9 +246,9 @@ func (m Model) batchResultList(width int) string {
 
 func (m Model) batchResultDisplayIndexes() []int {
 	groups := []string{"failed", "running", "waiting", "success"}
-	indexes := make([]int, 0, len(m.batchJobs))
+	indexes := make([]int, 0, len(m.batchState.Jobs))
 	for _, group := range groups {
-		for i, job := range m.batchJobs {
+		for i, job := range m.batchState.Jobs {
 			if batchJobGroup(job) == group {
 				indexes = append(indexes, i)
 			}
@@ -284,10 +284,10 @@ func (m Model) batchJobGroupTitle(group string) string {
 }
 
 func (m Model) batchOutputView(width int) string {
-	if len(m.batchJobs) == 0 || m.batchOutputIndex < 0 || m.batchOutputIndex >= len(m.batchJobs) {
+	if len(m.batchState.Jobs) == 0 || m.batchState.OutputIndex < 0 || m.batchState.OutputIndex >= len(m.batchState.Jobs) {
 		return ""
 	}
-	job := m.batchJobs[m.batchOutputIndex]
+	job := m.batchState.Jobs[m.batchState.OutputIndex]
 	lines := []string{}
 	if job.Running {
 		lines = append(lines, m.t("Running...", "执行中..."))
@@ -301,7 +301,7 @@ func (m Model) batchOutputView(width int) string {
 		lines = append(lines, strings.Split(output, "\n")...)
 		lines = append(lines, "", fmt.Sprintf("%s %d", m.t("Exit code", "退出码"), job.ExitCode))
 	}
-	scroll := clampInt(m.batchOutputScroll, 0, m.batchOutputMaxScroll())
+	scroll := clampInt(m.batchState.OutputScroll, 0, m.batchOutputMaxScroll())
 	height := m.height - 6
 	if height < 6 {
 		height = 6
@@ -313,10 +313,10 @@ func (m Model) batchOutputView(width int) string {
 }
 
 func (m Model) batchOutputMaxScroll() int {
-	if len(m.batchJobs) == 0 || m.batchOutputIndex < 0 || m.batchOutputIndex >= len(m.batchJobs) {
+	if len(m.batchState.Jobs) == 0 || m.batchState.OutputIndex < 0 || m.batchState.OutputIndex >= len(m.batchState.Jobs) {
 		return 0
 	}
-	job := m.batchJobs[m.batchOutputIndex]
+	job := m.batchState.Jobs[m.batchState.OutputIndex]
 	lines := 1
 	if job.Done {
 		if output := strings.TrimRight(job.Output, "\n"); output != "" {
