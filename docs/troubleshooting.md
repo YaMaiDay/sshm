@@ -227,6 +227,22 @@ If the page keeps showing "reading resources" or refreshes back to empty:
 
 Container CPU usage comes from `docker stats`. The configured CPU limit shown after the percentage comes from `docker inspect`. `Unlimited` / `未限制` means Docker did not configure a CPU quota, NanoCPUs, or CPU set for that container.
 
+## Database Resource Cannot Collect Metrics
+
+Database discovery is best-effort. sshm may detect a likely database from a container, service, process, or listening port before it has enough information to connect.
+
+Check:
+
+- The database host and port are reachable from the target server.
+- The right database engine is selected.
+- The database user has permission to read basic runtime metrics.
+- The target server has the required client command available, such as `mysql`, `mariadb`, `psql`, `redis-cli`, `mongosh`, or `mongo`.
+- The saved password is correct, if a password is required.
+
+If a database runs inside Docker, also check that the container name is still valid and that the database client can run from the target server.
+
+Saved database passwords are stored locally in `~/.config/sshm/resources.toml` with restricted file permissions where practical. The value is still plain text inside that local file, so do not share it without removing secrets.
+
 ## Container Or Service Action Says Permission Denied
 
 The resource view can start, stop, restart, log, and delete Docker containers, and can start, stop, restart, and log systemd services.

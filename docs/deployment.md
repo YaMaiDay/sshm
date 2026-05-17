@@ -4,6 +4,12 @@ sshm deployment helps you release applications without logging into servers manu
 
 It does not install a remote agent. Deployment reuses the same SSH, bastion, and rsync connection logic used by monitoring, command execution, and file transfer.
 
+Related docs:
+
+- [Common Workflows](common-workflows.md) for dashboard and CLI entry points.
+- [Remote Script Security](remote-script-security.md) for generated scripts and user-provided command boundaries.
+- [Troubleshooting](troubleshooting.md) for GitHub fetch, Release asset, rsync, and queue failures.
+
 ## Entry Point
 
 Press `g` on the dashboard to open app deployments.
