@@ -64,20 +64,20 @@ func defaultManagedResource(server string, kind string, name string) config.Mana
 	item := config.ManagedResource{Server: server, Kind: kind, Name: name}
 	switch kind {
 	case config.ResourceKindService:
-		target := shellQuoteLocal(name)
+		target := resourceservice.QuoteShell(name)
 		item.StartCommand = "systemctl start " + target
 		item.StopCommand = "systemctl stop " + target
 		item.RestartCommand = "systemctl restart " + target
 		item.LogCommand = "journalctl -u " + target + " -n 200 --no-pager"
 	case config.ResourceKindContainer:
-		target := shellQuoteLocal(name)
+		target := resourceservice.QuoteShell(name)
 		item.StartCommand = "docker start " + target
 		item.StopCommand = "docker stop " + target
 		item.RestartCommand = "docker restart " + target
 		item.LogCommand = "docker logs --tail 200 " + target
 	case config.ResourceKindPort:
 		_, port := splitManagedPortName(name)
-		item.HealthCommand = "curl -f http://127.0.0.1:" + shellQuoteLocal(port) + "/health"
+		item.HealthCommand = "curl -f http://127.0.0.1:" + resourceservice.QuoteShell(port) + "/health"
 	case config.ResourceKindDatabase:
 		item.DBEngine = "MySQL"
 		item.DBHost = "127.0.0.1"

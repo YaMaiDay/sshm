@@ -5,14 +5,6 @@ import (
 	resourceservice "github.com/YaMaiDay/sshm/internal/resource"
 )
 
-func resourceActionScript(kind resourceKind, action resourceActionKind, name string) string {
-	command, ok := resourceActionCommandName(action)
-	if !ok {
-		return ""
-	}
-	return resourceservice.ActionScript(configResourceKind(kind), command, name)
-}
-
 func resourceActionCommandName(action resourceActionKind) (string, bool) {
 	switch action {
 	case resourceActionStart:
@@ -35,10 +27,6 @@ func (m Model) resourceActionScript(kind resourceKind, action resourceActionKind
 	return resourceservice.ManagedActionScript(configResourceKind(kind), command, name, managed)
 }
 
-func resourceLogScript(kind resourceKind, name string, lines int) string {
-	return resourceservice.LogScript(configResourceKind(kind), name, lines)
-}
-
 func (m Model) resourceLogScript(kind resourceKind, name string, lines int) string {
 	managed, _ := m.managedResource(kind, name)
 	return resourceservice.ManagedLogScript(configResourceKind(kind), name, lines, managed)
@@ -59,12 +47,4 @@ func (m Model) managedResource(kind resourceKind, name string) (config.ManagedRe
 		}
 	}
 	return config.ManagedResource{}, false
-}
-
-func sudoFallbackScript(command string, sudoCommand string) string {
-	return resourceservice.SudoFallbackScript(command, sudoCommand)
-}
-
-func shellQuoteLocal(value string) string {
-	return resourceservice.QuoteShell(value)
 }
